@@ -1,0 +1,30 @@
+{
+  "name": "hotel-booking-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "숙박 예약 화면 (React). 빌드 결과는 app/public으로 나가 API 서버가 함께 내보낸다",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "date-fns": "^4.4.0",
+    "lucide-react": "^1.67.0",
+    "react": "^19.3.1",
+    "react-day-picker": "^9.14.0",
+    "react-dom": "^19.3.1",
+    "react-router": "^7.18.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.2.1",
+    "tailwindcss": "^4.3.4",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.1.0"
+  }
+}

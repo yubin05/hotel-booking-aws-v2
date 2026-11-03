@@ -28,3 +28,6 @@ coverage/
 # OS
 .DS_Store
 Thumbs.db
+
+# React 빌드 결과 (app/web에서 생성)
+app/public/
