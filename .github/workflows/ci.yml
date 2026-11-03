@@ -37,7 +37,9 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: app/package-lock.json
+          cache-dependency-path: |
+            app/package-lock.json
+            app/web/package-lock.json
 
       - name: 스키마와 시드 적용
         run: |
@@ -45,6 +47,13 @@ jobs:
           mysql -h 127.0.0.1 -uapp -pci-app-pw hotel_booking_test < db/seed.sql
 
       - run: npm ci
+
+      - name: 화면 빌드와 단위 테스트
+        working-directory: app/web
+        run: |
+          npm ci
+          npm run build
+          npm test
 
       - run: npm test
 
