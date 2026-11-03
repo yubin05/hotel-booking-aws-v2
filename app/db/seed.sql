@@ -1,6 +1,9 @@
 -- 호텔·객실 시드 데이터: v1(Project_TEAM_AWS) database/scripts/seed.sql에서 가져옴
 -- 사용자는 넣지 않는다 (회원가입 API로 만든다)
 
+-- MySQL 컨테이너의 초기화 클라이언트는 기본 문자셋이 latin1이라, 명시하지 않으면 한글이 이중 인코딩돼 깨진다
+SET NAMES utf8mb4;
+
 INSERT IGNORE INTO hotels
   (id, host_id, name, description, category, address, city, region,
    latitude, longitude, amenities, images, check_in_time, check_out_time, rating, review_count)

@@ -70,6 +70,7 @@ test('화면 파일과 홈 화면의 추천 숙소를 내보낸다', async () =>
   const featured = await call('GET', '/hotels/featured');
   assert.equal(featured.status, 200);
   assert.ok(featured.body.data.length > 0);
+  assert.match(featured.body.data[0].name, /[가-힣]/, '시드의 한글이 깨지지 않아야 한다');
 });
 
 test('회원가입 후 로그인하고, 틀린 비밀번호와 중복 이메일은 거절한다', async () => {
