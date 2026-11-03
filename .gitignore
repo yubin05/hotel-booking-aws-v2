@@ -1,0 +1,30 @@
+# Terraform (.terraform.lock.hcl은 커밋한다)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+*.tfvars
+!*.tfvars.example
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# 비밀값
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# 앱·도구
+node_modules/
+dist/
+coverage/
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
