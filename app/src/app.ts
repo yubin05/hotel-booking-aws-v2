@@ -8,10 +8,16 @@ import { pool } from './db';
 import { HttpError } from './errors';
 import { hotelRouter } from './hotel';
 import { reviewRouter } from './review';
+import { getServedBy } from './served-by';
 
 export const app = express();
+const publicDir = path.join(__dirname, '../../public'); // dist/src 기준으로 app/public (React 빌드 결과)
 
 app.use(express.json({ limit: '10kb' }));
+app.use('/api', (_req, res, next) => {
+  res.set('X-Served-By', getServedBy());
+  next();
+});
 
 // ALB 헬스체크용: DB가 잠깐 끊겨도 모든 태스크가 빠지지 않도록 DB는 확인하지 않는다
 app.get('/api/health', (_req, res) => {
@@ -29,9 +35,18 @@ app.use('/api/hotels', hotelRouter);
 app.use('/api/bookings', bookingRouter);
 app.use('/api/coupons', couponRouter);
 app.use('/api/reviews', reviewRouter);
+app.use('/api', (_req, res) => {
+  res.status(404).json({ success: false, message: '없는 API입니다.' });
+});
 
-// 화면 파일(HTML·CSS·JS)도 같은 컨테이너에서 내보낸다 (ADR-013). dist/src 기준으로 app/public
-app.use(express.static(path.join(__dirname, '../../public')));
+// 화면 파일(HTML·CSS·JS)도 같은 컨테이너에서 내보낸다 (ADR-013)
+app.use(express.static(publicDir));
+// /hotels/:id 같은 화면 주소로 바로 들어와도 React 화면이 뜨도록 나머지 GET은 index.html로 보낸다
+app.get(/^(?!\/api\/).*/, (_req, res, next) => {
+  res.sendFile(path.join(publicDir, 'index.html'), (err) => {
+    if (err) next();
+  });
+});
 
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   if (err instanceof HttpError) {

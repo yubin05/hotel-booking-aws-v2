@@ -89,6 +89,14 @@ hotelRouter.get(['/', '/search'], async (req, res) => {
   });
 });
 
+// 검색창 자동 완성과 홈 화면 지역 칩: 숙소가 있는 도시와 숙소 수
+hotelRouter.get('/cities', async (_req, res) => {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    'SELECT city, COUNT(*) AS count FROM hotels WHERE is_active = 1 GROUP BY city ORDER BY count DESC, city',
+  );
+  res.json({ success: true, data: rows });
+});
+
 // 홈 화면의 추천 숙소: 평점순 8개 (v1과 같은 기준)
 hotelRouter.get('/featured', async (_req, res) => {
   const [rows] = await pool.query<RowDataPacket[]>(`

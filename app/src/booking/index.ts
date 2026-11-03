@@ -25,7 +25,7 @@ const BOOKING_VIEW = `
          b.status, b.special_requests, b.created_at, b.updated_at,
          r.name AS room_name, r.type AS room_type,
          h.id AS hotel_id, h.name AS hotel_name, h.address AS hotel_address, h.images AS hotel_images,
-         rv.id AS review_id
+         h.check_in_time, rv.id AS review_id
     FROM bookings b
     JOIN rooms r ON r.id = b.room_id
     JOIN hotels h ON h.id = r.hotel_id

@@ -1,16 +1,33 @@
 import { book, call, ctx, newUser, randomDays, useServer } from './helpers';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import jwt from 'jsonwebtoken';
 import { changeDeadline } from '../src/booking';
 
 useServer();
 
-test('화면 파일과 홈 화면의 추천 숙소를 내보낸다', async () => {
-  const page = await fetch(ctx.base.replace('/api', '/'));
-  assert.equal(page.status, 200);
-  assert.match(page.headers.get('content-type') ?? '', /text\/html/);
+test('화면 주소로 바로 들어와도 React 화면(index.html)을 내보낸다', async (t) => {
+  // dist/test 기준 app/public. CI는 화면을 먼저 빌드하므로 항상 확인한다
+  if (!existsSync(join(__dirname, '../../public/index.html'))) {
+    t.skip('화면 빌드 결과가 없다: npm --prefix web run build');
+    return;
+  }
+  for (const path of ['/', '/hotels/some-id', '/me/bookings']) {
+    const page = await fetch(ctx.base.replace('/api', path));
+    assert.equal(page.status, 200, path);
+    assert.match(page.headers.get('content-type') ?? '', /text\/html/, path);
+  }
+  assert.equal((await fetch(`${ctx.base}/no-such-api`)).status, 404);
+});
+
+test('API 응답은 응답한 서버를 X-Served-By 헤더로 알리고, 지역 목록과 추천 숙소를 내보낸다', async () => {
+  const res = await fetch(`${ctx.base}/health`);
+  assert.match(res.headers.get('x-served-by') ?? '', /^local\//);
+  const cities = await call('GET', '/hotels/cities');
+  assert.ok(cities.body.data.some((c: { city: string }) => c.city === '제주'));
   const featured = await call('GET', '/hotels/featured');
   assert.equal(featured.status, 200);
   assert.ok(featured.body.data.length > 0);

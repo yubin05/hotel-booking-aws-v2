@@ -1,6 +1,9 @@
 import { app } from './app';
 import { config } from './config';
 import { pool } from './db';
+import { loadServedBy } from './served-by';
+
+void loadServedBy();
 
 const server = app.listen(config.port, () => {
   console.log(`listening on ${config.port}`);

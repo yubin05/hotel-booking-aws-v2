@@ -59,7 +59,7 @@ couponRouter.get('/', async (_req, res) => {
 
 couponRouter.get('/mine', authenticate, async (req, res) => {
   const [rows] = await pool.query<RowDataPacket[]>(
-    `SELECT uc.id, c.name, c.discount_amount, c.expires_at, uc.used_booking_id,
+    `SELECT uc.id, uc.coupon_id, c.name, c.discount_amount, c.expires_at, uc.used_booking_id,
             c.expires_at <= UTC_TIMESTAMP() AS expired
        FROM user_coupons uc JOIN coupons c ON c.id = uc.coupon_id
       WHERE uc.user_id = ? ORDER BY uc.id DESC`,
@@ -67,6 +67,7 @@ couponRouter.get('/mine', authenticate, async (req, res) => {
   );
   const data = rows.map((c) => ({
     id: c.id,
+    coupon_id: c.coupon_id,
     name: c.name,
     discount_amount: Number(c.discount_amount),
     expires_at: utcIso(c.expires_at),
