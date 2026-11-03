@@ -1,0 +1,25 @@
+{
+  "name": "hotel-booking-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "숙박 예약 모듈러 모놀리스 (인증·호텔·예약)",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/src/server.js",
+    "test": "tsc && node --test \"dist/test/**/*.test.js\""
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "express": "^5.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "mysql2": "^3.24.6"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^24.19.2",
+    "typescript": "^7.0.2"
+  }
+}
