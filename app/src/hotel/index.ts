@@ -81,6 +81,18 @@ hotelRouter.get(['/', '/search'], async (req, res) => {
   });
 });
 
+// 홈 화면의 추천 숙소: 평점순 8개 (v1과 같은 기준)
+hotelRouter.get('/featured', async (_req, res) => {
+  const [rows] = await pool.query<RowDataPacket[]>(`
+    SELECT h.*, MIN(r.price_per_night * (1 - r.discount_rate / 100)) AS min_price
+      FROM hotels h LEFT JOIN rooms r ON r.hotel_id = h.id AND r.is_available = 1
+     WHERE h.is_active = 1
+     GROUP BY h.id
+     ORDER BY h.rating DESC, h.review_count DESC
+     LIMIT 8`);
+  res.json({ success: true, data: rows.map(toHotel) });
+});
+
 hotelRouter.get('/:id', async (req, res) => {
   const [hotels] = await pool.query<RowDataPacket[]>('SELECT * FROM hotels WHERE id = ? AND is_active = 1', [
     req.params.id,

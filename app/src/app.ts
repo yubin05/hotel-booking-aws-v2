@@ -1,5 +1,6 @@
 import express from 'express';
 import type { NextFunction, Request, Response } from 'express';
+import path from 'node:path';
 import { authRouter } from './auth';
 import { bookingRouter } from './booking';
 import { pool } from './db';
@@ -24,6 +25,9 @@ app.get('/api/health/deep', async (_req, res) => {
 app.use('/api/auth', authRouter);
 app.use('/api/hotels', hotelRouter);
 app.use('/api/bookings', bookingRouter);
+
+// 화면 파일(HTML·CSS·JS)도 같은 컨테이너에서 내보낸다 (ADR-013). dist/src 기준으로 app/public
+app.use(express.static(path.join(__dirname, '../../public')));
 
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   if (err instanceof HttpError) {

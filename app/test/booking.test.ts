@@ -63,6 +63,15 @@ after(async () => {
   await pool.end();
 });
 
+test('화면 파일과 홈 화면의 추천 숙소를 내보낸다', async () => {
+  const page = await fetch(base.replace('/api', '/'));
+  assert.equal(page.status, 200);
+  assert.match(page.headers.get('content-type') ?? '', /text\/html/);
+  const featured = await call('GET', '/hotels/featured');
+  assert.equal(featured.status, 200);
+  assert.ok(featured.body.data.length > 0);
+});
+
 test('회원가입 후 로그인하고, 틀린 비밀번호와 중복 이메일은 거절한다', async () => {
   const email = `t-${randomUUID()}@test.local`;
   assert.equal((await call('POST', '/auth/register', { body: { email, password: 'password123', name: '가' } })).status, 201);
