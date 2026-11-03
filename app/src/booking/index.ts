@@ -121,6 +121,10 @@ bookingRouter.post('/', async (req, res) => {
       );
     } catch (err) {
       if (isDuplicateKey(err)) return null; // 같은 멱등키로 이미 만든 예약이 있다
+      // 토큰은 유효하지만 사용자가 없다: DB 초기화나 백업 복원 이전에 받은 토큰
+      if ((err as { code?: string }).code === 'ER_NO_REFERENCED_ROW_2') {
+        throw new HttpError(401, '로그인 정보가 유효하지 않습니다. 다시 로그인해주세요.');
+      }
       throw err;
     }
     await reserveNights(conn, room_id, id, nights);

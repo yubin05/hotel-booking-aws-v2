@@ -89,6 +89,8 @@ async function api(endpoint, options = {}) {
     throw new Error(`서버 오류 (${res.status}): 백엔드 서버에 연결할 수 없습니다.`);
   }
   const data = await res.json();
+  // 토큰이 만료됐거나 더 이상 유효하지 않으면 남은 로그인 정보를 지워 다시 로그인하게 한다
+  if (res.status === 401 && state.token) logout();
   if (!res.ok) throw new Error(data.message || '오류가 발생했습니다.');
   return data;
 }

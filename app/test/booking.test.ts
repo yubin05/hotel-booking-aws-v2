@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before, test } from 'node:test';
+import jwt from 'jsonwebtoken';
 import { app } from '../src/app';
 import { pool } from '../src/db';
 
@@ -99,6 +100,20 @@ test('회원가입 후 로그인하고, 틀린 비밀번호와 중복 이메일�
 
 test('토큰 없이 예약하면 401', async () => {
   assert.equal((await call('POST', '/bookings', { key: randomUUID(), body: {} })).status, 401);
+});
+
+test('지워진 사용자의 토큰으로 예약하면 서버 오류(500)가 아니라 401', async () => {
+  const token = jwt.sign({ email: 'gone@test.local', role: 'user' }, process.env.JWT_SECRET!, {
+    subject: randomUUID(),
+    expiresIn: '1h',
+  });
+  const day = randomDays();
+  const res = await call('POST', '/bookings', {
+    token,
+    key: randomUUID(),
+    body: { room_id: roomId, check_in_date: day(0), check_out_date: day(1), guests: 1 },
+  });
+  assert.equal(res.status, 401);
 });
 
 test('같은 객실·날짜에 동시에 10건을 예약하면 1건만 성공한다', async () => {
