@@ -45,10 +45,18 @@ hotelRouter.get(['/', '/search'], async (req, res) => {
 
   const where = ['h.is_active = 1'];
   const having: string[] = [];
-  const params: (string | number)[] = [];
+  const params: (string | number | string[])[] = [];
+  // 여러 값은 쉼표로 받는다: category=hotel,resort / amenities=수영장,스파
+  const list = (value?: string) => (value ?? '').split(',').map((v) => v.trim()).filter(Boolean).slice(0, 10);
   if (q.city) { where.push('h.city LIKE ?'); params.push(`%${q.city}%`); }
   if (q.region) { where.push('h.region LIKE ?'); params.push(`%${q.region}%`); }
-  if (q.category) { where.push('h.category = ?'); params.push(q.category); }
+  const categories = list(q.category);
+  if (categories.length) { where.push('h.category IN (?)'); params.push(categories); }
+  // 고른 편의시설을 모두 갖춘 숙소만 (v1은 화면에 체크박스만 있고 서버에서 거르지 않았다)
+  for (const amenity of list(q.amenities)) {
+    where.push('JSON_CONTAINS(h.amenities, JSON_QUOTE(?))');
+    params.push(amenity);
+  }
   if (q.guests) {
     where.push('h.id IN (SELECT hotel_id FROM rooms WHERE capacity >= ? AND is_available = 1)');
     params.push(Number(q.guests));

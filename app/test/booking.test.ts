@@ -73,6 +73,20 @@ test('화면 파일과 홈 화면의 추천 숙소를 내보낸다', async () =>
   assert.match(featured.body.data[0].name, /[가-힣]/, '시드의 한글이 깨지지 않아야 한다');
 });
 
+test('편의시설은 고른 것을 모두 갖춘 숙소만, 숙소 유형은 고른 것 중 하나인 숙소를 찾는다', async () => {
+  const all = (await call('GET', '/hotels?limit=50')).body.data.hotels;
+  const picked = ['수영장', '조식포함'];
+  const byAmenity = await call('GET', `/hotels?limit=50&amenities=${encodeURIComponent(picked.join(','))}`);
+  const expected = all.filter((h: { amenities: string[] }) => picked.every((a) => h.amenities.includes(a)));
+  assert.ok(expected.length < all.length, '필터가 실제로 걸러야 의미 있는 테스트다');
+  assert.equal(byAmenity.body.data.pagination.total, expected.length);
+
+  const categories = ['hotel', 'resort'];
+  const byCategory = await call('GET', `/hotels?limit=50&category=${categories.join(',')}`);
+  const expectedCategory = all.filter((h: { category: string }) => categories.includes(h.category));
+  assert.equal(byCategory.body.data.pagination.total, expectedCategory.length);
+});
+
 test('회원가입 후 로그인하고, 틀린 비밀번호와 중복 이메일은 거절한다', async () => {
   const email = `t-${randomUUID()}@test.local`;
   assert.equal((await call('POST', '/auth/register', { body: { email, password: 'password123', name: '가' } })).status, 201);

@@ -1125,13 +1125,16 @@ async function handleChangePassword(e) {
 
 // ===== Filter =====
 function applyFilters() {
-  const categories = [...document.querySelectorAll('.filter-checkboxes input[type="checkbox"]:checked')]
-    .map(cb => cb.value)
-    .filter(v => ['hotel','motel','pension','guesthouse','resort','camping'].includes(v));
+  const checked = [...document.querySelectorAll('.filter-checkboxes input[type="checkbox"]:checked')].map(cb => cb.value);
+  const categoryValues = ['hotel','motel','pension','guesthouse','resort','camping'];
+  // 숙소 유형은 여러 개 고를 수 있고(그중 하나), 편의시설은 고른 것을 모두 갖춘 숙소만 찾는다
+  const categories = checked.filter(v => categoryValues.includes(v));
+  const amenities = checked.filter(v => !categoryValues.includes(v));
 
   const params = {
     ...state.searchParams,
-    category: categories.length === 1 ? categories[0] : undefined,
+    category: categories.join(',') || undefined,
+    amenities: amenities.join(',') || undefined,
     min_price: document.getElementById('filter-min-price').value,
     max_price: document.getElementById('filter-max-price').value,
   };
@@ -1142,7 +1145,7 @@ function resetFilters() {
   document.querySelectorAll('.filter-checkboxes input[type="checkbox"]').forEach(cb => cb.checked = false);
   document.getElementById('filter-min-price').value = '';
   document.getElementById('filter-max-price').value = '';
-  loadSearchResults({ ...state.searchParams, category: undefined, min_price: undefined, max_price: undefined });
+  loadSearchResults({ ...state.searchParams, category: undefined, amenities: undefined, min_price: undefined, max_price: undefined });
 }
 
 // ===== Modals =====
