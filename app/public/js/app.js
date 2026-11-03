@@ -14,6 +14,9 @@ document.addEventListener('DOMContentLoaded', () => {
   loadAuth();
   setupEventListeners();
   setDefaultDates();
+  linkDatePair('hero-checkin', 'hero-checkout');
+  linkDatePair('search-checkin-input', 'search-checkout-input');
+  linkDatePair('book-checkin', 'book-checkout');
   loadFeaturedHotels();
   initStarRating();
   showCloudProvider();
@@ -52,6 +55,28 @@ function setDefaultDates() {
   if (co) co.value = fmt(dayAfter);
   ci.min = fmt(tomorrow);
   co.min = fmt(dayAfter);
+}
+
+// 체크아웃은 체크인 다음 날부터만 고를 수 있게 한다. 체크인을 바꿔 체크아웃이 앞서게 되면 다음 날로 맞춘다
+function linkDatePair(checkinId, checkoutId) {
+  const ci = document.getElementById(checkinId);
+  const co = document.getElementById(checkoutId);
+  if (!ci || !co) return;
+  const nextDay = value => {
+    const d = new Date(`${value}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + 1);
+    return d.toISOString().slice(0, 10);
+  };
+  if (!ci.min) ci.min = new Date().toISOString().slice(0, 10);
+  const syncMin = () => { if (ci.value) co.min = nextDay(ci.value); };
+  ci.addEventListener('change', () => {
+    syncMin();
+    if (ci.value && (!co.value || co.value <= ci.value)) {
+      co.value = co.min;
+      co.dispatchEvent(new Event('change')); // 요금 계산 등 기존 처리를 다시 실행
+    }
+  });
+  co.addEventListener('focus', syncMin); // 다른 화면에서 날짜가 채워진 경우에도 달력을 열 때 제한을 맞춘다
 }
 
 // ===== API =====
@@ -593,6 +618,7 @@ async function loadHotelDetail(id) {
     const fmt = d => d.toISOString().split('T')[0];
     document.getElementById('widget-checkin').value = fmt(tomorrow);
     document.getElementById('widget-checkout').value = fmt(dayAfter);
+    linkDatePair('widget-checkin', 'widget-checkout');
 
   } catch (err) {
     container.innerHTML = `<div class="empty-state"><p>${err.message}</p></div>`;

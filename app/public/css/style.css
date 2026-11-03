@@ -700,6 +700,7 @@ input, select, textarea { font-family: inherit; }
 [data-page="support"],
 [data-support-direct],
 #chatbot-toggle,
+[onclick^="openReviewModal"],
 .mypage-tab[data-tab="mypage-info"],
 .mypage-tab[data-tab="mypage-wishlist"],
 .mypage-tab[data-tab="mypage-inquiries"] {
