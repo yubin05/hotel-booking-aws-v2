@@ -1,72 +1,14 @@
-import './env';
+import { book, call, ctx, newUser, randomDays, useServer } from './helpers';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import type { Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
-import { after, before, test } from 'node:test';
+import { test } from 'node:test';
 import jwt from 'jsonwebtoken';
-import { app } from '../src/app';
 import { changeDeadline } from '../src/booking';
-import { pool } from '../src/db';
 
-// 실제 MySQL이 필요하다: docker compose up -d db
-
-let server: Server;
-let base: string;
-let roomId: string;
-
-interface CallOptions {
-  token?: string;
-  key?: string;
-  body?: unknown;
-}
-
-async function call(method: string, path: string, { token, key, body }: CallOptions = {}) {
-  const headers: Record<string, string> = { 'content-type': 'application/json' };
-  if (token) headers.authorization = `Bearer ${token}`;
-  if (key) headers['idempotency-key'] = key;
-  const res = await fetch(base + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
-  return { status: res.status, body: await res.json() };
-}
-
-async function newUser(): Promise<string> {
-  const res = await call('POST', '/auth/register', {
-    body: { email: `t-${randomUUID()}@test.local`, password: 'password123', name: '테스트' },
-  });
-  assert.equal(res.status, 201);
-  return res.body.data.token;
-}
-
-// 테스트끼리, 그리고 반복 실행끼리 날짜가 겹치지 않도록 먼 미래의 임의 날짜를 기준으로 쓴다
-function randomDays(): (offset: number) => string {
-  const start = Date.UTC(2100 + Math.floor(Math.random() * 800), 0, 1) + Math.floor(Math.random() * 300) * 86_400_000;
-  return (offset) => new Date(start + offset * 86_400_000).toISOString().slice(0, 10);
-}
-
-function book(token: string, checkIn: string, checkOut: string) {
-  return call('POST', '/bookings', {
-    token,
-    key: randomUUID(),
-    body: { room_id: roomId, check_in_date: checkIn, check_out_date: checkOut, guests: 1 },
-  });
-}
-
-before(async () => {
-  server = app.listen(0);
-  await new Promise((resolve) => server.once('listening', resolve));
-  base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api`;
-  const list = await call('GET', '/hotels?limit=1');
-  const hotel = await call('GET', `/hotels/${list.body.data.hotels[0].id}`);
-  roomId = hotel.body.data.rooms[0].id;
-});
-
-after(async () => {
-  server.close();
-  await pool.end();
-});
+useServer();
 
 test('화면 파일과 홈 화면의 추천 숙소를 내보낸다', async () => {
-  const page = await fetch(base.replace('/api', '/'));
+  const page = await fetch(ctx.base.replace('/api', '/'));
   assert.equal(page.status, 200);
   assert.match(page.headers.get('content-type') ?? '', /text\/html/);
   const featured = await call('GET', '/hotels/featured');
@@ -109,12 +51,7 @@ test('지워진 사용자의 토큰으로 예약하면 서버 오류(500)가 아
     expiresIn: '1h',
   });
   const day = randomDays();
-  const res = await call('POST', '/bookings', {
-    token,
-    key: randomUUID(),
-    body: { room_id: roomId, check_in_date: day(0), check_out_date: day(1), guests: 1 },
-  });
-  assert.equal(res.status, 401);
+  assert.equal((await book(token, day(0), day(1))).status, 401);
 });
 
 test('같은 객실·날짜에 동시에 10건을 예약하면 1건만 성공한다', async () => {
@@ -129,7 +66,11 @@ test('같은 객실·날짜에 동시에 10건을 예약하면 1건만 성공한
 test('같은 멱등키로 다시 보내면 새로 만들지 않고 처음 예약을 돌려준다', async () => {
   const token = await newUser();
   const day = randomDays();
-  const request = { token, key: randomUUID(), body: { room_id: roomId, check_in_date: day(0), check_out_date: day(1), guests: 1 } };
+  const request = {
+    token,
+    key: randomUUID(),
+    body: { room_id: ctx.roomId, check_in_date: day(0), check_out_date: day(1), guests: 1 },
+  };
   const first = await call('POST', '/bookings', request);
   const second = await call('POST', '/bookings', request);
   assert.equal(first.status, 201);
@@ -178,7 +119,7 @@ test('변경·취소 마감은 숙소 체크인 시각(한국 시간)의 24시�
 test('잘못된 입력은 400으로 거절한다', async () => {
   const token = await newUser();
   const day = randomDays();
-  const body = { room_id: roomId, check_in_date: day(0), check_out_date: day(1), guests: 1 };
+  const body = { room_id: ctx.roomId, check_in_date: day(0), check_out_date: day(1), guests: 1 };
   assert.equal((await call('POST', '/bookings', { token, body })).status, 400, '멱등키 없음');
   const cases = [
     { ...body, check_out_date: day(0) }, // 체크아웃이 체크인과 같음
