@@ -97,7 +97,7 @@ flowchart LR
 ## 저장소 구조 (예정)
 
 ```
-app/                모듈러 모놀리스 (인증·호텔·예약)
+app/                모듈러 모놀리스 (인증·호텔·예약) + 화면 파일
 infra/
   bootstrap/        Terraform state 버킷, GitHub OIDC 역할 (1회 적용)
   global/           Route 53, ACM, CloudFront, WAF
