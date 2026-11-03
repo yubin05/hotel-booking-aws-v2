@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-pw
+          MYSQL_DATABASE: hotel_booking
+          MYSQL_USER: app
+          MYSQL_PASSWORD: ci-app-pw
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pci-root-pw"
+          --health-interval=5s --health-timeout=3s --health-retries=30
+    env:
+      DB_PASSWORD: ci-app-pw
+      JWT_SECRET: ci-only-jwt-secret
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: 스키마와 시드 적용
+        run: |
+          mysql -h 127.0.0.1 -uapp -pci-app-pw hotel_booking < db/schema.sql
+          mysql -h 127.0.0.1 -uapp -pci-app-pw hotel_booking < db/seed.sql
+
+      - run: npm ci
+
+      - run: npm test
+
+      - name: 이미지 빌드 확인
+        run: docker build -t hotel-booking-app .
