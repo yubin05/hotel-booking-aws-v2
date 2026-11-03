@@ -11,6 +11,18 @@ const DAY_MS = 86_400_000;
 const MAX_NIGHTS = 30; // 한 요청이 만드는 날짜 행 수를 제한해 과도한 요청을 막는다
 const CHANGE_DEADLINE_HOURS = 24;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
+// shortcut: 한국 숙소만 있다고 보고 날짜·시각을 KST(+09:00)로 계산한다. 해외 숙소가 생기면 숙소별 시간대를 저장한다
+const KST_OFFSET_MS = 9 * 3_600_000;
+
+function kstToday(): string {
+  return new Date(Date.now() + KST_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+// 변경·취소 마감: 숙소 체크인 시각(한국 시간)의 24시간 전. 시각 형식이 이상하면 15:00으로 본다
+export function changeDeadline(checkInDate: string, checkInTime: string): number {
+  const time = /^\d{2}:\d{2}$/.test(checkInTime) ? checkInTime : '15:00';
+  return Date.parse(`${checkInDate}T${time}:00+09:00`) - CHANGE_DEADLINE_HOURS * 3_600_000;
+}
 
 const BOOKING_VIEW = `
   SELECT b.id, b.room_id, b.check_in_date, b.check_out_date, b.guests, b.total_price, b.status,
@@ -28,6 +40,7 @@ interface LockedBooking {
   check_out_date: string;
   guests: number;
   status: string;
+  check_in_time: string;
 }
 
 function toUtcMs(date: unknown): number {
@@ -45,7 +58,7 @@ function stayNights(checkIn: unknown, checkOut: unknown): string[] {
   const start = toUtcMs(checkIn);
   const end = toUtcMs(checkOut);
   if (end <= start) throw new HttpError(400, '체크아웃 날짜는 체크인 날짜보다 나중이어야 합니다.');
-  if (start < toUtcMs(new Date().toISOString().slice(0, 10))) {
+  if (start < toUtcMs(kstToday())) {
     throw new HttpError(400, '체크인 날짜는 오늘 이후여야 합니다.');
   }
   const count = (end - start) / DAY_MS;
@@ -74,9 +87,14 @@ async function reserveNights(conn: PoolConnection, roomId: string, bookingId: st
 }
 
 async function lockOwnBooking(conn: PoolConnection, id: string, userId: string): Promise<LockedBooking> {
+  // FOR UPDATE OF b: 예약 행만 잠근다 (객실·숙소 행까지 잠그면 같은 숙소의 취소가 줄을 선다)
   const [rows] = await conn.query<RowDataPacket[]>(
-    `SELECT id, room_id, check_in_date, check_out_date, guests, status
-       FROM bookings WHERE id = ? AND user_id = ? FOR UPDATE`,
+    `SELECT b.id, b.room_id, b.check_in_date, b.check_out_date, b.guests, b.status, h.check_in_time
+       FROM bookings b
+       JOIN rooms r ON r.id = b.room_id
+       JOIN hotels h ON h.id = r.hotel_id
+      WHERE b.id = ? AND b.user_id = ?
+        FOR UPDATE OF b`,
     [id, userId],
   );
   if (!rows[0]) throw new HttpError(404, '예약을 찾을 수 없습니다.');
@@ -85,8 +103,7 @@ async function lockOwnBooking(conn: PoolConnection, id: string, userId: string):
 
 function assertChangeable(booking: LockedBooking): void {
   if (booking.status !== 'confirmed') throw new HttpError(400, '확정된 예약만 변경하거나 취소할 수 있습니다.');
-  const hoursLeft = (toUtcMs(booking.check_in_date) - Date.now()) / 3_600_000;
-  if (hoursLeft < CHANGE_DEADLINE_HOURS) {
+  if (Date.now() > changeDeadline(booking.check_in_date, booking.check_in_time)) {
     throw new HttpError(400, `체크인 ${CHANGE_DEADLINE_HOURS}시간 전부터는 변경하거나 취소할 수 없습니다.`);
   }
 }

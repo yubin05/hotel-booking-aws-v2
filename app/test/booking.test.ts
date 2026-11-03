@@ -6,6 +6,7 @@ import type { AddressInfo } from 'node:net';
 import { after, before, test } from 'node:test';
 import jwt from 'jsonwebtoken';
 import { app } from '../src/app';
+import { changeDeadline } from '../src/booking';
 import { pool } from '../src/db';
 
 // 실제 MySQL이 필요하다: docker compose up -d db
@@ -165,6 +166,13 @@ test('취소하면 행은 남고 상태만 바뀌며, 같은 날짜를 다시 �
   assert.equal((await call('DELETE', `/bookings/${created.body.data.id}`, { token })).status, 200);
   assert.equal((await call('GET', `/bookings/${created.body.data.id}`, { token })).body.data.status, 'cancelled');
   assert.equal((await book(token, day(0), day(3))).status, 201);
+});
+
+test('변경·취소 마감은 숙소 체크인 시각(한국 시간)의 24시간 전이다', () => {
+  // 12/20 15:00 체크인 → 12/19 15:00 KST까지 (UTC 0시 기준이면 6시간 이르게 막혔다)
+  assert.equal(changeDeadline('2026-12-20', '15:00'), Date.parse('2026-12-19T15:00:00+09:00'));
+  assert.equal(changeDeadline('2026-12-20', '14:00'), Date.parse('2026-12-19T14:00:00+09:00'));
+  assert.equal(changeDeadline('2026-12-20', '잘못된값'), Date.parse('2026-12-19T15:00:00+09:00'));
 });
 
 test('잘못된 입력은 400으로 거절한다', async () => {
