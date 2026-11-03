@@ -22,7 +22,9 @@ export function SearchForm({ initial, cities }: { initial: StayQuery; cities: st
   const [values, setValues] = useState(initial);
 
   // 검색 결과 화면에서 주소가 바뀌면 입력값도 맞춘다
-  useEffect(() => setValues(initial), [initial.city, initial.checkIn, initial.checkOut, initial.guests]);
+  useEffect(() => {
+    setValues(initial);
+  }, [initial.city, initial.checkIn, initial.checkOut, initial.guests]);
 
   function submit(e: FormEvent) {
     e.preventDefault();
