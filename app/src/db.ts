@@ -32,3 +32,8 @@ export async function withTransaction<T>(fn: (conn: PoolConnection) => Promise<T
 export function isDuplicateKey(err: unknown): boolean {
   return (err as { code?: string }).code === 'ER_DUP_ENTRY';
 }
+
+// 참조하는 행이 없다 (예: DB 초기화·백업 복원 이전에 받은 토큰의 사용자)
+export function isMissingReference(err: unknown): boolean {
+  return (err as { code?: string }).code === 'ER_NO_REFERENCED_ROW_2';
+}

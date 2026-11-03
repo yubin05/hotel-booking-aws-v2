@@ -3,9 +3,11 @@ import type { NextFunction, Request, Response } from 'express';
 import path from 'node:path';
 import { authRouter } from './auth';
 import { bookingRouter } from './booking';
+import { couponRouter } from './coupon';
 import { pool } from './db';
 import { HttpError } from './errors';
 import { hotelRouter } from './hotel';
+import { reviewRouter } from './review';
 
 export const app = express();
 
@@ -25,6 +27,8 @@ app.get('/api/health/deep', async (_req, res) => {
 app.use('/api/auth', authRouter);
 app.use('/api/hotels', hotelRouter);
 app.use('/api/bookings', bookingRouter);
+app.use('/api/coupons', couponRouter);
+app.use('/api/reviews', reviewRouter);
 
 // 화면 파일(HTML·CSS·JS)도 같은 컨테이너에서 내보낸다 (ADR-013). dist/src 기준으로 app/public
 app.use(express.static(path.join(__dirname, '../../public')));

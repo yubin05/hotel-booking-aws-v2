@@ -2,21 +2,17 @@ import { Router } from 'express';
 import type { RowDataPacket } from 'mysql2';
 import type { PoolConnection } from 'mysql2/promise';
 import { authenticate } from '../auth';
-import { isDuplicateKey, pool, withTransaction } from '../db';
+import { findCouponAmount, markCouponUsed, releaseCoupon } from '../coupon';
+import { isDuplicateKey, isMissingReference, pool, withTransaction } from '../db';
 import { HttpError } from '../errors';
 import { findBookableRoom, nightlyPrice } from '../hotel';
+import { kstToday } from '../time';
 import { uuidv7 } from '../uuidv7';
 
 const DAY_MS = 86_400_000;
 const MAX_NIGHTS = 30; // 한 요청이 만드는 날짜 행 수를 제한해 과도한 요청을 막는다
 const CHANGE_DEADLINE_HOURS = 24;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-// shortcut: 한국 숙소만 있다고 보고 날짜·시각을 KST(+09:00)로 계산한다. 해외 숙소가 생기면 숙소별 시간대를 저장한다
-const KST_OFFSET_MS = 9 * 3_600_000;
-
-function kstToday(): string {
-  return new Date(Date.now() + KST_OFFSET_MS).toISOString().slice(0, 10);
-}
 
 // 변경·취소 마감: 숙소 체크인 시각(한국 시간)의 24시간 전. 시각 형식이 이상하면 15:00으로 본다
 export function changeDeadline(checkInDate: string, checkInTime: string): number {
@@ -25,13 +21,20 @@ export function changeDeadline(checkInDate: string, checkInTime: string): number
 }
 
 const BOOKING_VIEW = `
-  SELECT b.id, b.room_id, b.check_in_date, b.check_out_date, b.guests, b.total_price, b.status,
-         b.special_requests, b.created_at, b.updated_at,
+  SELECT b.id, b.room_id, b.check_in_date, b.check_out_date, b.guests, b.total_price, b.discount_amount,
+         b.status, b.special_requests, b.created_at, b.updated_at,
          r.name AS room_name, r.type AS room_type,
-         h.id AS hotel_id, h.name AS hotel_name, h.address AS hotel_address, h.images AS hotel_images
+         h.id AS hotel_id, h.name AS hotel_name, h.address AS hotel_address, h.images AS hotel_images,
+         rv.id AS review_id
     FROM bookings b
     JOIN rooms r ON r.id = b.room_id
-    JOIN hotels h ON h.id = r.hotel_id`;
+    JOIN hotels h ON h.id = r.hotel_id
+    LEFT JOIN reviews rv ON rv.booking_id = b.id`;
+
+// 화면이 리뷰 쓰기 버튼을 그릴 수 있게: 취소하지 않았고, 체크아웃했고, 아직 리뷰가 없을 때
+function withReviewFlag(row: RowDataPacket) {
+  return { ...row, can_review: row.status !== 'cancelled' && !row.review_id && row.check_out_date <= kstToday() };
+}
 
 interface LockedBooking {
   id: string;
@@ -41,6 +44,7 @@ interface LockedBooking {
   guests: number;
   status: string;
   check_in_time: string;
+  coupon_amount: string | null;
 }
 
 function toUtcMs(date: unknown): number {
@@ -89,10 +93,13 @@ async function reserveNights(conn: PoolConnection, roomId: string, bookingId: st
 async function lockOwnBooking(conn: PoolConnection, id: string, userId: string): Promise<LockedBooking> {
   // FOR UPDATE OF b: 예약 행만 잠근다 (객실·숙소 행까지 잠그면 같은 숙소의 취소가 줄을 선다)
   const [rows] = await conn.query<RowDataPacket[]>(
-    `SELECT b.id, b.room_id, b.check_in_date, b.check_out_date, b.guests, b.status, h.check_in_time
+    `SELECT b.id, b.room_id, b.check_in_date, b.check_out_date, b.guests, b.status, h.check_in_time,
+            c.discount_amount AS coupon_amount
        FROM bookings b
        JOIN rooms r ON r.id = b.room_id
        JOIN hotels h ON h.id = r.hotel_id
+       LEFT JOIN user_coupons uc ON uc.id = b.user_coupon_id
+       LEFT JOIN coupons c ON c.id = uc.coupon_id
       WHERE b.id = ? AND b.user_id = ?
         FOR UPDATE OF b`,
     [id, userId],
@@ -116,8 +123,9 @@ bookingRouter.post('/', async (req, res) => {
   const userId = req.user!.userId;
   const key = req.get('Idempotency-Key');
   if (!key || key.length > 100) throw new HttpError(400, 'Idempotency-Key 헤더가 필요합니다.');
-  const { room_id, check_in_date, check_out_date, guests, special_requests } = req.body ?? {};
+  const { room_id, check_in_date, check_out_date, guests, special_requests, user_coupon_id } = req.body ?? {};
   if (typeof room_id !== 'string') throw new HttpError(400, '객실을 선택해주세요.');
+  if (user_coupon_id != null && typeof user_coupon_id !== 'string') throw new HttpError(400, '쿠폰 형식이 올바르지 않습니다.');
   if (special_requests != null && (typeof special_requests !== 'string' || special_requests.length > 1000)) {
     throw new HttpError(400, '요청 사항은 1000자 이하여야 합니다.');
   }
@@ -128,24 +136,28 @@ bookingRouter.post('/', async (req, res) => {
     const room = await findBookableRoom(conn, room_id);
     if (!room) throw new HttpError(404, '객실을 찾을 수 없습니다.');
     const guestCount = parseGuests(guests, room.capacity);
-    const totalPrice = nightlyPrice(room) * nights.length;
+    const subtotal = nightlyPrice(room) * nights.length;
+    // 쿠폰 할인은 숙박 금액을 넘지 않는다
+    const discount = user_coupon_id ? Math.min(await findCouponAmount(conn, user_coupon_id, userId), subtotal) : 0;
     try {
       await conn.query(
         `INSERT INTO bookings (id, user_id, room_id, check_in_date, check_out_date, guests, total_price,
-                               special_requests, idempotency_key)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [id, userId, room_id, check_in_date, check_out_date, guestCount, totalPrice, special_requests ?? null, key],
+                               discount_amount, user_coupon_id, special_requests, idempotency_key)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          id, userId, room_id, check_in_date, check_out_date, guestCount, subtotal - discount,
+          discount, user_coupon_id ?? null, special_requests ?? null, key,
+        ],
       );
     } catch (err) {
       if (isDuplicateKey(err)) return null; // 같은 멱등키로 이미 만든 예약이 있다
       // 토큰은 유효하지만 사용자가 없다: DB 초기화나 백업 복원 이전에 받은 토큰
-      if ((err as { code?: string }).code === 'ER_NO_REFERENCED_ROW_2') {
-        throw new HttpError(401, '로그인 정보가 유효하지 않습니다. 다시 로그인해주세요.');
-      }
+      if (isMissingReference(err)) throw new HttpError(401, '로그인 정보가 유효하지 않습니다. 다시 로그인해주세요.');
       throw err;
     }
     await reserveNights(conn, room_id, id, nights);
-    return { id, total_price: totalPrice, nights: nights.length, status: 'confirmed' };
+    if (user_coupon_id) await markCouponUsed(conn, user_coupon_id, id);
+    return { id, total_price: subtotal - discount, discount_amount: discount, nights: nights.length, status: 'confirmed' };
   });
 
   if (created) {
@@ -155,7 +167,7 @@ bookingRouter.post('/', async (req, res) => {
 
   // shortcut: 같은 키로 내용이 다른 요청이 와도 처음 예약을 돌려준다. 요청 본문 비교는 필요해지면 추가
   const [rows] = await pool.query<RowDataPacket[]>(
-    `SELECT id, total_price, check_in_date, check_out_date, status
+    `SELECT id, total_price, discount_amount, check_in_date, check_out_date, status
        FROM bookings WHERE user_id = ? AND idempotency_key = ?`,
     [userId, key],
   );
@@ -166,6 +178,7 @@ bookingRouter.post('/', async (req, res) => {
     data: {
       id: existing.id,
       total_price: Number(existing.total_price),
+      discount_amount: Number(existing.discount_amount),
       nights: (toUtcMs(existing.check_out_date) - toUtcMs(existing.check_in_date)) / DAY_MS,
       status: existing.status,
     },
@@ -189,7 +202,7 @@ bookingRouter.get('/', async (req, res) => {
 
   res.json({
     success: true,
-    data: { bookings: rows, pagination: { total, page, limit, total_pages: Math.ceil(total / limit) } },
+    data: { bookings: rows.map(withReviewFlag), pagination: { total, page, limit, total_pages: Math.ceil(total / limit) } },
   });
 });
 
@@ -199,7 +212,7 @@ bookingRouter.get('/:id', async (req, res) => {
     req.user!.userId,
   ]);
   if (!rows[0]) throw new HttpError(404, '예약을 찾을 수 없습니다.');
-  res.json({ success: true, data: rows[0] });
+  res.json({ success: true, data: withReviewFlag(rows[0]) });
 });
 
 // 날짜·인원 변경: 기존 날짜 행을 지우고 새 날짜 행을 넣는다. 다른 예약과 겹치면 전체를 되돌린다
@@ -213,15 +226,25 @@ bookingRouter.patch('/:id', async (req, res) => {
     const room = await findBookableRoom(conn, booking.room_id);
     if (!room) throw new HttpError(409, '이 객실은 더 이상 예약할 수 없습니다.');
     const guests = parseGuests(req.body?.guests ?? booking.guests, room.capacity);
-    const totalPrice = nightlyPrice(room) * nights.length;
+    const subtotal = nightlyPrice(room) * nights.length;
+    const discount = Math.min(Number(booking.coupon_amount ?? 0), subtotal);
 
     await conn.query('DELETE FROM booking_nights WHERE booking_id = ?', [booking.id]);
     await reserveNights(conn, booking.room_id, booking.id, nights);
     await conn.query(
-      'UPDATE bookings SET check_in_date = ?, check_out_date = ?, guests = ?, total_price = ? WHERE id = ?',
-      [checkIn, checkOut, guests, totalPrice, booking.id],
+      `UPDATE bookings SET check_in_date = ?, check_out_date = ?, guests = ?, total_price = ?, discount_amount = ?
+        WHERE id = ?`,
+      [checkIn, checkOut, guests, subtotal - discount, discount, booking.id],
     );
-    return { id: booking.id, check_in_date: checkIn, check_out_date: checkOut, guests, total_price: totalPrice, nights: nights.length };
+    return {
+      id: booking.id,
+      check_in_date: checkIn,
+      check_out_date: checkOut,
+      guests,
+      total_price: subtotal - discount,
+      discount_amount: discount,
+      nights: nights.length,
+    };
   });
   res.json({ success: true, message: '예약이 변경되었습니다.', data });
 });
@@ -233,6 +256,7 @@ bookingRouter.delete('/:id', async (req, res) => {
     assertChangeable(booking);
     await conn.query("UPDATE bookings SET status = 'cancelled' WHERE id = ?", [booking.id]);
     await conn.query('DELETE FROM booking_nights WHERE booking_id = ?', [booking.id]);
+    await releaseCoupon(conn, booking.id);
   });
   res.json({ success: true, message: '예약이 취소되었습니다.' });
 });
