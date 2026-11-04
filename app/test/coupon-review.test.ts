@@ -58,6 +58,27 @@ test('선착순: 30명이 동시에 수량 10장 쿠폰을 받으면 정확히 1
   assert.equal(row.owners, 10);
 });
 
+// TS-08: 발급 요청이 쿠폰 행 잠금을 기다리며 DB 연결을 모두 쥐면 쿠폰과 무관한 조회까지 멈췄다
+test('쿠폰 발급이 잠금 앞에 줄 서 있어도 숙소 조회는 바로 응답한다', async () => {
+  const couponId = await createCoupon(100);
+  const tokens = await Promise.all(Array.from({ length: 20 }, () => newUser()));
+  // 다른 연결이 쿠폰 행을 잠가 두면, 발급 요청들이 오픈 순간처럼 잠금 앞에 줄을 선다
+  const locker = await pool.getConnection();
+  await locker.beginTransaction();
+  await locker.query('SELECT id FROM coupons WHERE id = ? FOR UPDATE', [couponId]);
+  const claims = Promise.all(tokens.map((token) => claim(token, couponId)));
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  const read = await Promise.race([
+    call('GET', `/hotels/${ctx.hotelId}`),
+    new Promise<null>((resolve) => setTimeout(resolve, 2000, null)),
+  ]);
+  await locker.rollback();
+  locker.release();
+  assert.equal(read?.status, 200, '잠금을 기다리는 발급 요청 때문에 조회가 2초 안에 응답하지 못했다');
+  const statuses = (await claims).map((r) => r.status);
+  assert.equal(statuses.filter((s) => s === 201).length, 20, `응답: ${statuses}`);
+});
+
 test('같은 사용자가 동시에 5번 받아도 1장만 발급된다', async () => {
   const token = await newUser();
   const couponId = await createCoupon(100);

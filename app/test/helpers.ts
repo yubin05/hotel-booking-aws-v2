@@ -5,7 +5,7 @@ import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before } from 'node:test';
 import { app } from '../src/app';
-import { pool } from '../src/db';
+import { couponPool, pool } from '../src/db';
 
 // 실제 MySQL이 필요하다: docker compose up -d db (테스트 전용 DB hotel_booking_test를 쓴다)
 export { pool };
@@ -38,7 +38,7 @@ export function useServer(): void {
   });
   after(async () => {
     server.close();
-    await pool.end();
+    await Promise.all([pool.end(), couponPool.end()]);
   });
 }
 

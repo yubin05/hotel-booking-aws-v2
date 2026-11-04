@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import type { PoolConnection } from 'mysql2/promise';
 import { authenticate } from '../auth';
-import { isDuplicateKey, isMissingReference, pool, withTransaction } from '../db';
+import { couponPool, isDuplicateKey, isMissingReference, pool, withTransaction } from '../db';
 import { HttpError } from '../errors';
 import { utcIso } from '../time';
 import { uuidv7 } from '../uuidv7';
@@ -115,6 +115,6 @@ couponRouter.post('/:id/claim', authenticate, async (req, res) => {
       if (isMissingReference(err)) throw new HttpError(401, '로그인 정보가 유효하지 않습니다. 다시 로그인해주세요.');
       throw err;
     }
-  });
+  }, couponPool);
   res.status(201).json({ success: true, message: '쿠폰을 받았습니다.', data: { id } });
 });
