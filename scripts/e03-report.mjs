@@ -1,0 +1,75 @@
+// E-03 결과 정리: 수정 전·후 실행의 표 숫자를 출력하고(stderr), 포트폴리오용 그래프 HTML을 만든다(stdout)
+// 실행: node scripts/e03-report.mjs load/results/<수정 전>.json.gz load/results/<수정 후>.json.gz > e03-graphs.html
+import assert from 'node:assert/strict';
+import { lineChart, pct, readK6 } from './k6-lib.mjs';
+
+const ms = (v) => `${v.toFixed(1)}ms`;
+const runs = [];
+for (const file of process.argv.slice(2, 4)) {
+  const { requests, points } = await readK6(file);
+  // 쏠림 시작 = claims 시나리오 시작. 스크립트가 남긴 coupon_issued_at(시작부터 발급 응답까지)으로 되짚는다
+  const starts = points.coupon_issued_at.map((p) => p.time - p.value).sort((a, b) => a - b);
+  const t0 = starts[starts.length >> 1];
+  const rel = (t) => t - t0;
+  const claims = requests.filter((r) => r.scenario === 'claims');
+  const reads = requests.filter((r) => r.scenario === 'reads');
+  assert.equal(claims.length, 1000, `${file}: 발급 요청이 1,000건이 아니다 (요청 묶기 실패)`);
+  const issued = claims.filter((r) => r.status === '201').map((r) => rel(r.end)).sort((a, b) => a - b);
+  assert.equal(issued.length, 100, `${file}: 발급이 100건이 아니다`);
+  const burstEnd = Math.max(...claims.map((r) => rel(r.end)));
+  const readsIn = (from, to) => reads.filter((r) => rel(r.start) >= from && rel(r.start) < to).map((r) => r.duration);
+  const during = readsIn(0, burstEnd);
+  // 연결이 1초 가까이 걸린 요청(TCP 재전송)은 빼고, 다 떨어진 뒤 소진 응답이 빠져나간 시간
+  const soldOut = claims.filter((r) => r.status === '409' && r.blocked < 900).map((r) => rel(r.end));
+  const buckets = [];
+  for (let b = -500; b < 1500; b += 100) buckets.push([b + 50, pct(readsIn(b, b + 100), 0.95)]);
+  const claimDur = claims.map((r) => r.duration);
+  console.error(
+    [
+      file,
+      `  평소 조회 p95 ${ms(pct(readsIn(-Infinity, 0), 0.95))}`,
+      `  쏠림 동안(0~${(burstEnd / 1000).toFixed(2)}초) 조회 ${during.length}건: 중앙값 ${ms(pct(during, 0.5))}, p95 ${ms(pct(during, 0.95))}, 최대 ${ms(Math.max(...during))}`,
+      `  쏠림 뒤 조회 p95 ${ms(pct(readsIn(burstEnd, Infinity), 0.95))}`,
+      `  발급 응답 p95 ${ms(pct(claimDur, 0.95))}, 최대 ${ms(Math.max(...claimDur))}`,
+      `  첫 발급 ${issued[0].toFixed(0)}ms, 100장 소진 ${issued[99].toFixed(0)}ms`,
+      `  소진 응답 ${soldOut.length}건이 100장 소진 뒤 ${(Math.max(...soldOut) - issued[99]).toFixed(0)}ms 동안 나감`,
+      `  연결에 0.9초 넘게 걸린 발급 요청 ${claims.filter((r) => r.blocked >= 900).length}건`,
+    ].join('\n'),
+  );
+  runs.push({ issued, buckets });
+}
+
+const [before, after] = runs;
+const secs = (v) => `${(v / 1000).toFixed(2)}초`;
+const peak = (run) => `최고 ${Math.max(...run.buckets.map(([, v]) => v)).toFixed(0)}ms`;
+const issuedSeries = (run) => [[0, 0], ...run.issued.map((t, i) => [t, i + 1])];
+console.log('<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:var(--space-4)">');
+console.log(
+  lineChart({
+    title: '발급된 쿠폰 수 (장)',
+    aria: `발급된 쿠폰 수: 수정 전 ${secs(before.issued[99])}, 수정 후 ${secs(after.issued[99])}에 100장 소진`,
+    series: [
+      { label: `수정 전 (${secs(before.issued[99])}에 소진)`, color: 'muted', dashed: true, points: issuedSeries(before) },
+      { label: `수정 후 (${secs(after.issued[99])})`, color: 'accent', points: issuedSeries(after) },
+    ],
+    x: [0, 1000],
+    y: [0, 100],
+    xTicks: [[0, '0초'], [500, '0.5초'], [1000, '1초']],
+    yTicks: [[0, '0'], [50, '50'], [100, '100']],
+  }),
+);
+console.log(
+  lineChart({
+    title: '같은 시간 숙소 조회 p95 (ms, 0.1초 구간)',
+    aria: `숙소 조회 p95: 수정 전 ${peak(before)}, 수정 후 ${peak(after)}. 평소에는 약 4ms`,
+    series: [
+      { label: `수정 전 (${peak(before)})`, color: 'muted', dashed: true, points: before.buckets },
+      { label: `수정 후 (${peak(after)})`, color: 'accent', points: after.buckets },
+    ],
+    x: [-500, 1500],
+    y: [0, 900],
+    xTicks: [[-500, '-0.5초'], [0, '오픈'], [500, '0.5초'], [1000, '1초'], [1500, '1.5초']],
+    yTicks: [[0, '0'], [450, '450'], [900, '900']],
+  }),
+);
+console.log('</div>');
