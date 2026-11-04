@@ -50,7 +50,7 @@
 - **상황:** 운영 중인 서비스로 기존 사용자, MySQL 데이터, 백엔드 코드가 있다.
 - **검토한 대안:**
   1. Vercel + Supabase: Postgres라서 DB 전환과 백엔드 재개발이 필요
-  2. Vercel + 컨테이너 PaaS(Render·Railway 등) + MySQL 호환 DB 서비스(PlanetScale·TiDB Cloud 등): 기존 앱을 거의 그대로 올릴 수 있는 유력한 대안
+  2. Vercel + 컨테이너 PaaS(Render·Railway 등) + MySQL 호환 DB 서비스(PlanetScale·TiDB Cloud 등): 기존 앱을 거의 그대로 올릴 수 있는 유력한 대안. 단, Render·Railway는 서울 리전이 없음 ([08 실제 사례 조사](08-real-cases.md#3-saaspaas-대안의-서울-리전-adr-002-근거))
   3. AWS
 - **결정:** AWS.
 - **근거:**

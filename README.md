@@ -107,6 +107,9 @@ cd app && npm ci && npm test   # 테스트는 같은 MySQL의 테스트 전용 D
 | [04 설계 결정 기록](docs/04-decisions.md) | ADR: 무엇을 고르고 무엇을 버렸는지 |
 | [05 v1 회고](docs/05-v1-retrospective.md) | v1의 문제와 면접 질문에 대한 v2의 답 |
 | [06 용어 정리](docs/06-glossary.md) | 문서에 나오는 용어 풀이 |
+| [07 로컬 장애·부하 실험](docs/07-experiments.md) | 실험 목록, 기대 결과, 측정 방법 |
+| [트러블슈팅](docs/troubleshooting/README.md) | 재현 → 원인 → 해결 → 검증 기록 |
+| [08 실제 사례 조사](docs/08-real-cases.md) | 시나리오·결정의 근거가 된 실제 기업 사례와 신뢰도 |
 
 ## 저장소 구조 (예정)
 
