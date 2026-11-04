@@ -43,7 +43,8 @@ const [before, after] = runs;
 const secs = (v) => `${(v / 1000).toFixed(2)}초`;
 const peak = (run) => `최고 ${Math.max(...run.buckets.map(([, v]) => v)).toFixed(0)}ms`;
 const issuedSeries = (run) => [[0, 0], ...run.issued.map((t, i) => [t, i + 1])];
-console.log('<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:var(--space-4)">');
+// auto-fill: 카드가 2개여도 E-01(3개)과 같은 폭으로 둔다
+console.log('<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(15rem,1fr));gap:var(--space-4)">');
 console.log(
   lineChart({
     title: '발급된 쿠폰 수 (장)',
