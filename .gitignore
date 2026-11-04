@@ -24,6 +24,7 @@ node_modules/
 dist/
 coverage/
 .venv/
+load/results/
 
 # OS
 .DS_Store
