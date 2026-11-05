@@ -24,9 +24,10 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
-// 외부 모니터링용: DB 연결까지 확인한다
+// 외부 모니터링용: DB 연결까지 확인한다. 시간 상한은 db.ts가 건다
+// (쿼리 timeout은 빈 연결을 기다리는 시간에는 안 걸리고, 시간이 지나도 멈춘 연결을 풀에 돌려놓는다: TS-09)
 app.get('/api/health/deep', async (_req, res) => {
-  await pool.query({ sql: 'SELECT 1', timeout: 2000 });
+  await pool.query('SELECT 1');
   res.json({ status: 'ok', db: 'ok' });
 });
 
