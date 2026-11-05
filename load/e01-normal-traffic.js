@@ -1,5 +1,4 @@
-// E-01 평소 트래픽(기준선) 2판: 한 사람의 방문을 실제 화면 흐름대로 흉내 낸다. 새 실험은 이 파일을 복사해 eNN-이름.js로 만든다 (docs/07-experiments.md)
-// 1판(2026-11-04)은 검색·상세·예약만 보내 홈·리뷰·로그인이 빠졌고, 예약이 실제보다 훨씬 많았다 (git 기록 참고)
+// E-01 평소 트래픽(기준선): 한 사람의 방문을 실제 화면 흐름대로 흉내 낸다. 새 실험은 이 파일을 복사해 eNN-이름.js로 만든다 (docs/07-experiments.md)
 // 준비: scripts/seed-volume.sql로 데이터를 숙소 1,000개 규모로 채운 뒤 실행 → load/run-k6.sh e01-normal-traffic.js
 import http from 'k6/http';
 import { check, sleep } from 'k6';
