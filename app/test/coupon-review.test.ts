@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
 import jwt from 'jsonwebtoken';
 import type { RowDataPacket } from 'mysql2';
+import type { PoolConnection } from 'mysql2/promise';
 
 useServer();
 
@@ -58,6 +59,24 @@ test('선착순: 30명이 동시에 수량 10장 쿠폰을 받으면 정확히 1
   assert.equal(row.owners, 10);
 });
 
+// 발급 요청들이 쿠폰 행 잠금 앞에 줄을 다 설 때까지 기다린다. 정해진 시간만 기다리면 느린 CI에서 요청이 덜 도착한 채
+// 조회가 먼저 연결을 잡아, 발급이 공용 연결을 다 쥐는 버그가 있어도 통과할 수 있다.
+// 잠금을 기다리는 발급 쿼리가 2건(발급 전용 연결 수) 이상이고 0.2초 동안 그대로면 다 선 것으로 본다.
+// 잠금을 쥔 연결로 묻는다: 공용 연결이 다 차 있어도 막히지 않는다. 쿠폰 id로 거르는 이유: 다른 테스트 파일이 같은 DB에서 동시에 돈다
+async function waitForQueuedClaims(conn: PoolConnection, couponId: string): Promise<void> {
+  let last = -1;
+  let same = 0;
+  for (let i = 0; i < 250; i++) {
+    const [rows] = await conn.query<RowDataPacket[]>('SHOW FULL PROCESSLIST');
+    const waiting = rows.filter((r) => String(r.Info ?? '').startsWith('UPDATE coupons') && r.Info.includes(couponId)).length;
+    same = waiting === last ? same + 1 : 0;
+    last = waiting;
+    if (waiting >= 2 && same >= 10) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`발급 요청이 쿠폰 행 잠금 앞에 줄을 서지 않는다 (기다리는 발급 ${last}건)`);
+}
+
 // TS-08: 발급 요청이 쿠폰 행 잠금을 기다리며 DB 연결을 모두 쥐면 쿠폰과 무관한 조회까지 멈췄다
 test('쿠폰 발급이 잠금 앞에 줄 서 있어도 숙소 조회는 바로 응답한다', async () => {
   const couponId = await createCoupon(100);
@@ -67,7 +86,7 @@ test('쿠폰 발급이 잠금 앞에 줄 서 있어도 숙소 조회는 바로 �
   await locker.beginTransaction();
   await locker.query('SELECT id FROM coupons WHERE id = ? FOR UPDATE', [couponId]);
   const claims = Promise.all(tokens.map((token) => claim(token, couponId)));
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  await waitForQueuedClaims(locker, couponId);
   const read = await Promise.race([
     call('GET', `/hotels/${ctx.hotelId}`),
     new Promise<null>((resolve) => setTimeout(resolve, 2000, null)),
