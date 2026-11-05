@@ -15,6 +15,7 @@ TS-08부터는 [로컬 장애·부하 실험](../07-experiments.md)에서 나온
 | TS-06 | 변경·취소 마감이 6시간 일찍 막힘 | 마감을 UTC 0시로 계산 | 숙소 체크인 시각을 한국 시간 기준으로 계산 | [e3d5cab](https://github.com/yubin05/hotel-booking-aws-v2/commit/e3d5cab) |
 | TS-07 | v1 검색 버그 묶음 | 개수 계산 누락, 편의시설 필터 무시, 유형 2개 이상 선택 시 필터 해제 | 검색 조건 수정 | [ef50eb3](https://github.com/yubin05/hotel-booking-aws-v2/commit/ef50eb3) |
 | TS-08 | 쿠폰 오픈 순간 1,000명 요청에 무관한 숙소 조회 p95 3.9ms → 813ms | 잠금을 기다리는 발급 요청이 DB 연결 10개를 모두 점유 | 쿠폰 발급 전용 연결 2개로 분리(벌크헤드) → 133ms, 초과 발급 0 유지 | [e264570](https://github.com/yubin05/hotel-booking-aws-v2/commit/e264570), [TS-08](TS-08-coupon-pool-exhaustion.md) |
+| TS-09 | DB가 15초 멈추자 예약 요청이 최대 15.3초 매달림 | 빈 연결 대기와 쿼리에 시간 상한이 없음. mysql2 쿼리 timeout은 멈춘 연결을 풀에 돌려놓음 | DB 작업 하나에 3초 상한 + 멈춘 연결 폐기(503) → 최대 3.0초, 유실 0 | [b14bd57](https://github.com/yubin05/hotel-booking-aws-v2/commit/b14bd57), [TS-09](TS-09-db-hang-timeout.md) |
 
 TS-01~07은 위 한 줄과 커밋으로 충분합니다. 포트폴리오에서 특히 강조할 건만 아래 틀로 따로 풀어 씁니다.
 
