@@ -127,6 +127,15 @@ test('취소하면 행은 남고 상태만 바뀌며, 같은 날짜를 다시 �
   assert.equal((await book(token, day(0), day(3))).status, 201);
 });
 
+// E-02에서 남은 빈 밤(예: 13~15일과 16~18일 사이의 15일 밤)처럼, 퇴실하는 날은 다음 손님이 들어올 수 있다
+test('두 예약 사이에 남은 하룻밤은 1박으로 예약되고, 2박은 앞 예약과 겹쳐 거절된다', async () => {
+  const day = randomDays();
+  assert.equal((await book(await newUser(), day(0), day(2))).status, 201);
+  assert.equal((await book(await newUser(), day(3), day(5))).status, 201);
+  assert.equal((await book(await newUser(), day(1), day(3))).status, 409, '2박은 앞 예약의 둘째 밤과 겹친다');
+  assert.equal((await book(await newUser(), day(2), day(3))).status, 201, '빈 하룻밤은 1박으로 예약된다');
+});
+
 // 같은 계정의 연결은 권한 없이 보인다. 날짜로 거르는 이유: 다른 테스트 파일이 같은 DB에서 동시에 돈다
 async function waitForBlockedInserts(stayDate: string, count: number): Promise<void> {
   for (let i = 0; i < 250; i++) {
