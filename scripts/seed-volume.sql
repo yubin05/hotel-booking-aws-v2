@@ -6,6 +6,8 @@
 
 SET NAMES utf8mb4;
 SET SESSION cte_max_recursion_depth = 100001;
+-- 이미지는 시드와 같은 외부 URL(Unsplash) 11개를 돌려 쓴다. 응답 크기를 실제와 같게, 화면도 시드 숙소처럼 보이게
+SET @imgs = JSON_ARRAY("https://images.unsplash.com/photo-1445019980597-93fa8acb246c?w=800","https://images.unsplash.com/photo-1499793983690-e29da59ef1c2?w=800","https://images.unsplash.com/photo-1504280390367-361c6d9f38f4?w=800","https://images.unsplash.com/photo-1510798831971-661eb04b3739?w=800","https://images.unsplash.com/photo-1522202176988-66273c2fd55f?w=800","https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?w=800","https://images.unsplash.com/photo-1566073771259-6a8506099945?w=800","https://images.unsplash.com/photo-1571896349842-33c89424de2d?w=800","https://images.unsplash.com/photo-1578469645742-46cae010e5d4?w=800","https://images.unsplash.com/photo-1590490360182-c33d57733427?w=800","https://images.unsplash.com/photo-1598928506311-c55ded91a20c?w=800");
 
 CREATE TEMPORARY TABLE vol_seq (n INT PRIMARY KEY);
 INSERT INTO vol_seq (n)
@@ -27,7 +29,7 @@ SELECT CONCAT('vol-h-', LPAD(s.n, 4, '0')), '11111111-0000-0000-0000-00000000000
        CONCAT(c.city, ' 실험로 ', s.n), c.city, c.region,
        ELT(1 + s.n % 4, '["와이파이","주차장"]', '["와이파이","주차장","조식포함"]',
            '["와이파이","수영장","피트니스센터","레스토랑"]', '["와이파이","바베큐","주차장"]'),
-       '[]'
+       JSON_ARRAY(JSON_EXTRACT(@imgs, CONCAT('$[', s.n % 11, ']')), JSON_EXTRACT(@imgs, CONCAT('$[', (s.n + 4) % 11, ']')))
   FROM vol_seq s JOIN vol_city c ON s.n % 100 BETWEEN c.lo AND c.hi
  WHERE s.n <= 1000;
 
@@ -36,7 +38,8 @@ INSERT INTO rooms (id, hotel_id, name, description, type, capacity, price_per_ni
 SELECT CONCAT('vol-h-', LPAD(s.n, 4, '0'), '-r', k.k), CONCAT('vol-h-', LPAD(s.n, 4, '0')),
        ELT(k.k, '스탠다드', '디럭스', '스위트', '패밀리', '도미토리'), '부하 실험용 객실입니다.',
        ELT(k.k, 'standard', 'deluxe', 'suite', 'family', 'dormitory'), ELT(k.k, 2, 2, 4, 4, 1),
-       50000 + ((s.n * 37 + k.k * 11) % 250) * 1000, (s.n % 4) * 5, '[]', '[]'
+       50000 + ((s.n * 37 + k.k * 11) % 250) * 1000, (s.n % 4) * 5,
+       JSON_ARRAY(JSON_EXTRACT(@imgs, CONCAT('$[', (s.n + k.k) % 11, ']'))), '[]'
   FROM vol_seq s JOIN (SELECT 1 k UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5) k
  WHERE s.n <= 1000;
 
