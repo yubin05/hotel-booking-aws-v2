@@ -1,10 +1,11 @@
-import { book, call, ctx, newUser, randomDays, useServer } from './helpers';
+import { book, call, ctx, newUser, pool, randomDays, useServer } from './helpers';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import jwt from 'jsonwebtoken';
+import type { RowDataPacket } from 'mysql2';
 import { changeDeadline } from '../src/booking';
 
 useServer();
@@ -124,6 +125,41 @@ test('취소하면 행은 남고 상태만 바뀌며, 같은 날짜를 다시 �
   assert.equal((await call('DELETE', `/bookings/${created.body.data.id}`, { token })).status, 200);
   assert.equal((await call('GET', `/bookings/${created.body.data.id}`, { token })).body.data.status, 'cancelled');
   assert.equal((await book(token, day(0), day(3))).status, 201);
+});
+
+// 같은 계정의 연결은 권한 없이 보인다. 날짜로 거르는 이유: 다른 테스트 파일이 같은 DB에서 동시에 돈다
+async function waitForBlockedInserts(stayDate: string, count: number): Promise<void> {
+  for (let i = 0; i < 250; i++) {
+    const [rows] = await pool.query<RowDataPacket[]>('SHOW FULL PROCESSLIST');
+    const waiting = rows.filter((r) => String(r.Info ?? '').startsWith('INSERT INTO booking_nights') && r.Info.includes(stayDate));
+    if (waiting.length >= count) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`${stayDate} 예약 ${count}건이 취소의 잠금을 기다리지 않는다`);
+}
+
+// E-02 보강: 취소가 확정(커밋)되는 순간 그 날짜를 기다리던 예약들이 한꺼번에 풀려나면 서로 교착할 수 있다
+// (중복 키 검사의 공유 잠금, MySQL 문서의 INSERT 잠금 예시). 진 쪽도 서버 오류가 아니라 409를 받아야 한다
+test('취소가 확정되는 순간 같은 날짜를 기다리던 예약 2건은 1건 성공, 1건 409를 받는다', async () => {
+  const day = randomDays();
+  const created = await book(await newUser(), day(0), day(2));
+  assert.equal(created.status, 201);
+  const [b, c] = await Promise.all([newUser(), newUser()]);
+  // 취소 API는 순식간에 끝나 끼어들 틈이 없으므로, 취소와 같은 쿼리를 직접 열어 둔 채 두 예약을 기다리게 한다
+  const cancel = await pool.getConnection();
+  try {
+    await cancel.beginTransaction();
+    await cancel.query("UPDATE bookings SET status = 'cancelled' WHERE id = ?", [created.body.data.id]);
+    await cancel.query('DELETE FROM booking_nights WHERE booking_id = ?', [created.body.data.id]);
+    const racing = Promise.all([book(b, day(0), day(2)), book(c, day(0), day(2))]);
+    await waitForBlockedInserts(day(0), 2);
+    await cancel.commit();
+    const statuses = (await racing).map((r) => r.status).sort();
+    assert.deepEqual(statuses, [201, 409]);
+  } finally {
+    await cancel.rollback(); // 중간에 실패해도 잠금을 남기지 않는다 (커밋한 뒤에는 아무 일도 안 한다)
+    cancel.release();
+  }
 });
 
 test('변경·취소 마감은 숙소 체크인 시각(한국 시간)의 24시간 전이다', () => {
