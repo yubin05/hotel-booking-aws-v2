@@ -1,6 +1,7 @@
 // E-05 앱 강제 종료 후 재시도: 예약을 일정한 속도로 보내는 중에 앱을 강제 종료(SIGKILL)했다가 다시 띄운다 (docs/07-experiments.md)
 // 실패한 예약은 사용자가 다시 누르듯 같은 Idempotency-Key·같은 본문으로 1초 뒤 다시 보낸다
 // 실행: load/e05-app-kill.sh  (이 스크립트를 돌리면서 부하 시작 15초 뒤 앱을 죽이고 5초 뒤 다시 띄운다)
+// E-06(load/e06-graceful-stop.sh)도 같은 부하로 정상 종료를 본다
 import http from 'k6/http';
 import exec from 'k6/execution';
 import { check, sleep } from 'k6';
@@ -68,7 +69,7 @@ export function setup() {
   });
   const hotels = http.get(`${BASE}/api/hotels?limit=50`).json('data.hotels');
   const roomIds = hotels.flatMap((h) => http.get(`${BASE}/api/hotels/${h.id}`).json('data.rooms').map((r) => r.id));
-  // load/e05-app-kill.sh가 이 줄을 보고 부하 시작을 안다
+  // load/e05-app-kill.sh·e06-graceful-stop.sh가 이 줄을 보고 부하 시작을 안다
   console.log(`run=k6-${run} 사용자 ${tokens.length}명, 객실 ${roomIds.length}개`);
   return { run, tokens, roomIds };
 }
