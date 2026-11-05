@@ -40,9 +40,18 @@ app.use('/api', (_req, res) => {
 });
 
 // 화면 파일(HTML·CSS·JS)도 같은 컨테이너에서 내보낸다 (ADR-013)
-app.use(express.static(publicDir));
+// 캐시: 이름에 해시가 붙은 빌드 파일(assets/)은 내용이 바뀌면 이름도 바뀌므로 1년 보관하고,
+// 그 이름을 알려 주는 index.html은 매번 확인하게 한다. 지정하지 않으면 Express 기본값 max-age=0이라 CloudFront가 1초만 보관한다
+const NO_CACHE = 'no-cache';
+app.use(
+  express.static(publicDir, {
+    setHeaders: (res, file) =>
+      res.setHeader('Cache-Control', path.basename(path.dirname(file)) === 'assets' ? 'public, max-age=31536000, immutable' : NO_CACHE),
+  }),
+);
 // /hotels/:id 같은 화면 주소로 바로 들어와도 React 화면이 뜨도록 나머지 GET은 index.html로 보낸다
 app.get(/^(?!\/api\/).*/, (_req, res, next) => {
+  res.setHeader('Cache-Control', NO_CACHE);
   res.sendFile(path.join(publicDir, 'index.html'), (err) => {
     if (err) next();
   });
