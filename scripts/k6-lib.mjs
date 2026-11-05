@@ -4,8 +4,8 @@ import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { createGunzip } from 'node:zlib';
 
-// requests: 요청마다 { scenario, name, status, start, end, duration, blocked } (ms). start는 연결 대기(blocked)를 포함한 시작 시각
-// points: 그 밖의 지표 값 { 지표 이름: [{ time, value }] } (예: 스크립트가 만든 coupon_issued_at)
+// requests: 요청마다 { scenario, name, status, start, end, duration, blocked, tags } (ms). start는 연결 대기(blocked)를 포함한 시작 시각
+// points: 그 밖의 지표 값 { 지표 이름: [{ time, value, tags }] } (예: 스크립트가 만든 coupon_issued_at, checks의 tags.check)
 export async function readK6(file) {
   const byRequest = new Map();
   const points = {};
@@ -17,11 +17,11 @@ export async function readK6(file) {
       if (!tags.scenario) continue; // setup·teardown 요청은 뺀다
       // shortcut: 같은 요청의 지표를 끝난 시각(ns)으로 묶는다. 같은 ns에 끝난 두 요청은 합쳐지므로 쓰는 쪽에서 요청 수를 확인한다
       const key = `${time}|${tags.scenario}|${tags.name}`;
-      const r = byRequest.get(key) ?? { scenario: tags.scenario, name: tags.name, status: tags.status, end: Date.parse(time) };
+      const r = byRequest.get(key) ?? { scenario: tags.scenario, name: tags.name, status: tags.status, end: Date.parse(time), tags };
       r[p.metric === 'http_req_duration' ? 'duration' : 'blocked'] = value;
       byRequest.set(key, r);
     } else if (!p.metric.startsWith('http_')) {
-      (points[p.metric] ??= []).push({ time: Date.parse(time), value });
+      (points[p.metric] ??= []).push({ time: Date.parse(time), value, tags });
     }
   }
   const requests = [...byRequest.values()].map((r) => ({ ...r, start: r.end - r.blocked - r.duration }));

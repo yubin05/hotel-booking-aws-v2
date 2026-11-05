@@ -6,7 +6,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 script="$1"; shift
-name="${script%.js}-$(date +%Y%m%d-%H%M%S)"
+name="${NAME:-${script%.js}-$(date +%Y%m%d-%H%M%S)}" # NAME: 다른 스크립트가 결과 이름을 미리 정할 때 (E-04)
 mkdir -p results
 # Git Bash가 /load 같은 컨테이너 경로를 Windows 경로로 바꾸지 않게 한다
 export MSYS_NO_PATHCONV=1
