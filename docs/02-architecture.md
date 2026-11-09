@@ -2,29 +2,6 @@
 
 목표 구조와 그 이유를 정리합니다. 각 선택의 대안 비교는 [04 설계 결정 기록](04-decisions.md)에 있습니다. "확인 필요" 표시가 있는 내용은 구현 전에 공식 문서나 PoC로 확인합니다([03 진행 계획](03-plan.md#구현-전에-확인할-것)).
 
-## 한눈에 보기
-
-![v2 목표 아키텍처](diagrams/architecture-v2.png)
-
-원본은 [diagrams/architecture-v2.drawio](diagrams/architecture-v2.drawio)이고, 같은 구성을 글로 적으면 아래와 같습니다.
-
-```mermaid
-flowchart LR
-    user["사용자"] --> r53["Route 53"]
-    r53 --> cf["CloudFront + WAF"]
-    subgraph seoul["서울 리전 (운영)"]
-        alb["Internal ALB<br/>AZ 2개"]
-        ecs["ECS Fargate<br/>모듈러 모놀리스<br/>오토스케일링"]
-        rds[("RDS MySQL<br/>Multi-AZ")]
-        alb --> ecs --> rds
-    end
-    cf -- "VPC Origin" --> alb
-    subgraph tokyo["도쿄 리전 (평소에는 백업만)"]
-        bak[("복제된 백업")]
-    end
-    rds -. "리전 간 백업 복제" .-> bak
-```
-
 ## 1. 요청 경로
 
 ```

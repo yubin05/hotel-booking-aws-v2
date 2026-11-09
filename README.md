@@ -21,9 +21,22 @@ v2는 **요구사항 → 설계 → 실측** 순서로 진행합니다. 자세�
 
 ## 목표 아키텍처
 
-![v2 목표 아키텍처](docs/diagrams/architecture-v2.png)
-
-원본: [architecture-v2.drawio](docs/diagrams/architecture-v2.drawio) (draw.io)
+```mermaid
+flowchart LR
+    user["사용자"] --> r53["Route 53"]
+    r53 --> cf["CloudFront + WAF"]
+    subgraph seoul["서울 리전 (운영)"]
+        alb["Internal ALB<br/>AZ 2개"]
+        ecs["ECS Fargate<br/>모듈러 모놀리스<br/>오토스케일링"]
+        rds[("RDS MySQL<br/>Multi-AZ")]
+        alb --> ecs --> rds
+    end
+    cf -- "VPC Origin" --> alb
+    subgraph tokyo["도쿄 리전 (평소에는 백업만)"]
+        bak[("복제된 백업")]
+    end
+    rds -. "리전 간 백업 복제" .-> bak
+```
 
 | 대비하는 상황 | 방법 |
 |---|---|
