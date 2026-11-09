@@ -1,6 +1,6 @@
 # TS-08 쿠폰 오픈 순간, 쿠폰과 무관한 숙소 조회까지 0.8초로 느려짐
 
-- 날짜: 2026-11-04 / 관련 실험: [E-03](../07-experiments.md#실험-목록) / 커밋: [e264570](https://github.com/yubin05/hotel-booking-aws-v2/commit/e264570)
+- 날짜: 2026-11-04 / 관련 실험: [E-03](../experiments/E-03.md) / 커밋: [e264570](https://github.com/yubin05/hotel-booking-aws-v2/commit/e264570)
 
 ## 증상
 수량 100장 쿠폰에 1,000명이 같은 순간 발급을 요청하고, 그 앞뒤로 숙소 조회를 초당 100건씩 보냈습니다.

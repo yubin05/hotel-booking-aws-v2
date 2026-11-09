@@ -1,6 +1,6 @@
 # TS-09 DB가 15초 멈추자 예약 요청이 최대 15.3초 매달림
 
-- 날짜: 2026-11-05 / 관련 실험: [E-04](../07-experiments.md#실험-목록) / 커밋: [b14bd57](https://github.com/yubin05/hotel-booking-aws-v2/commit/b14bd57)
+- 날짜: 2026-11-05 / 관련 실험: [E-04](../experiments/E-04.md) / 커밋: [b14bd57](https://github.com/yubin05/hotel-booking-aws-v2/commit/b14bd57)
 
 ## 증상
 예약을 초당 10건 보내는 중에 DB를 15초 동안 멈췄습니다. `docker compose pause db`는 MySQL 프로세스만 얼리므로 연결은 열린 채 답만 오지 않습니다.
