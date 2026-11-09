@@ -55,7 +55,7 @@ v1([Project_TEAM_AWS](https://github.com/yubin05/Project_TEAM_AWS))은 4인 팀 
 |---|---|
 | 1. 데이터 동기화 | 멀티클라우드를 없앴다. 같은 리전 안은 Multi-AZ 동기 복제, 리전 간은 백업 복제이며 RPO는 실측값으로 제시한다 |
 | 2. DNS만 전환? | 다른 리전에 DB를 복원하고 로그인·예약 기능을 검증한 뒤에 전환한다. 전환은 CloudFront 원본 변경이고, RTO를 단계별로 실측한다 |
-| 3. Terraform 자동화 | 같은 `regional` 코드를 region 변수로 다른 리전에 적용하고, 복원과 검증을 스크립트로 묶는다 |
+| 3. Terraform 자동화 | 같은 `regional` 모듈을 리전별 루트(`seoul`, `tokyo`)에서 적용하고, 복원과 검증을 스크립트로 묶는다 |
 | 4. 데이터 되돌리기 | 쓰기 중지 → 덤프 → 원래 리전에 복원 → 검증 → 전환. 시간 순 UUID, `updated_at`, 삭제 대신 상태 변경으로 장애 직전 변경분을 대조한다 |
 
 ## 교훈

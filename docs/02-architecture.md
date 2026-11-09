@@ -140,10 +140,10 @@ terraform apply는 사람이 실행 (인프라 변경은 자동 적용하지 않
        RDS 백업과 ECR 이미지가 도쿄로 복제됨 (도쿄에 켜진 서버는 없음)
 
 장애   1. 서울 장애 확인 (모니터링 알림 + 사람의 판단)
-       2. infra/regional 을 region=도쿄로 apply (VPC, ALB, ECS)
+       2. infra/tokyo 를 apply (modules/regional 호출: VPC, ALB, ECS)
        3. 복제된 백업으로 도쿄에 RDS 시점 복원
        4. 기능 검증 (로그인, 예약 생성·변경·취소)
-       5. infra/global 의 active_region=도쿄로 apply
+       5. infra/global 의 active_region 값을 도쿄로 고쳐 apply
           → CloudFront 원본을 도쿄로 전환 (DNS는 그대로)
 
 복귀   1. 서울 복구 확인 → 서울 ECS 태스크를 0으로 (옛 DB에 쓰기 방지)

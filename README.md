@@ -138,7 +138,8 @@ app/                모듈러 모놀리스 API (인증·호텔·예약·쿠폰·
 infra/
   bootstrap/        Terraform state 버킷, GitHub OIDC 역할 (1회 적용)
   global/           Route 53, ACM, CloudFront, WAF
-  regional/         VPC, ALB, ECS, RDS, ECR (region 변수로 서울/도쿄 적용)
+  modules/regional/ VPC, ALB, ECS, RDS, ECR (서울·도쿄 공통)
+  seoul/ · tokyo/   리전별 루트: 리전·state 위치를 파일에 고정하고 modules/regional 호출
   legacy/           1단계 이전 환경 (IDC 역할)
 load/               k6 부하·장애 실험 (eNN-이름.js, 실행기 run-k6.sh)
 scripts/            이관·복원·드릴 스크립트

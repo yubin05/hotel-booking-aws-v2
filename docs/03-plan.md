@@ -35,7 +35,7 @@
 | 할 일 | 완료 기준 |
 |---|---|
 | `infra/bootstrap` (state 버킷, GitHub OIDC 역할, Budgets 알림) | 1회 적용 |
-| `infra/regional`, `infra/global` | [아키텍처](02-architecture.md) 구성 적용 |
+| `infra/modules/regional` + `infra/seoul`, `infra/global` ([ADR-011](04-decisions.md#adr-011)) | [아키텍처](02-architecture.md) 구성 적용 |
 | CD 워크플로 (ECR 푸시, 스키마 변경, ECS 배포) | main 병합 → 자동 배포 성공, 커밋부터 반영까지 시간 기록 |
 | 재현성 확인 | `destroy` 후 다시 `apply`해서 같은 상태로 복구 |
 | ECS 예약 스케일링 (이벤트 전 최소 태스크 수 상향) | 지정 시각에 태스크 수가 바뀌는지 확인 |
