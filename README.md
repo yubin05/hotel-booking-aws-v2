@@ -71,7 +71,11 @@ flowchart LR
 | 검증 | DNS 전환 테스트 위주 | 부하·장애·복원 실측 |
 | 월 고정 비용 (추정, 상시) | 약 $679 | 약 $155 ([09 비용 추정](docs/09-cost-estimate.md)) |
 
-각 선택의 근거와 검토한 대안은 [설계 결정 기록](docs/04-decisions.md)에 있습니다.
+## 설계 결정
+
+주요 선택마다 검토한 대안과 근거를 [설계 결정 기록](docs/04-decisions.md)에 남겼습니다.
+
+- [ECR 선택 이유 (vs Docker Hub)](docs/04-decisions.md#adr-020)
 
 ## 단계적 검증
 
