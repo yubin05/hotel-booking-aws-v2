@@ -11,7 +11,7 @@
       "Resource": "*"
     },
     {
-      "Sid": "LegacyNetworkAndNat",
+      "Sid": "LegacyResources",
       "Effect": "Allow",
       "Action": [
         "ec2:CreateVpc",
@@ -37,6 +37,8 @@
         "ec2:RevokeSecurityGroupIngress",
         "ec2:RevokeSecurityGroupEgress",
         "ec2:DeleteSecurityGroup",
+        "ec2:ImportKeyPair",
+        "ec2:DeleteKeyPair",
         "ec2:RunInstances",
         "ec2:ModifyInstanceAttribute",
         "ec2:TerminateInstances",
