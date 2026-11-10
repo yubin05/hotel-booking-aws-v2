@@ -1,3 +1,5 @@
+
+
 locals {
   availability_zone = "${var.region}${var.availability_zone_suffix}"
   public_key_path   = "~/.ssh/${var.key_name}.pub"
@@ -12,6 +14,12 @@ variable "availability_zone_suffix" {
   type    = string
   default = "a"
 }
+
+# 평소 그룹에 SSM 파라미터 읽기 권한이 있어야 함
+# 현재는 사용 안 함 - 해당 방식은 최신 AMI를 알아서 가리키므로 매번 APPLY할 때마다 리소스를 삭제하고 생성함
+# data "aws_ssm_parameter" "al2023_ami" {
+#   name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
+# }
 
 # AMI 이름·생성 날짜는 aws login 후 `aws ec2 describe-images --image-ids <ID> --query "Images[0].[Name,CreationDate]"`로 확인
 variable "al2023_ami_id" {
@@ -37,10 +45,10 @@ variable "subnet_cidr_2" {
   description = "프라이빗 서브넷 1 CIDR"
 }
 
-variable "nat_1_instance_type" {
+variable "ec2_instance_type" {
   type        = string
   default     = "t3.micro"
-  description = "NAT 인스턴스 1 CPU 타입"
+  description = "EC2 CPU 타입"
 }
 
 variable "key_name" {

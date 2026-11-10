@@ -1,14 +1,7 @@
-# 평소 그룹에 SSM 파라미터 읽기 권한이 있어야 함
-# 현재는 사용 안 함 - 해당 방식은 최신 AMI를 알아서 가리키므로 매번 APPLY할 때마다 리소스를 삭제하고 생성함
-# data "aws_ssm_parameter" "al2023_ami" {
-#   name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
-# }
-
 # NAT 인스턴스
 resource "aws_instance" "nat_instance_1" {
-  # ami = data.aws_ssm_parameter.al2023_ami.value
   ami           = var.al2023_ami_id
-  instance_type = var.nat_1_instance_type
+  instance_type = var.ec2_instance_type
   subnet_id     = aws_subnet.legacy_public_subnet_1.id
 
   vpc_security_group_ids = [
