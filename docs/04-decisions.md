@@ -256,7 +256,7 @@
   - SSM Parameter Store + 인스턴스 역할: 관리형 서비스라 IDC 재현([ADR-016](#adr-016))과 맞지 않는다. 평소 사용자에게 역할 생성·`iam:PassRole` 권한을 줘야 해서 최소 권한([ADR-018](#adr-018))과도 부딪힌다. 역할을 만들어 정책을 붙이고 EC2에 넘길 수 있으면 관리자 권한도 얻을 수 있다.
   - HTTPS: 도메인은 있지만 apply할 때마다 공인 IP가 바뀌어 DNS 레코드와 인증서를 매번 다시 맞춰야 한다. 탄력적 IP로 고정하면 꺼 둔 시간에도 요금이 든다.
 - **결정:**
-  - DB는 EC2에 Docker로 `mysql:8.4`를 띄우고, 스키마·시드는 로컬 docker-compose와 같은 initdb로 넣는다.
+  - DB는 EC2에 Docker로 `mysql:8.4`를 띄우고, 스키마·시드는 로컬 docker-compose와 같은 initdb로 넣는다. 부하 측정용 데이터(`scripts/seed-volume.sql`: 숙소 1,000 · 회원 2만 · 예약 10만 · 리뷰 5만)도 initdb 세 번째 파일로 매일 넣어, 1단계 기준선과 3단계 비교·덤프 이관이 같은 데이터 양에서 이뤄지게 한다.
   - user_data에는 설치처럼 비밀값이 없는 단계만 넣는다. 비밀값은 PC의 저장소 밖 파일에 두고 SSH로 서버에 보내(권한 600) `docker run --env-file`로 넘긴다. 매일 destroy하므로 서버에서 직접 입력하지 않는다. Terraform 변수·state에도 넣지 않는다.
   - 웹은 HTTP 80으로 받아 `docker run -p 80:3000`으로 앱에 넘긴다. 프론트가 앱 컨테이너 안에 있어([ADR-013](#adr-013)) 별도 웹 서버(nginx)는 두지 않는다.
   - 앱·DB EC2는 NAT와 같은 t3.micro(2 vCPU · 1GB)로 하고, 세 대가 타입 변수 하나를 같이 쓴다. 3단계 비교 대상(RDS db.t4g.micro 1GB, Fargate 태스크 1GB 가정)과 같은 메모리 급이고, v1의 IDC 역할 DB도 t3.micro였다([ADR-008](#adr-008)). 비용도 t3.small의 절반이다.
