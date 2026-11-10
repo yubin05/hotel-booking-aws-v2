@@ -43,6 +43,7 @@ resource "aws_instance" "db_instance_1" {
     set -euxo pipefail
 
     BASE=https://raw.githubusercontent.com/yubin05/hotel-booking-aws-v2/main/app/db
+    SCRIPT=https://raw.githubusercontent.com/yubin05/hotel-booking-aws-v2/main/scripts
     DIR=/opt/hotel-db/initdb
 
     # NAT 준비 대기: 처음부터 apply하면 NAT와 DB가 같이 만들어져서
@@ -56,10 +57,11 @@ resource "aws_instance" "db_instance_1" {
     dnf install -y docker
     systemctl enable --now docker
 
-    # 스키마·시드 받기: initdb가 이름 순서로 실행하므로 1-, 2- 를 붙임
+    # 스키마·시드 받기: initdb가 이름 순서로 실행하므로 1-, 2-, 3- 를 붙임
     mkdir -p "$DIR"
     curl -fsS -o "$DIR/1-schema.sql" "$BASE/schema.sql"
     curl -fsS -o "$DIR/2-seed.sql" "$BASE/seed.sql"
+    curl -fsS -o "$DIR/3-seed-volume.sql" "$SCRIPT/seed-volume.sql"
 
     # 이미지만 미리 받아 둠 (Docker Hub, NAT 경유). 실행은 비밀값이 필요해서 SSH로 따로
     docker pull mysql:8.4

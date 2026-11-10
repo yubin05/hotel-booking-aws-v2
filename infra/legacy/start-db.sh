@@ -38,7 +38,7 @@ trap 'rm -f ~/db.env' EXIT
 
 # user_data(도커 설치·SQL 받기)가 끝나기 전에 띄우면 -v가 빈 폴더를 만들어 테이블 없는 DB로 초기화됨
 cloud-init status --wait >/dev/null || { echo "user_data 실패: bash check-db.sh로 로그 확인" >&2; exit 1; }
-test -s /opt/hotel-db/initdb/2-seed.sql || { echo "SQL 파일 없음: bash check-db.sh로 확인" >&2; exit 1; }
+test -s /opt/hotel-db/initdb/3-seed-volume.sql ||{ echo "SQL 파일 없음: bash check-db.sh로 확인" >&2; exit 1; }
 
 sudo docker run -d --name hotel-db --restart unless-stopped \
   --env-file ~/db.env \
@@ -46,10 +46,12 @@ sudo docker run -d --name hotel-db --restart unless-stopped \
   -p 3306:3306 \
   mysql:8.4
 
-# initdb가 끝나고 실제 서버가 뜰 때까지 (임시 서버는 port: 0, X 플러그인은 port: 33060)
-for i in $(seq 60); do
+# initdb(스키마 → 시드 → seed-volume)가 끝나고 실제 서버가 뜰 때까지, 최대 10분
+# (임시 서버는 port: 0, X 플러그인은 port: 33060)
+echo "initdb 대기 (t3.micro에서 seed-volume은 몇 분 걸릴 수 있음)..."
+for i in $(seq 120); do
   sudo docker logs hotel-db 2>&1 | grep -q "port: 3306 " && break
-  sleep 3
+  sleep 5
 done
 sudo docker exec hotel-db sh -c 'mysql -uapp -p"$MYSQL_PASSWORD" --default-character-set=utf8mb4 hotel_booking -e "SELECT COUNT(*) AS hotels FROM hotels; SELECT name FROM hotels LIMIT 1;"' 2>/dev/null
 REMOTE
