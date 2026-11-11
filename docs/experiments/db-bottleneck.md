@@ -132,3 +132,24 @@ PC의 DB는 t3.micro보다 빨라서 CPU를 0.3코어로 묶어 DB가 먼저 꽉
 - **앱의 연결 유지 시간 늘리기**(Node `keepAliveTimeout`을 손님이 쉬는 시간보다 길게): 같은 연결을 다시 쓰면 새 연결 · 표 칸이 크게 준다. 3단계 ALB에도 필요한 설정이다 — AWS는 "앱의 idle timeout을 로드 밸런서의 idle timeout(기본 60초)보다 길게" 권장한다([ALB 속성](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/edit-load-balancer-attributes.html)).
 - 표 크기 늘리기(커널 설정)는 옛날 구조(IDC 그대로)의 서버 설정을 바꾸는 것이라 기준선 비교에는 쓰지 않는다.
 - 1,000명에서는 DB CPU도 88%라, 연결 문제를 풀면 다음 한계는 DB(검색 조회)일 가능성이 크다.
+
+## 7. 연결 유지 시간 늘리기 (keepAliveTimeout 5초 → 65초)
+
+[app.ts](../../app/src/app.ts) `listen()`: 운영과 테스트가 같은 함수로 서버를 띄우고 `server.keepAliveTimeout = 65_000`. 손님이 쉬는 시간(5~20초)과 3단계 ALB 유휴 시간(기본 60초)보다 길게 했다. AWS는 앱의 idle timeout을 로드 밸런서보다 길게 하라고 권장한다([ALB 속성](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/edit-load-balancer-attributes.html)). Node 24는 `keepAliveTimeout`(기본 5초) + `keepAliveTimeoutBuffer`(기본 1초) 뒤에 유휴 연결을 닫는다([Node 문서](https://nodejs.org/docs/latest-v24.x/api/http.html#serverkeepalivetimeout)).
+
+- 테스트([keep-alive.test.ts](../../app/test/keep-alive.test.ts)): 응답 뒤 8초 쉬고 다시 요청해도 같은 연결(같은 손님 쪽 포트)인지. 설정 줄을 지운 빌드로 먼저 돌려 **실패**(포트 37806 → 43550, 새 연결)를 확인하고, 수정 후 통과. 앱 테스트 30개 통과(CI 순서).
+- 로컬 k6 (DB 0.3코어, 500명 → 1,000명, `http_req_connecting > 0`인 요청 = 새로 연결한 요청):
+
+| | 수정 전 (추천 숙소만 고친 앱) | 수정 후 |
+|---|---|---|
+| 새로 연결한 요청 | **60,321 / 63,874건 (94.4%)** | **4,314 / 59,796건 (7.2%)** |
+| 실패 | 0% | 0% |
+| 1,000명 p95 | 318ms | 3.1초 |
+
+- 새 연결은 약 14분의 1로 줄었다. 옛날 구조에서 연결 추적 표를 채운 원인이 이것이라 AWS에서는 표가 덜 찰 것으로 본다(재측정으로 확인).
+- **1,000명 p95가 나빠진 것은 원인을 확정하지 못함.** 같은 시간에 DB 안의 실행 시간 자체가 느렸다: 검색 조회 평균 15ms → 69ms, COMMIT 15ms → 146ms(같은 호출 수). 연결 유지 시간은 DB 안의 조회 · 커밋 속도와 관계가 없어, DB를 새로 만든 상태(볼륨 삭제 후 재생성 · 데이터 재적재, 초기 캐시 차가움)나 PC의 다른 작업(디스크)의 영향으로 본다. 부하 없이 같은 검색 조회를 연속 실행하면 77ms → 20ms → 5ms로 캐시가 데워지며 빨라졌다. 깨끗한 비교는 AWS 재측정으로 한다.
+- 함정 기록: `docker update --cpus 0`으로는 CPU 제한이 풀리지 않는다(값이 그대로 남음, 직접 확인). 풀려면 Docker의 CPU 수로 다시 설정한다.
+
+### 다음
+
+- AWS 옛날 구조 재측정 1회(이미지 `cd919ac` 이후): 연결 추적 표가 덜 차는지(`app.snap`의 conntrack), 1,000명 이후 실패가 줄어드는지, 다음 한계가 DB(검색)인지.
