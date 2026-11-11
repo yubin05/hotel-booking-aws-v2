@@ -77,3 +77,15 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   console.error(err);
   res.status(500).json({ success: false, message: '서버 오류가 발생했습니다.' });
 });
+
+// 응답 뒤 다음 요청을 기다리며 연결을 열어 두는 시간(유휴 연결 유지). Node 기본 5초면 화면 사이에 5~20초 쉬는 손님이
+// 화면마다 새 연결을 맺어, 옛날 구조에서 앱 서버의 연결 추적 표(conntrack)가 가득 차 새 연결이 버려졌다(1.5단계).
+// 3단계 ALB의 유휴 시간(기본 60초)보다 길게 둔다: AWS는 앱의 idle timeout을 로드 밸런서보다 길게 하라고 권장한다
+export const KEEP_ALIVE_TIMEOUT_MS = 65_000;
+
+// 운영(server.ts)과 테스트가 같은 설정으로 서버를 띄운다
+export function listen(port: number) {
+  const server = app.listen(port);
+  server.keepAliveTimeout = KEEP_ALIVE_TIMEOUT_MS;
+  return server;
+}

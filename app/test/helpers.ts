@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before } from 'node:test';
-import { app } from '../src/app';
+import { listen } from '../src/app';
 import { couponPool, pool } from '../src/db';
 
 // 실제 MySQL이 필요하다: docker compose up -d db (테스트 전용 DB hotel_booking_test를 쓴다)
@@ -30,7 +30,7 @@ export async function call(method: string, path: string, { token, key, body }: C
 export function useServer(): void {
   let server: Server;
   before(async () => {
-    server = app.listen(0);
+    server = listen(0);
     await new Promise((resolve) => server.once('listening', resolve));
     ctx.base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api`;
     ctx.hotelId = (await call('GET', '/hotels?limit=1')).body.data.hotels[0].id;
