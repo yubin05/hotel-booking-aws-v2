@@ -7,7 +7,7 @@
 #   bash run-baseline.sh --stage 30s:5 --stage 10s:0   뒤에 붙인 k6 옵션으로 짧게 (스모크 점검, 이름에 -try)
 #   bash run-baseline.sh collect <이름>          SSH가 끊겼을 때: k6는 발생기에서 계속 도니, 끝난 뒤 결과만 가져온다
 #
-# 가져오는 것: k6.txt(터미널 출력·요약), <이름>.html(리포트), <이름>.json.gz(요청별 기록),
+# 가져오는 것: k6.txt(터미널 출력·요약), <이름>.html(리포트), <이름>.json.gz(요청별 기록), app·db.snap(30초마다 연결 상태),
 #              app·db·load.vmstat(5초마다 CPU·메모리, 시각은 UTC), containers.txt(앱·DB 재시작·메모리 부족 종료 여부),
 #              consistency.txt(정합성 검사, 첫 표의 bad가 모두 0이어야 함)
 set -euo pipefail
@@ -28,6 +28,7 @@ ON_APP=(ssh "ec2-user@$APP")
 ON_DB=(ssh -J "ec2-user@$APP" "ec2-user@$DB")
 ON_LOAD=(ssh "ec2-user@$LOAD")
 RESULTS=../../load/results
+STOP_SNAP='kill "$(cat ~/snap.pid 2>/dev/null)" 2>/dev/null; rm -f ~/snap.pid; cat ~/snap.log'
 
 collect() {
   local name=$1 out="$RESULTS/$1"
@@ -42,10 +43,13 @@ collect() {
   "${ON_APP[@]}" 'pkill vmstat; cat ~/vmstat.log' >"$out/app.vmstat" || true
   "${ON_DB[@]}" 'pkill vmstat; cat ~/vmstat.log' >"$out/db.vmstat" || true
   "${ON_LOAD[@]}" 'pkill vmstat; cat ~/vmstat.log' >"$out/load.vmstat" || true
+  "${ON_APP[@]}" "$STOP_SNAP" >"$out/app.snap" || true
+  "${ON_DB[@]}" "$STOP_SNAP" >"$out/db.snap" || true
   # 부하 중 앱·DB가 죽었다 다시 떴는지(재시작 횟수, 메모리 부족 종료)와 커널의 OOM 기록
   {
     echo "[app] 재시작 횟수 · OOMKilled"; "${ON_APP[@]}" "sudo docker inspect -f '{{.RestartCount}} {{.State.OOMKilled}}' hotel-app"
     "${ON_APP[@]}" "sudo dmesg -T | grep -iE 'out of memory|killed process' || echo '커널 OOM 기록 없음'"
+    "${ON_APP[@]}" "sudo dmesg -T | grep -i conntrack | tail -3 || echo '연결 추적 표(conntrack) 경고 없음'"
     echo "[db] 재시작 횟수 · OOMKilled"; "${ON_DB[@]}" "sudo docker inspect -f '{{.RestartCount}} {{.State.OOMKilled}}' hotel-db"
     "${ON_DB[@]}" "sudo dmesg -T | grep -iE 'out of memory|killed process' || echo '커널 OOM 기록 없음'"
   } >"$out/containers.txt" 2>&1
@@ -80,6 +84,12 @@ START_VMSTAT='pkill vmstat; nohup vmstat -t -S M 5 >~/vmstat.log 2>&1 </dev/null
 "${ON_APP[@]}" "$START_VMSTAT"
 "${ON_DB[@]}" "$START_VMSTAT"
 "${ON_LOAD[@]}" "$START_VMSTAT"
+
+# 30초마다 연결 상태 스냅샷(앱 입구 · DB 처리 목록). 무너지는 순간을 사람이 지켜보며 찍지 않아도 되게 한다
+# 프로세스 번호를 파일에 적어 두고 그 번호로 멈춘다 (pkill -f로 이름을 찾으면 같은 명령줄의 snap.sh 글자에 걸려 자기 자신을 죽임)
+START_SNAP='[ -f ~/snap.pid ] && kill "$(cat ~/snap.pid)" 2>/dev/null; chmod +x ~/snap.sh; nohup ~/snap.sh >~/snap.log 2>&1 </dev/null & echo $! >~/snap.pid'
+"${ON_APP[@]}" 'cat > ~/snap.sh' <snap-app.sh && "${ON_APP[@]}" "$START_SNAP"
+"${ON_DB[@]}" 'cat > ~/snap.sh' <snap-db.sh && "${ON_DB[@]}" "$START_SNAP"
 
 # k6는 발생기에서 따로 띄운다(-d): PC와의 SSH가 끊겨도 시험은 끝까지 간다.
 # --network host: 컨테이너 네트워크 변환 없이 발생기 네트워크를 그대로 씀. --user: 결과 폴더(ec2-user 소유)에 쓸 수 있게
