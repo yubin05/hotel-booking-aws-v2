@@ -97,14 +97,17 @@ hotelRouter.get('/cities', async (_req, res) => {
   res.json({ success: true, data: rows });
 });
 
-// 홈 화면의 추천 숙소: 평점순 8개 (v1과 같은 기준)
+// 홈 화면의 추천 숙소: 평점순 8개 (v1과 같은 기준, 같은 점수면 id순으로 고정)
+// 8개를 먼저 고르고 그 8개의 최저가만 계산한다. 예전에는 숙소 전체의 최저가를 계산한 뒤 8개만 남겨
+// 홈 한 번에 객실 5,000행을 읽었고, 부하 기준선에서 DB 시간의 약 60%였다 (docs/experiments/db-bottleneck.md)
 hotelRouter.get('/featured', async (_req, res) => {
   const [rows] = await pool.query<RowDataPacket[]>(`
-    SELECT h.*, MIN(r.price_per_night * (1 - r.discount_rate / 100)) AS min_price
-      FROM hotels h LEFT JOIN rooms r ON r.hotel_id = h.id AND r.is_available = 1
+    SELECT h.*,
+           (SELECT MIN(r.price_per_night * (1 - r.discount_rate / 100))
+              FROM rooms r WHERE r.hotel_id = h.id AND r.is_available = 1) AS min_price
+      FROM hotels h
      WHERE h.is_active = 1
-     GROUP BY h.id
-     ORDER BY h.rating DESC, h.review_count DESC
+     ORDER BY h.rating DESC, h.review_count DESC, h.id
      LIMIT 8`);
   res.json({ success: true, data: rows.map(toHotel) });
 });

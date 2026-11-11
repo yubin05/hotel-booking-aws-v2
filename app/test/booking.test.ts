@@ -33,6 +33,19 @@ test('API 응답은 응답한 서버를 X-Served-By 헤더로 알리고, 지역 
   assert.equal(featured.status, 200);
   assert.ok(featured.body.data.length > 0);
   assert.match(featured.body.data[0].name, /[가-힣]/, '시드의 한글이 깨지지 않아야 한다');
+  // 8개를 먼저 고르고 그 8개의 최저가만 붙여도, 숙소 전체를 묶어 계산하던 예전 조회와 결과가 같아야 한다 (1.5단계)
+  const [expected] = await pool.query<RowDataPacket[]>(`
+    SELECT h.id, MIN(r.price_per_night * (1 - r.discount_rate / 100)) AS min_price
+      FROM hotels h LEFT JOIN rooms r ON r.hotel_id = h.id AND r.is_available = 1
+     WHERE h.is_active = 1
+     GROUP BY h.id
+     ORDER BY h.rating DESC, h.review_count DESC, h.id
+     LIMIT 8`);
+  assert.equal(expected.length, 8, '시드 숙소가 8개 이상이어야 의미 있는 비교다');
+  assert.deepEqual(
+    featured.body.data.map((h: { id: string; min_price: string | null }) => [h.id, h.min_price]),
+    expected.map((h) => [h.id, h.min_price]),
+  );
 });
 
 test('편의시설은 고른 것을 모두 갖춘 숙소만, 숙소 유형은 고른 것 중 하나인 숙소를 찾는다', async () => {
