@@ -7,7 +7,9 @@ import { dirname, join } from 'node:path';
 import { pct, readK6 } from './k6-lib.mjs';
 
 const OK = ['200', '201', '409']; // 409(이미 예약된 날짜)는 정상 거절이라 에러로 세지 않는다 (baseline.js와 같음)
-const ERROR_LIMIT = 0.01; // 에러율 1%를 넘으면 무너짐
+// 무너짐: 에러율 1% 초과 또는 p95 1초 초과 (에러는 적어도 대부분이 오래 기다리면 버텼다고 하지 않는다)
+const ERROR_LIMIT = 0.01;
+const P95_LIMIT_MS = 1000;
 const MIN_FLOOR_SEC = 30;
 
 const file = process.argv[2];
@@ -65,9 +67,11 @@ const rows = floors.map((f) => {
     return `${h} CPU ${Math.round(avg)}%(최대 ${Math.max(...w.map((v) => v.busy))}, steal ${Math.max(...w.map((v) => v.steal))}) 여유 ${Math.min(...w.map((v) => v.freeMb))}MB`;
   });
   const rate = errors / inFloor.length;
+  const p95 = pct(waits, 0.95);
+  const why = [rate > ERROR_LIMIT && `에러율 ${(rate * 100).toFixed(1)}%`, p95 > P95_LIMIT_MS && `p95 ${fmtMs(p95)}`].filter(Boolean);
   return {
-    vus: f.vus, sec, n: inFloor.length, rps: inFloor.length / sec, rate, p95: pct(waits, 0.95), p99: pct(waits, 0.99),
-    slow: `${slowName} ${fmtMs(slowP95)}`, verdict: rate > ERROR_LIMIT ? '무너짐' : '버팀', server,
+    vus: f.vus, sec, n: inFloor.length, rps: inFloor.length / sec, rate, p95, p99: pct(waits, 0.99),
+    slow: `${slowName} ${fmtMs(slowP95)}`, verdict: why.length ? '무너짐' : '버팀', why, server,
   };
 });
 
@@ -84,7 +88,7 @@ const first = rows.findIndex((r) => r.verdict === '무너짐');
 console.log(
   first < 0
     ? `\n결론: 맨 위 ${rows.at(-1).vus}명 층까지 버팀 (한계는 그 위, 층을 더 얹어 다시 잰다)`
-    : `\n결론: ${first > 0 ? `${rows[first - 1].vus}명(초당 ${rows[first - 1].rps.toFixed(0)}건)까지 버팀, ` : ''}${rows[first].vus}명 층에서 에러율 ${(rows[first].rate * 100).toFixed(1)}%로 1% 초과`,
+    : `\n결론: ${first > 0 ? `${rows[first - 1].vus}명(초당 ${rows[first - 1].rps.toFixed(0)}건)까지 버팀, ` : ''}${rows[first].vus}명 층에서 무너짐 (${rows[first].why.join(', ')}. 기준: 에러율 1% · p95 1초)`,
 );
 const created = (points.bookings_created ?? []).reduce((s, p) => s + p.value, 0);
 console.log(`k6 예약 성공(bookings_created): ${created}건 → consistency.txt의 이 실행 예약 수와 같아야 함`);
