@@ -27,6 +27,7 @@
 | [021](#adr-021) | 이전 환경 서버는 빠르고 싸게: DB도 Docker, 비밀값은 SSH로, HTTP |
 | [022](#adr-022) | 이미지 태그는 커밋 SHA |
 | [023](#adr-023) | 부하 기준선 조건: 발생기는 퍼블릭 서브넷에서 앱 공인 IP로, t3는 unlimited 명시 |
+| [024](#adr-024) | 2단계 전에 DB 병목을 로컬에서 분석·개선한다 (1단계 기록은 그대로) |
 
 ---
 
@@ -289,3 +290,15 @@
 - **결정:** 발생기는 퍼블릭 서브넷에 두고 앱의 공인 IP(사용자가 들어오는 문)로 보낸다. 앱·DB·발생기 3대 모두 Terraform에 `credit_specification`을 unlimited로 적는다. 손님 행동(화면 사이 5~20초)은 E-01 그대로 두고 발생기를 키운다. 발생기 타입은 최종 시나리오를 로컬에서 100명으로 돌려 잰 VU당 메모리 × 필요한 VU 수로 고른다(k6 권장 방법). 넉넉한 타입(xlarge)을 재지 않고 고르는 것보다 시간당 최대 $0.16 아낀다.
 - **근거:** IDC 서버와 3단계 Fargate에는 크레딧 제한이 없어 기준선도 제한 없이 재야 비교가 맞다. T3는 기본이 unlimited지만 계정 기본값은 바꿀 수 있어 측정 조건을 코드에 남긴다.
 - **결과:** 크레딧을 다 쓴 뒤의 초과분은 vCPU-시간당 $0.05(Linux)이고 정지·종료할 때 정산된다. t3.micro 한 대가 1시간 내내 CPU 100%여도 약 $0.09(쓰는 120 − 버는 12 = 108크레딧 = 1.8 vCPU-시간)다. T3는 시작 크레딧이 없다. 크레딧 지표(`CPUCreditBalance`, `CPUSurplusCreditsCharged`)는 평소 사용자에 CloudWatch 권한이 없어 보지 않고, 방식만 `describe-instance-credit-specifications`로 확인한다. 발생기 크기는 비교 조건이 아니다(병목이 아니었음만 기록). VU당 메모리(2026-11-11 로컬, `baseline.js`를 100명 1분 → 200명 1분): k6 컨테이너 평균 71MiB → 98MiB. 차이로는 1명당 0.27MiB지만 k6가 최대 인원만큼 VU를 미리 만들어 두고 로컬 숙소가 10개라 응답이 작아 적게 나온 값이므로, 200명에 98MiB → 1명당 약 0.5MiB로 잡아 3,000명 ≈ 1.5GiB + OS·Docker → **발생기 t3.medium(4GiB)**. t3.small(2GiB)은 k6 권장 상한(메모리 90%) 근처라 버림. 3단계는 같은 시나리오라 VU당 메모리를 그대로 쓰고 필요한 VU 수만 다시 곱한다. 서울 t3 단가(2026-11-11 Price List API): micro $0.013 · small $0.026 · medium $0.052 · large $0.104 · xlarge $0.208/시간. 출처: [크레딧 기본 개념](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/burstable-credits-baseline-concepts.html), [unlimited 모드](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/burstable-performance-instances-unlimited-mode-concepts.html), [요금](https://aws.amazon.com/ec2/pricing/on-demand/)
+
+<a name="adr-024"></a>
+## ADR-024 2단계 전에 DB 병목을 로컬에서 분석·개선한다 (1단계 기록은 그대로)
+
+- **상황:** [1단계 기준선](experiments/baseline.md)에서 옛날 구조는 동시 접속 500명에서 DB CPU 91~93%로 먼저 한계였고(앱 18~21%), 1,000명부터는 DB · 앱이 한가한데 실패가 97~99%였으며, 실패로 받았는데 저장된 예약이 1건 있었다. 3단계 목표 구조의 ECS 오토스케일링은 앱 수만 늘리고, RDS for MySQL은 인스턴스 크기와 읽기 전용 복제본 수를 자동으로 바꾸지 않는다([인스턴스 수정](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ModifyInstance.Settings.html), [자동 확장은 저장 공간만](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_PIOPS.Autoscaling.html)).
+- **검토한 대안:**
+  - 그대로 2단계로: 같은 앱이라 RDS에서도 같은 병목과 무너지는 방식이 옮겨 가고, 3단계 비교에서 원인을 설명할 수 없다.
+  - 1단계 이전 환경을 고쳐 다시 재기: "IDC 그대로"인 기준선이 사라진다.
+  - RDS를 크게 잡아 해결: 원인이 비싼 조회라면 비용으로 덮는 것이고, 무너지는 방식(시간 초과 처리)은 그대로다.
+- **결정:** 2단계 전에 로컬에서(DB 컨테이너 CPU 제한 + seed-volume) 1단계의 모양을 재현해 원인을 찾고 앱을 고친다. 1단계 기록(옛 앱 + 옛 구조 = 500명)은 지우지 않는다. 고친 앱으로 같은 옛날 구조에서 한 번 더 재서 "앱 개선 효과"를 따로 남기고, 3단계는 고친 앱으로 비교해 "인프라 효과"만 남긴다.
+- **근거:** 한 번에 하나씩 바꿔야 무엇 덕분에 좋아졌는지 나눠 설명할 수 있다. 로컬은 비용이 없다.
+- **결과:** 03 진행 계획에 1.5단계가 생긴다. 로컬 PC는 t3.micro와 CPU가 달라 숫자가 아니라 모양(DB 포화, 무너지는 방식)을 재현한다. 옛날 구조 재측정에 AWS 1회(약 $0.3)가 든다.
