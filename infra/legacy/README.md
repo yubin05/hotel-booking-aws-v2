@@ -95,6 +95,7 @@ terraform destroy; date                        # 19개 삭제
 | 진행 중 | `running (12m30s), 1000/3000 VUs …`: 지난 시간 · 지금 손님 수 |
 | 끝 | k6 요약 표 → `결과: load/results/<이름>/` → 정합성 검사 표(첫 표의 bad가 모두 0) |
 
+- 결과 폴더의 `app.snap` · `db.snap`: 30초마다 남긴 앱 입구(연결 대기 줄 · 연결 추적 표)와 DB 처리 목록. 무너지는 순간을 지켜보지 않아도 된다
 - 정리: `node scripts/baseline-report.mjs load/results/<이름>/<이름>.json.gz` (저장소 루트에서) → 층별 표와 "N명까지 버팀" 한 줄
 - 발생기에 처음 접속할 때 지문을 물으면 `yes`.
 - Ctrl+C를 누르거나 인터넷이 끊겨도 시험은 발생기에서 계속 돕니다. 37분이 지난 뒤 `bash run-baseline.sh collect <이름>`으로 결과만 가져옵니다.

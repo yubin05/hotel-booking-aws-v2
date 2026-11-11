@@ -100,6 +100,8 @@
 
 ### 남은 일: 1,000명 이후 원인 진단
 
+**2026-11-11 이후: 아래 수동 명령 대신 [run-baseline.sh](../../infra/legacy/run-baseline.sh)가 30초마다 자동으로 남긴다(`app.snap` · `db.snap`). 고친 앱으로 재측정할 때 확인한다([1.5단계](db-bottleneck.md)).**
+
 3회차에서 찍기로 했지만 실시간으로 볼 사람이 없어 찍지 못했다. 1단계 완료 기준(무너지는 지점의 처리량 · p95)과는 별개라, 다음에 1,000명만 유지하는 짧은 진단(`bash run-baseline.sh --stage 1m:1000 --stage 10m:1000 --stage 30s:0`, 약 12분)으로 확인한다. 시작하고 **3~10분 사이** 다른 Git Bash 창에서(먼저 `eval "$(ssh-agent -s)"; ssh-add ~/.ssh/hotel-legacy`):
 
 ```bash
