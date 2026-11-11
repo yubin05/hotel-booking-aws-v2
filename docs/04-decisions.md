@@ -25,6 +25,8 @@
 | [019](#adr-019) | k6 부하는 서울 리전 EC2에서 |
 | [020](#adr-020) | 이미지 저장소: Docker Hub 대신 ECR |
 | [021](#adr-021) | 이전 환경 서버는 빠르고 싸게: DB도 Docker, 비밀값은 SSH로, HTTP |
+| [022](#adr-022) | 이미지 태그는 커밋 SHA |
+| [023](#adr-023) | 부하 기준선 조건: 발생기는 퍼블릭 서브넷에서 앱 공인 IP로, t3는 unlimited 명시 |
 
 ---
 
@@ -274,3 +276,16 @@
 - **결정:** 태그는 짧은 커밋 SHA(`git rev-parse --short HEAD`)로 한다. 빌드 범위인 `app` 폴더에 커밋하지 않은 변경이 없을 때만 빌드한다(`git status --short app`가 비어 있음). [start-app.sh](../infra/legacy/start-app.sh)는 태그를 인자로 받고 `run` 전에 `pull`한다.
 - **근거:** 이미지와 커밋이 1:1로 이어져 롤백(이전 SHA로 다시 배포), 원인 추적(두 SHA 사이 `git diff`), 라이브러리 취약점 영향 판단(그 커밋의 `package-lock.json`)이 된다. 2026-11-11 예약 화면 버그를 고친 커밋 `62702e2`를 새 태그로 다시 배포했고, 브라우저가 받는 JS 파일명이 바뀐 것으로 새 이미지가 뜬 것을 확인했다.
 - **결과:** 태그 이름은 변조를 막지 못한다. SHA 태그도 쓰기 권한이 있으면 같은 이름으로 덮어쓸 수 있고, 공개 저장소는 태그 목록이 보여 SHA를 숨길 수도 없다. 막는 것은 쓰기 토큰 관리, 태그 불변 설정, 다이제스트(`@sha256:`) 고정이다. Docker Hub 개인 액세스 토큰은 저장소 하나로 범위를 좁힐 수 없어 계정의 모든 저장소에 쓰기 권한을 준다. 2단계 ECR에서는 장기 토큰 없이(OIDC) 올리고, 태그 불변 설정은 그때 정한다.
+
+<a name="adr-023"></a>
+## ADR-023 부하 기준선 조건: 발생기는 퍼블릭 서브넷에서 앱 공인 IP로, t3는 unlimited 명시
+
+- **상황:** 1단계 기준선([ADR-019](#adr-019))을 3단계 목표 구조와 비교한다. 서버는 모두 t3.micro이고, 프라이빗 서브넷의 인터넷 출구는 NAT 인스턴스(t3.micro) 1대다. 3단계 앱은 ECS 태스크 여러 개라 사설 IP가 뜰 때마다 바뀌고, 사용자는 CloudFront로만 들어온다.
+- **검토한 대안:**
+  - 발생기를 프라이빗 서브넷에: 부하 전부가 NAT t3.micro를 지나가 앱이 아니라 NAT의 한계를 잴 수 있다.
+  - 앱 사설 IP로 보내기: 1단계만 내부 통로로 재면 3단계(CloudFront)와 들어가는 문이 달라진다.
+  - t3 standard: 추가 요금은 없지만 크레딧이 바닥나면 CPU가 기준 사용률(t3.micro vCPU당 10%)로 내려가, 시험을 몇 분 돌렸느냐에 따라 한계가 달라진다(앱이 아니라 크레딧 잔고를 잰다).
+  - 화면 사이 고민 시간을 줄여(예: 6초 → 0.6초) 적은 VU로 같은 초당 요청 만들기: 발생기는 t3.micro로 충분하지만, 서버가 쥐는 연결 수가 실제보다 적고(VU마다 연결 하나) 결과를 동시 접속자 수로 말할 수 없다.
+- **결정:** 발생기는 퍼블릭 서브넷에 두고 앱의 공인 IP(사용자가 들어오는 문)로 보낸다. 앱·DB·발생기 3대 모두 Terraform에 `credit_specification`을 unlimited로 적는다. 손님 행동(화면 사이 5~20초)은 E-01 그대로 두고 발생기를 키운다. 발생기 타입은 최종 시나리오를 로컬에서 100명으로 돌려 잰 VU당 메모리 × 필요한 VU 수로 고른다(k6 권장 방법). 넉넉한 타입(xlarge)을 재지 않고 고르는 것보다 시간당 최대 $0.16 아낀다.
+- **근거:** IDC 서버와 3단계 Fargate에는 크레딧 제한이 없어 기준선도 제한 없이 재야 비교가 맞다. T3는 기본이 unlimited지만 계정 기본값은 바꿀 수 있어 측정 조건을 코드에 남긴다.
+- **결과:** 크레딧을 다 쓴 뒤의 초과분은 vCPU-시간당 $0.05(Linux)이고 정지·종료할 때 정산된다. t3.micro 한 대가 1시간 내내 CPU 100%여도 약 $0.09(쓰는 120 − 버는 12 = 108크레딧 = 1.8 vCPU-시간)다. T3는 시작 크레딧이 없다. 크레딧 지표(`CPUCreditBalance`, `CPUSurplusCreditsCharged`)는 평소 사용자에 CloudWatch 권한이 없어 보지 않고, 방식만 `describe-instance-credit-specifications`로 확인한다. 발생기 크기는 비교 조건이 아니다(병목이 아니었음만 기록). 3단계는 같은 시나리오라 VU당 메모리를 그대로 쓰고 필요한 VU 수만 다시 곱한다. 서울 t3 단가(2026-11-11 Price List API): micro $0.013 · small $0.026 · medium $0.052 · large $0.104 · xlarge $0.208/시간. 출처: [크레딧 기본 개념](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/burstable-credits-baseline-concepts.html), [unlimited 모드](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/burstable-performance-instances-unlimited-mode-concepts.html), [요금](https://aws.amazon.com/ec2/pricing/on-demand/)

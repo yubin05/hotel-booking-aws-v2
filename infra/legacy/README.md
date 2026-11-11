@@ -3,7 +3,8 @@
 IDC 역할을 하는 이전 환경을 서울 리전에 만들고, 앱을 띄워 브라우저로 확인한 뒤 지우는 순서입니다. 설계 근거는 [ADR-016](../../docs/04-decisions.md#adr-016) · [ADR-021](../../docs/04-decisions.md#adr-021)에 있습니다.
 
 - 만드는 것(17개): VPC · 서브넷 · NAT 인스턴스, 웹+앱 EC2(퍼블릭 서브넷), MySQL EC2(프라이빗 서브넷), 보안 그룹 2개, 키 페어. 서버 3대 모두 t3.micro
-- 비용: 켜 둔 동안 시간당 약 $0.049. **작업이 끝나면 반드시 `terraform destroy`**
+- 부하 시험 날만: 부하 발생기 EC2(퍼블릭 서브넷) + 보안 그룹 → 19개. `-var is_load_test=true`로 켜고, 변수 없이 `terraform apply`하면 발생기만 지웁니다([ADR-023](../../docs/04-decisions.md#adr-023))
+- 비용: 켜 둔 동안 시간당 약 $0.049. 발생기를 켜면 약 $0.018 추가(t3.micro일 때). **작업이 끝나면 반드시 `terraform destroy`**
 
 ## 처음 한 번 (새 PC 준비)
 
@@ -55,7 +56,7 @@ aws login
 aws sts get-caller-identity          # Arn에 :user/ 가 보여야 평소 권한 (관리자 역할이면 :assumed-role/)
 eval "$(ssh-agent -s)"; ssh-add ~/.ssh/hotel-legacy   # Git Bash 창마다
 
-date; terraform apply                # 17개 추가
+date; terraform apply                # 17개 추가 (부하 시험 날: terraform apply -var is_load_test=true → 19개)
 bash start-db.sh                     # 끝에 hotels 1010이 나오면 DB 준비 완료
 bash start-app.sh yubin05/hotel-booking-aws-v2:<태그>   # 끝에 {"status":"ok","db":"ok"}와 브라우저 주소
 ```
