@@ -6,6 +6,8 @@
 
 > **현재 상태: 0단계 완료(앱·CI, 로컬 장애·부하 실험 6개, 비용 추정). 1단계 진행 중: AWS 이전 환경(웹+앱 · MySQL · NAT EC2 3대)을 Terraform으로 만들고 앱 배포까지 확인, 다음은 부하 기준선(k6).** 측정값이 기록된 항목만 "검증했다"고 표기합니다.
 
+**▶ [새 PC에서 1단계 AWS 이전 환경 올리기](infra/legacy/README.md)** · 준비물 → 매일 올리기 · 확인 → 지우기를 한 페이지에
+
 ## 핵심 내용
 
 - v1 회고 — 실제 문제(트래픽 폭증)와 맞지 않던 멀티클라우드 DR을 Multi-AZ + 오토스케일링 + 리전 간 백업으로 단순화
@@ -129,6 +131,7 @@ cd app && npm ci && npm test   # 테스트는 같은 MySQL의 테스트 전용 D
 | [트러블슈팅](docs/troubleshooting/README.md) | 재현 → 원인 → 해결 → 검증 기록 |
 | [08 실제 사례 조사](docs/08-real-cases.md) | 시나리오·결정의 근거가 된 실제 기업 사례와 신뢰도 |
 | [09 비용 추정](docs/09-cost-estimate.md) | v1·v2 월 고정 비용, 단계별 예상, Budgets 금액 |
+| [1단계 이전 환경 올리기](infra/legacy/README.md) | 새 PC 준비, 매일 apply → 앱 배포 → destroy 명령 |
 
 ## 저장소 구조 (예정)
 
