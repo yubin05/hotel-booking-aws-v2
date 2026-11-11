@@ -27,7 +27,11 @@ export function BookingPage() {
   const [requests, setRequests] = useState('');
   const [busy, setBusy] = useState(false);
   // 입력이 같으면 같은 멱등키: 버튼을 여러 번 눌러도 예약은 한 건만 생긴다
-  const idempotencyKey = useMemo(() => crypto.randomUUID(), [roomId, checkIn, checkOut, guests, couponId]);
+  // crypto.randomUUID는 HTTPS·localhost(보안 컨텍스트)에서만 있어 1단계 HTTP에서 화면이 멈췄다. getRandomValues는 HTTP에서도 된다
+  const idempotencyKey = useMemo(
+    () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join(''),
+    [roomId, checkIn, checkOut, guests, couponId],
+  );
 
   if (!user) return <LoginRequired onLogin={openAuth} message="로그인하면 예약하고 쿠폰을 쓸 수 있어요." />;
   if (hotel.loading && !hotel.data) return <Loading />;
