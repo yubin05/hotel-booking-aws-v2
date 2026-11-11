@@ -102,6 +102,21 @@ export interface User {
   role: string;
 }
 
+// 시간 초과(503) · 게이트웨이 오류 · 연결 실패는 "실패"가 아니라 "결과를 모름"이다. 서버가 이미 저장했을 수 있다
+// (1.5단계: 부하 중 실패로 받았는데 저장된 예약). 같은 멱등키로 다시 보내면 서버가 이미 만든 예약을 돌려주므로,
+// 이런 경우에만 잠깐 쉬고 다시 보낸다. 409(이미 예약된 날짜) 같은 확실한 거절은 다시 보내지 않는다
+export async function withRetry<T>(send: () => Promise<T>, waitsMs = [1000, 2000]): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await send();
+    } catch (err) {
+      const unknown = !(err instanceof ApiError) || [502, 503, 504].includes(err.status);
+      if (!unknown || attempt >= waitsMs.length) throw err;
+      await new Promise((resolve) => setTimeout(resolve, waitsMs[attempt]));
+    }
+  }
+}
+
 export class ApiError extends Error {
   readonly status: number;
 

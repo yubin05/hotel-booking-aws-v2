@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
-import { api, useApi, type HotelDetail, type MyCoupon } from '../api';
+import { api, useApi, withRetry, type HotelDetail, type MyCoupon } from '../api';
 import { useAuth } from '../auth';
 import { DateRangeField } from '../components/DateRangeField';
 import { GuestsField } from '../components/GuestsField';
@@ -57,18 +57,20 @@ export function BookingPage() {
   async function submit() {
     setBusy(true);
     try {
-      await api('/bookings', {
-        method: 'POST',
-        idempotencyKey,
-        body: {
-          room_id: roomId,
-          check_in_date: checkIn,
-          check_out_date: checkOut,
-          guests,
-          special_requests: requests.trim() || undefined,
-          user_coupon_id: couponId || undefined,
-        },
-      });
+      await withRetry(() =>
+        api('/bookings', {
+          method: 'POST',
+          idempotencyKey,
+          body: {
+            room_id: roomId,
+            check_in_date: checkIn,
+            check_out_date: checkOut,
+            guests,
+            special_requests: requests.trim() || undefined,
+            user_coupon_id: couponId || undefined,
+          },
+        }),
+      );
       toast('예약이 완료되었습니다!', 'success');
       navigate('/me/bookings');
     } catch (err) {
