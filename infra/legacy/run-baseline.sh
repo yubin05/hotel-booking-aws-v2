@@ -37,6 +37,9 @@ collect() {
     exit 1
   fi
   mkdir -p "$out"
+  # 시험 직후에는 앱 서버의 연결 추적 표가 아직 차 있어 SSH 새 연결도 버려질 수 있다(1.5단계: db.vmstat를 못 가져옴).
+  # 닫힌 연결 기록은 120초 뒤 사라지므로 앱·DB에 접속될 때까지 최대 약 3분 기다린다
+  for i in $(seq 12); do ssh -o ConnectTimeout=10 "ec2-user@$APP" true 2>/dev/null && ssh -o ConnectTimeout=10 -J "ec2-user@$APP" "ec2-user@$DB" true 2>/dev/null && break; echo "서버 접속 대기 중 ($i/12)" >&2; sleep 15; done
   "${ON_LOAD[@]}" 'sudo docker logs k6' >"$out/k6.txt" 2>&1
   scp -q "ec2-user@$LOAD:load/results/$name.*" "$out/"
   # 기록을 멈추고 가져온다 (pkill은 이미 멈췄으면 실패하므로 무시)
