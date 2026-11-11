@@ -1,5 +1,3 @@
-
-
 locals {
   availability_zone = "${var.region}${var.availability_zone_suffix}"
   public_key_path   = "~/.ssh/${var.key_name}.pub"
@@ -48,7 +46,7 @@ variable "subnet_cidr_2" {
 variable "ec2_instance_type" {
   type        = string
   default     = "t3.micro"
-  description = "EC2 CPU 타입"
+  description = "EC2 인스턴스 타입"
 }
 
 variable "key_name" {
@@ -59,4 +57,16 @@ variable "key_name" {
 variable "web_app_ssh_ingress_cidrs" {
   type        = list(string)
   description = "웹 앱 보안 그룹 CIDRs"
+}
+
+variable "is_load_test" {
+  type        = bool
+  default     = false
+  description = "부하 발생기 생성 여부"
+}
+variable "load_test_instance_type" {
+  type = string
+  # 추후 메모리 결정 후 수정 필요
+  default     = "t3.micro"
+  description = "부하 발생기 인스턴스 타입 (vCPU·메모리 세트)."
 }

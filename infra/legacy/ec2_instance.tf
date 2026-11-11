@@ -20,6 +20,10 @@ resource "aws_instance" "web_instance_1" {
     systemctl enable --now docker
   EOF
 
+  credit_specification {
+    cpu_credits = "unlimited"
+  }
+
   tags = {
     "Name" = "legacy-web_instance_1"
   }
@@ -66,6 +70,10 @@ resource "aws_instance" "db_instance_1" {
     # 이미지만 미리 받아 둠 (Docker Hub, NAT 경유). 실행은 비밀값이 필요해서 SSH로 따로
     docker pull mysql:8.4
   EOF
+
+  credit_specification {
+    cpu_credits = "unlimited"
+  }
 
   depends_on = [
     aws_instance.nat_instance_1
