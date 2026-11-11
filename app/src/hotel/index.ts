@@ -64,21 +64,23 @@ hotelRouter.get(['/', '/search'], async (req, res) => {
   if (q.min_price) { having.push('min_price >= ?'); params.push(Number(q.min_price)); }
   if (q.max_price) { having.push('min_price <= ?'); params.push(Number(q.max_price)); }
 
-  const base = `
-    SELECT h.*, MIN(r.price_per_night * (1 - r.discount_rate / 100)) AS min_price
-      FROM hotels h LEFT JOIN rooms r ON r.hotel_id = h.id AND r.is_available = 1
-     WHERE ${where.join(' AND ')}
-     GROUP BY h.id
-     ${having.length ? `HAVING ${having.join(' AND ')}` : ''}`;
+  // 최저가는 하위 조회로 계산해, 정렬·가격 조건에 필요하지 않으면 보여 줄 숙소(LIMIT 뒤)에만 계산되게 한다.
+  // 예전에는 조건에 맞는 숙소 전부(예: 제주 202개)의 최저가를 객실과 묶어 계산한 뒤 12개만 남겼다 (1.5단계, 추천 숙소와 같은 모양)
+  const minPrice = '(SELECT MIN(r.price_per_night * (1 - r.discount_rate / 100)) FROM rooms r WHERE r.hotel_id = h.id AND r.is_available = 1)';
+  const filtered = `FROM hotels h WHERE ${where.join(' AND ')}`;
+  const havingSql = having.length ? `HAVING ${having.join(' AND ')}` : '';
   const order = ORDER_BY[q.sort_by ?? ''] ?? ORDER_BY.popular;
 
-  const [rows] = await pool.query<RowDataPacket[]>(`${base} ORDER BY ${order} LIMIT ? OFFSET ?`, [
-    ...params,
-    limit,
-    (page - 1) * limit,
-  ]);
-  // 목록과 같은 조건으로 개수를 센다 (v1은 인원·가격 조건을 빼고 세서 페이지 수가 틀렸다)
-  const [[{ total }]] = await pool.query<RowDataPacket[]>(`SELECT COUNT(*) AS total FROM (${base}) t`, params);
+  // 같은 점수면 id순으로 고정해 페이지를 넘겨도 숙소가 겹치거나 빠지지 않게 한다
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT h.*, ${minPrice} AS min_price ${filtered} ${havingSql} ORDER BY ${order}, h.id LIMIT ? OFFSET ?`,
+    [...params, limit, (page - 1) * limit],
+  );
+  // 목록과 같은 조건으로 개수를 센다 (v1은 인원·가격 조건을 빼고 세서 페이지 수가 틀렸다). 가격 조건이 없으면 최저가는 필요 없다
+  const countSql = having.length
+    ? `SELECT COUNT(*) AS total FROM (SELECT h.id, ${minPrice} AS min_price ${filtered} ${havingSql}) t`
+    : `SELECT COUNT(*) AS total ${filtered}`;
+  const [[{ total }]] = await pool.query<RowDataPacket[]>(countSql, params);
 
   res.json({
     success: true,

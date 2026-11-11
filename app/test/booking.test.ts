@@ -48,6 +48,34 @@ test('API 응답은 응답한 서버를 X-Served-By 헤더로 알리고, 지역 
   );
 });
 
+test('검색은 최저가를 보여 줄 숙소에만 계산해도, 숙소 전체를 묶어 계산하던 예전 조회와 목록·순서·개수가 같다 (1.5단계)', async () => {
+  const guests = 'h.id IN (SELECT hotel_id FROM rooms WHERE capacity >= 2 AND is_available = 1)';
+  const cases = [
+    { qs: 'limit=3&page=2&guests=2', where: guests, having: '', order: 'h.review_count DESC, h.rating DESC', offset: 3 },
+    { qs: `limit=3&page=1&guests=2&city=${encodeURIComponent('제주')}`, where: `${guests} AND h.city LIKE '%제주%'`, having: '', order: 'h.review_count DESC, h.rating DESC', offset: 0 },
+    { qs: 'limit=3&page=1&sort_by=price_asc&min_price=65000', where: '1 = 1', having: 'HAVING min_price >= 65000', order: 'min_price ASC', offset: 0 },
+    { qs: 'limit=3&page=2&sort_by=rating&max_price=80000', where: '1 = 1', having: 'HAVING min_price <= 80000', order: 'h.rating DESC', offset: 3 },
+  ];
+  for (const c of cases) {
+    const old = `
+      SELECT h.id, MIN(r.price_per_night * (1 - r.discount_rate / 100)) AS min_price
+        FROM hotels h LEFT JOIN rooms r ON r.hotel_id = h.id AND r.is_available = 1
+       WHERE h.is_active = 1 AND ${c.where}
+       GROUP BY h.id ${c.having}`;
+    const [expected] = await pool.query<RowDataPacket[]>(`${old} ORDER BY ${c.order}, h.id LIMIT 3 OFFSET ${c.offset}`);
+    const [[{ total }]] = await pool.query<RowDataPacket[]>(`SELECT COUNT(*) AS total FROM (${old}) t`);
+    const res = await call('GET', `/hotels?${c.qs}`);
+    assert.equal(res.status, 200, c.qs);
+    assert.ok(expected.length > 0, `비교할 숙소가 있어야 의미 있는 테스트다: ${c.qs}`);
+    assert.deepEqual(
+      res.body.data.hotels.map((h: { id: string; min_price: string | null }) => [h.id, h.min_price]),
+      expected.map((h) => [h.id, h.min_price]),
+      c.qs,
+    );
+    assert.equal(res.body.data.pagination.total, total, c.qs);
+  }
+});
+
 test('편의시설은 고른 것을 모두 갖춘 숙소만, 숙소 유형은 고른 것 중 하나인 숙소를 찾는다', async () => {
   const all = (await call('GET', '/hotels?limit=50')).body.data.hotels;
   const picked = ['수영장', '조식포함'];
