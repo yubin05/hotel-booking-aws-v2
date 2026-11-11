@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 684" width="640" height="684" role="img" aria-labelledby="t d" font-family="-apple-system, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', sans-serif">
 <title id="t">단계적 검증: 로컬에서 앱 결함을 먼저 없애고 AWS에서는 로컬에서 재현할 수 없는 것만 잰다</title>
-<desc id="d">0 로컬 (docker compose)($0, 완료): 앱 결함: 이중 예약 · 쿠폰 교착 · 멱등키 · 종료 처리 · DB 재연결, 로컬 실험 6개, 문제 2건 찾아 수정 / 1 AWS 이전 환경 (EC2 · IDC 역할)(약 $10, 진행 중): 이관 전 기준선: 에러율 1%를 넘는 지점의 처리량 · p95 / 2 AWS 목표 인프라 (Terraform + CD)(약 $42, 예정): 배포 자동화, destroy 뒤 다시 apply로 같은 상태 재현 / 3 목표 인프라 + 덤프 이관($42 + 부하, 예정): 이관 중단 시간, 같은 부하로 이전 · 이후 비교, 오토스케일링, 쿠폰 오픈 재측정 / 4 목표 인프라 장애 테스트($42 + Multi-AZ, 예정): 로컬에서 못 보는 장애: RDS 장애 조치, 태스크 교체, 깨진 배포의 자동 롤백 / 5 서울 + 도쿄 리전(+ 드릴 시간, 예정): 리전 복원 드릴의 실측 RTO · RPO, Failback</desc>
+<desc id="d">0 로컬 (docker compose)($0, 완료): 앱 결함: 이중 예약 · 쿠폰 교착 · 멱등키 · 종료 처리 · DB 재연결, 로컬 실험 6개, 문제 2건 찾아 수정 / 1 AWS 이전 환경 (EC2 · IDC 역할)(약 $10, 완료): 이관 전 기준선: 동시 접속 500명(초당 85건)까지 버팀, 1,000명에서 무너짐, DB가 먼저 한계 (3회 같음) / 2 AWS 목표 인프라 (Terraform + CD)(약 $42, 예정): 배포 자동화, destroy 뒤 다시 apply로 같은 상태 재현 / 3 목표 인프라 + 덤프 이관($42 + 부하, 예정): 이관 중단 시간, 같은 부하로 이전 · 이후 비교, 오토스케일링, 쿠폰 오픈 재측정 / 4 목표 인프라 장애 테스트($42 + Multi-AZ, 예정): 로컬에서 못 보는 장애: RDS 장애 조치, 태스크 교체, 깨진 배포의 자동 롤백 / 5 서울 + 도쿄 리전(+ 드릴 시간, 예정): 리전 복원 드릴의 실측 RTO · RPO, Failback</desc>
 <rect width="640" height="684" rx="12" fill="#f6f8fa" stroke="#d0d7de"/>
 <text x="24" y="32" font-size="18" font-weight="700" fill="#1f2328">단계적 검증</text>
 <line x1="36" y1="110" x2="36" y2="602" stroke="#d0d7de" stroke-width="3"/>
-<line x1="36" y1="110" x2="36" y2="226" stroke="#1a7f37" stroke-width="3"/>
+<line x1="36" y1="110" x2="36" y2="320" stroke="#1a7f37" stroke-width="3"/>
 <text x="68" y="58" font-size="12.5" font-weight="600" fill="#0969da">로컬 — 앱 결함을 0원으로 먼저 없앰</text>
 <text x="68" y="174" font-size="12.5" font-weight="600" fill="#0969da">AWS — 로컬에서 재현할 수 없는 인프라 동작만</text>
 <rect x="68" y="70" width="552" height="80" rx="10" fill="#f0fff4" stroke="#1a7f37" stroke-width="1.5"/>
@@ -15,13 +15,14 @@
 <text x="604" y="120" font-size="12" font-weight="600" text-anchor="end" fill="#1a7f37">완료</text>
 <text x="86" y="121" font-size="13" fill="#57606a">앱 결함: 이중 예약 · 쿠폰 교착 · 멱등키 · 종료 처리 · DB 재연결</text>
 <text x="86" y="139" font-size="13" fill="#57606a">로컬 실험 6개, 문제 2건 찾아 수정</text>
-<rect x="68" y="186" width="552" height="80" rx="10" fill="#fff8e5" stroke="#bf8700" stroke-width="1.5"/>
-<circle cx="36" cy="226" r="15" fill="#ffffff" stroke="#bf8700" stroke-width="3"/>
-<text x="36" y="231" font-size="14" font-weight="700" text-anchor="middle" fill="#9a6700">1</text>
+<rect x="68" y="186" width="552" height="80" rx="10" fill="#f0fff4" stroke="#1a7f37" stroke-width="1.5"/>
+<circle cx="36" cy="226" r="15" fill="#1a7f37" stroke="#1a7f37" stroke-width="2"/>
+<text x="36" y="231" font-size="14" font-weight="700" text-anchor="middle" fill="#ffffff">1</text>
 <text x="86" y="214" font-size="15.5" font-weight="700" fill="#1f2328">AWS 이전 환경 (EC2 · IDC 역할)</text>
 <text x="604" y="214" font-size="14" font-weight="700" text-anchor="end" fill="#1f2328">약 $10</text>
-<text x="604" y="236" font-size="12" font-weight="600" text-anchor="end" fill="#bf8700">진행 중</text>
-<text x="86" y="237" font-size="13" fill="#57606a">이관 전 기준선: 에러율 1%를 넘는 지점의 처리량 · p95</text>
+<text x="604" y="236" font-size="12" font-weight="600" text-anchor="end" fill="#1a7f37">완료</text>
+<text x="86" y="237" font-size="13" fill="#57606a">이관 전 기준선: 동시 접속 500명(초당 85건)까지 버팀</text>
+<text x="86" y="255" font-size="13" fill="#57606a">1,000명에서 무너짐, DB가 먼저 한계 (3회 같음)</text>
 <rect x="68" y="280" width="552" height="80" rx="10" fill="#ffffff" stroke="#d0d7de" stroke-width="1"/>
 <circle cx="36" cy="320" r="15" fill="#ffffff" stroke="#8c959f" stroke-width="2"/>
 <text x="36" y="325" font-size="14" font-weight="700" text-anchor="middle" fill="#57606a">2</text>
