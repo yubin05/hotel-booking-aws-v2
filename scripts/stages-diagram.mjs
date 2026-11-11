@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 // status: done | doing | todo
 const STAGES = [
   { n: 0, title: '로컬 (docker compose)', cost: '$0', status: 'done', lines: ['앱 결함: 이중 예약 · 쿠폰 교착 · 멱등키 · 종료 처리 · DB 재연결', '로컬 실험 6개, 문제 2건 찾아 수정'] },
-  { n: 1, title: 'AWS 이전 환경 (EC2 · IDC 역할)', cost: '약 $15', status: 'doing', lines: ['이관 전 기준선: 에러율 1%를 넘는 지점의 처리량 · p95'] },
+  { n: 1, title: 'AWS 이전 환경 (EC2 · IDC 역할)', cost: '약 $10', status: 'doing', lines: ['이관 전 기준선: 에러율 1%를 넘는 지점의 처리량 · p95'] },
   { n: 2, title: 'AWS 목표 인프라 (Terraform + CD)', cost: '약 $42', status: 'todo', lines: ['배포 자동화, destroy 뒤 다시 apply로 같은 상태 재현'] },
   { n: 3, title: '목표 인프라 + 덤프 이관', cost: '$42 + 부하', status: 'todo', lines: ['이관 중단 시간, 같은 부하로 이전 · 이후 비교', '오토스케일링, 쿠폰 오픈 재측정'] },
   { n: 4, title: '목표 인프라 장애 테스트', cost: '$42 + Multi-AZ', status: 'todo', lines: ['로컬에서 못 보는 장애: RDS 장애 조치, 태스크 교체', '깨진 배포의 자동 롤백'] },
