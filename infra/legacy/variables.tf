@@ -66,7 +66,6 @@ variable "is_load_test" {
 }
 variable "load_test_instance_type" {
   type = string
-  # 추후 메모리 결정 후 수정 필요
-  default     = "t3.micro"
+  default     = "t3.medium"
   description = "부하 발생기 인스턴스 타입 (vCPU·메모리 세트)."
 }
