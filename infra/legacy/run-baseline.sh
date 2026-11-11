@@ -91,7 +91,8 @@ sudo docker run -d --name k6 --network host --user "$(id -u):$(id -g)" -v ~/load
   grafana/k6:1.0.0 run --out "json=/load/results/$name.json.gz" "$@" /load/baseline.js >/dev/null
 REMOTE
 echo "시작: $name (앱 http://$APP, 발생기 $LOAD). 진행을 따라 보여 줌. Ctrl+C로 빠져나와도 시험은 계속됨"
-"${ON_LOAD[@]}" 'sudo docker logs -f k6' || {
+# 무너진 뒤에는 Request Failed 경고가 초당 수백 줄이라 Git Bash의 SSH가 끊긴 적이 있음(2회차) → 화면에서만 거른다. 전체 로그는 collect가 k6.txt로 받음
+"${ON_LOAD[@]}" 'sudo docker logs -f k6 2>&1 | grep --line-buffered -v "Request Failed"' || {
   echo "연결이 끊김. 시험은 발생기에서 계속 돎. 끝난 뒤: bash run-baseline.sh collect $name" >&2
   exit 1
 }
