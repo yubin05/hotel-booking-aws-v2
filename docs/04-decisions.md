@@ -31,6 +31,7 @@
 | [025](#adr-025) | bootstrap은 관리자 역할로 1회 적용, state는 도쿄 버킷 하나에 계정 전용 이름으로 |
 | [026](#adr-026) | GitHub OIDC 역할은 main 브랜치만, 권한 정책은 리소스 이름이 정해지는 2-2에서 |
 | [027](#adr-027) | 예산 알림은 콘솔 예산을 import, 이메일은 커밋하지 않는 tfvars로 |
+| [028](#adr-028) | 평소 사용자의 state 권한은 루트별 허용 목록, bootstrap은 제외 |
 
 ---
 
@@ -229,7 +230,7 @@
   - IAM Identity Center: 과거 활성화 후 무료 크레딧이 끝난 경험이 있어 제외했다(원인 미확인).
 - **결정:** 루트는 MFA를 걸고 결제·계정 설정과 처음 IAM 구성에만 쓴다. 일상 작업은 MFA를 건 IAM 사용자 1개로 하고, 권한은 그룹으로 최소한만 준다. 관리자 권한(AdministratorAccess)은 MFA로 로그인해야 전환할 수 있는 관리자 역할로 분리해 필요할 때만 쓴다. CLI는 `aws login`(AWS CLI 2.32.0 이상)으로 임시 자격 증명을 받는다.
 - **근거:** 장기 액세스 키가 어디에도 없다. 공용 PC에 세션이 남아도 최대 12시간 뒤 만료되고 `aws logout`으로 바로 지울 수 있다. 관리자 권한은 필요할 때 역할 전환으로 받는 임시 자격 증명으로만 존재한다. 사고가 나면 루트로 IAM 사용자만 끄면 된다.
-- **결과:** Terraform은 `aws login` 자격 증명을 `credential_process` 없이 바로 읽는다(2026-11-10 1단계 plan에서 확인, Terraform 1.17.0 · AWS provider 6.72.0). 그룹 권한은 그 단계 Terraform이 쓰는 서비스부터 시작해, 권한 거부가 나면 원인을 보고 넓힌다. 1단계는 AWS 관리형 AmazonEC2FullAccess(`ec2:*`에 로드밸런서·CloudWatch·Auto Scaling까지 포함) 대신 필요한 액션만 적은 고객 관리형 정책을 직접 쓴다. AWS는 관리형 정책으로 시작해 사용 기록(예: 90일)을 보고 줄이라고 권하지만, 이 프로젝트는 최소 권한을 직접 설계해 보는 것이 목적이고 매일 만들고 지워서 그만큼 기록이 쌓이지 않는다. 정책은 읽기 `ec2:Describe*`·`ec2:GetConsoleOutput`, 쓰기는 그 단계 리소스의 만들기·바꾸기·지우기 액션만 서울 리전 조건으로 허용한다([legacy-operator-policy.json](../infra/iam/legacy-operator-policy.json), 2026-11-10 평소 사용자로 apply·destroy 통과). 콘솔에서 관리자 역할로 전환한 상태로 `aws login`을 하면 CLI 세션도 관리자 역할이 된다(2026-11-10 확인, `login_session`에 역할 ARN). 평소 권한으로 작업하려면 역할에서 돌아온 상태로 로그인하고 `aws sts get-caller-identity`가 `:user/`인지 확인한다. 2단계 GitHub Actions는 사용자 대신 OIDC 역할을 쓴다.
+- **결과:** Terraform은 `aws login` 자격 증명을 `credential_process` 없이 바로 읽는다(2026-11-10 1단계 plan에서 확인, Terraform 1.17.0 · AWS provider 6.72.0). 그룹 권한은 그 단계 Terraform이 쓰는 서비스부터 시작해, 권한 거부가 나면 원인을 보고 넓힌다. 1단계는 AWS 관리형 AmazonEC2FullAccess(`ec2:*`에 로드밸런서·CloudWatch·Auto Scaling까지 포함) 대신 필요한 액션만 적은 정책을 직접 써서 평소 그룹에 인라인 정책으로 붙인다. AWS는 관리형 정책으로 시작해 사용 기록(예: 90일)을 보고 줄이라고 권하지만, 이 프로젝트는 최소 권한을 직접 설계해 보는 것이 목적이고 매일 만들고 지워서 그만큼 기록이 쌓이지 않는다. 정책은 읽기 `ec2:Describe*`·`ec2:GetConsoleOutput`, 쓰기는 그 단계 리소스의 만들기·바꾸기·지우기 액션만 서울 리전 조건으로 허용한다([legacy-operator-policy.json](../infra/iam/legacy-operator-policy.json), 2026-11-10 평소 사용자로 apply·destroy 통과). 2단계 루트의 state 권한은 [ADR-028](#adr-028). 콘솔에서 관리자 역할로 전환한 상태로 `aws login`을 하면 CLI 세션도 관리자 역할이 된다(2026-11-10 확인, `login_session`에 역할 ARN). 평소 권한으로 작업하려면 역할에서 돌아온 상태로 로그인하고 `aws sts get-caller-identity`가 `:user/`인지 확인한다. 2단계 GitHub Actions는 사용자 대신 OIDC 역할을 쓴다.
 
 <a name="adr-019"></a>
 ## ADR-019 k6 부하는 서울 리전 EC2에서
@@ -385,3 +386,25 @@
   - 이메일은 state(공개가 차단된 버킷)에는 남는다.
   - 다른 PC에서 bootstrap을 적용하려면 `terraform.tfvars`를 다시 만들어야 한다(GitHub로 옮겨지지 않는다).
   - 콘솔 예산이 없는 새 계정에 처음 적용할 때는 import 블록을 빼야 할 것으로 본다(가설: 없는 리소스를 import하면 plan이 실패한다).
+
+<a name="adr-028"></a>
+## ADR-028 평소 사용자의 state 권한: 루트별 허용 목록, bootstrap은 제외
+
+- **상황:** 2-2부터 seoul·global 루트는 평소 사용자로 apply하고, state는 bootstrap과 같은 버킷의 `<루트>/terraform.tfstate`에 둔다([ADR-025](#adr-025)). 평소 그룹 인라인 정책([legacy-operator-policy.json](../infra/iam/legacy-operator-policy.json))에는 S3 권한이 없었다. Terraform S3 backend는 버킷에 `s3:ListBucket`, state 파일에 `GetObject`·`PutObject`, 잠금 파일(`<key>.tflock`)에 `GetObject`·`PutObject`·`DeleteObject`가 필요하다. state 파일은 Terraform이 지우지 않으므로 `DeleteObject`가 필요 없다([S3 backend](https://developer.hashicorp.com/terraform/language/backend/s3#s3-bucket-permissions)).
+- **검토한 대안:**
+  - `<버킷>/*/terraform.tfstate` 같은 와일드카드: `bootstrap/terraform.tfstate`도 걸려 평소 사용자가 OIDC 역할·예산의 state를 읽고 덮어쓸 수 있다(예산 이메일도 state에 평문으로 있다). IAM ARN 와일드카드에는 "이것만 빼고" 문법이 없다.
+  - `<버킷>/*` 허용 + `bootstrap/*` 명시 Deny: 막히긴 하지만 앞으로 버킷에 넣는 파일이 모두 자동으로 열린다. 명시 Deny는 다른 정책이 넓게 허용할 때 쓰는 가드레일이다.
+  - ListBucket에 `s3:prefix` 조건: 문서 예시 값은 버킷 이름까지 포함한 `mybucket/path/to/my/key`이고, Terraform이 실제로 보내는 prefix는 확인하지 못했다(가설: 작업 공간 목록용 `env:/`). 어긋나면 init이 실패한다. ListBucket은 객체 이름 목록만 보이고 내용은 못 읽는다.
+  - 기존 statement의 `aws:RequestedRegion` 조건 복사: 값(ap-northeast-2)이 버킷 리전(ap-northeast-1)과 다르고, S3 요청에서 이 키에 어떤 값이 들어가는지 확인하지 못했다. Resource가 이미 버킷 하나를 가리켜 조건이 더하는 것이 없다.
+  - tokyo는 복원 드릴 때 도쿄 리소스 권한과 함께 추가: 한 묶음으로 리뷰할 수 있다.
+- **결정:**
+  - ListBucket은 버킷 ARN에 조건 없이 허용한다.
+  - state 파일(`GetObject`·`PutObject`)과 잠금 파일 `<루트>/*.tflock`(`GetObject`·`PutObject`·`DeleteObject`)은 seoul·global·tokyo 경로만 나열한다. bootstrap은 적지 않아 기본 거부로 막는다.
+  - 리전 조건은 붙이지 않는다. tokyo도 지금 넣는다.
+- **근거:**
+  - IAM은 명시적으로 허용하지 않은 요청을 기본 거부한다([평가 로직](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_evaluation-logic_policy-eval-denyallow.html)). bootstrap은 관리자 역할로만 apply하므로 평소 사용자에게 필요 없다.
+  - tokyo는 state 권한만으로 도쿄 리소스를 만들 수 없어 미리 넣어도 위험이 거의 없다.
+- **결과:**
+  - 2026-11-12 평소 사용자로 확인: 목록은 보이고, bootstrap state HeadObject는 403, 아직 없는 seoul state는 404다. GetObject와 ListBucket이 모두 있으면 없는 객체에 404를 준다([HeadObject](https://docs.aws.amazon.com/AmazonS3/latest/API/API_HeadObject.html)). bootstrap이 403이므로 평소 그룹의 다른 정책도 bootstrap state를 허용하지 않는다. 쓰기·잠금은 seoul의 첫 plan에서 확인한다.
+  - 루트를 새로 만들면 이 목록에 줄을 추가해야 한다.
+  - 정책은 그룹 인라인이라 관리자 역할로 `put-group-policy`로 반영하고, 덮어쓰면 이전 내용이 남지 않는다. 반영 전에 `get-group-policy`로 백업한다. 파일 이름은 `legacy-`로 시작하지만 2단계 루트도 이 정책을 쓴다.
