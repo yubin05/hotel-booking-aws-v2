@@ -80,6 +80,7 @@ flowchart LR
 주요 선택마다 검토한 대안과 근거를 [설계 결정 기록](docs/04-decisions.md)에 남겼습니다.
 
 - [ECR 선택 이유 (vs Docker Hub)](docs/04-decisions.md#adr-020)
+- [GitHub Actions 선택 이유 (vs CodePipeline)](docs/04-decisions.md#adr-010)
 
 ## 단계적 검증
 
