@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 const STAGES = [
   { n: 0, title: '로컬 (docker compose)', cost: '$0', status: 'done', lines: ['앱 결함: 이중 예약 · 쿠폰 교착 · 멱등키 · 종료 처리 · DB 재연결', '로컬 실험 6개, 문제 2건 찾아 수정'] },
   { n: 1, title: 'AWS 이전 환경 (EC2 · IDC 역할)', cost: '약 $10', status: 'done', lines: ['이관 전 기준선: 동시 접속 500명(초당 85건)까지 버팀', '1,000명에서 무너짐, DB가 먼저 한계 (3회 같음)'] },
-  { n: 2, title: 'AWS 목표 인프라 (Terraform + CD)', cost: '약 $42', status: 'todo', lines: ['배포 자동화, destroy 뒤 다시 apply로 같은 상태 재현'] },
+  { n: 2, title: 'AWS 목표 인프라 (Terraform + CD)', cost: '약 $42', status: 'doing', lines: ['배포 자동화, destroy 뒤 다시 apply로 같은 상태 재현', '기반 완료: state 저장소 · 키 없는 배포 권한 · 예산 알림'] },
   { n: 3, title: '목표 인프라 + 덤프 이관', cost: '$42 + 부하', status: 'todo', lines: ['이관 중단 시간, 같은 부하로 이전 · 이후 비교', '오토스케일링, 쿠폰 오픈 재측정'] },
   { n: 4, title: '목표 인프라 장애 테스트', cost: '$42 + Multi-AZ', status: 'todo', lines: ['로컬에서 못 보는 장애: RDS 장애 조치, 태스크 교체', '깨진 배포의 자동 롤백'] },
   { n: 5, title: '서울 + 도쿄 리전', cost: '+ 드릴 시간', status: 'todo', lines: ['리전 복원 드릴의 실측 RTO · RPO, Failback'] },
