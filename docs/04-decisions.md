@@ -419,15 +419,18 @@
   - global 루트(평소 사용자): `iam:CreateRole`·`AttachRolePolicy`로 자기를 믿는 역할을 만들고 AdministratorAccess를 붙이면, MFA를 거는 관리자 역할을 우회한다.
   - regional 모듈(seoul·tokyo가 각자): 같은 권한 상승에 더해, IAM 이름은 계정 전체에서 하나뿐이라 리전마다 다른 이름이 필요하다.
   - 평소 사용자 + 권한 경계 강제: 경계 정책 수정·삭제, 역할에서 경계 떼기 같은 구멍을 따로 막아야 해서 설계가 크다.
+  - 권한을 AWS 관리형 `AmazonECSTaskExecutionRolePolicy`로: ECR·로그 액션 6개가 Resource `*`라 계정의 모든 저장소 이미지를 받고 모든 로그 그룹에 쓸 수 있다. Secrets Manager 권한은 없어 따로 추가해야 한다([관리형 정책](https://docs.aws.amazon.com/aws-managed-policy/latest/reference/AmazonECSTaskExecutionRolePolicy.html)). 실무에서 가장 흔하고 위험도 읽기·로그 쓰기로 작다.
 - **결정:**
   - 실행 역할은 bootstrap에서 관리자 역할로 만들어 상시 둔다.
   - 평소 사용자(seoul·tokyo apply)와 GitHub 배포 역할(태스크 정의 새 버전 등록)에는 이 역할 ARN으로 한정한 `iam:PassRole`만 준다.
   - 태스크 역할은 지금 만들지 않는다. 앱이 AWS API를 부를 일이 생기면(예: ECS Exec) 같은 방식으로 추가한다.
+  - 권한은 직접 쓴다([iam.tf](../infra/bootstrap/iam.tf)). `ecr:GetAuthorizationToken`은 리소스 타입이 없어 `*`, ECR 받기 3개(`BatchCheckLayerAvailability`·`GetDownloadUrlForLayer`·`BatchGetImage`)는 저장소 ARN, 로그 2개(`CreateLogStream`·`PutLogEvents`)는 리소스 타입이 log-stream이라 `log-group:/ecs/hotel-booking-aws-v2:log-stream:*`. 서울·도쿄 두 리전을 나열한다. 비밀값 권한은 DB 비밀번호 보관 방식을 정한 뒤 추가한다.
 - **근거:**
   - 비유하면 AssumeRole은 출입증을 내가 빌려 목에 거는 것, PassRole은 보관함의 정해진 출입증을 업체(ECS)에 맡기는 것, CreateRole은 출입증 발급기를 갖는 것이다. PassRole은 이미 있는 역할을 서비스에 맡길 뿐이라, 역할 권한은 관리자가 정해 둔 범위를 넘지 못한다. 범위를 `*`로 주면 어떤 역할이든 맡길 수 있으므로 ARN으로 한정한다([PassRole](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_passrole.html)).
   - IAM은 글로벌이라 역할 하나를 서울·도쿄가 같이 쓴다. 복원 드릴 때 관리자 없이 tokyo를 apply할 수 있다. 역할은 무료다([IAM FAQ](https://aws.amazon.com/iam/faqs/)).
+  - 필요한 액션만 직접 쓰는 것은 [ADR-018](#adr-018)과 같은 방침이고, 이 역할은 거의 바뀌지 않아 관리 부담이 작다. 액션별 리소스 타입은 [Service Authorization Reference](https://docs.aws.amazon.com/service-authorization/latest/reference/reference.html)의 기계 판독용 JSON으로 확인했다.
 - **결과:**
-  - 역할 정책에 적을 리소스(ECR 저장소, 로그 그룹, 비밀값)의 이름을 먼저 정해야 한다.
+  - 2026-11-12 관리자 역할로 apply(2개 추가, [ADR-030](#adr-030)의 이름). 실제로 이미지를 받고 로그를 쓰는지는 seoul 첫 apply에서 태스크가 뜰 때 확인한다. 액션이 하나라도 빠지면 태스크가 시작에 실패한다.
   - 역할 권한을 바꿀 때마다 관리자 apply가 필요하다.
   - 평소 사용자는 bootstrap state를 못 읽으므로([ADR-028](#adr-028)) seoul·tokyo는 역할을 이름으로 참조한다.
   - 평소 사용자 정책에 PassRole statement를 추가해야 한다.
@@ -453,5 +456,6 @@
 - **근거:** ALB와 대상 그룹 이름은 리전·계정마다 하나면 된다([ALB](https://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_CreateLoadBalancer.html), [대상 그룹](https://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_CreateTargetGroup.html)). IAM 정책과 CD 워크플로에서 이름은 고정되고 리전만 바뀐다. 도쿄는 서울의 복사본이라 같은 이름표를 달고 주소(리전)로 구분한다.
 - **결과:**
   - 콘솔·CLI에서 리전을 잘못 고르면 이름만으로는 알아채기 어렵다. 작업 전에 리전을 확인한다.
+  - 알림에서 서울·도쿄를 구분하는 방법은 모니터링을 만들 때 정한다. 기본 알림 메시지에 리전이 들어가는지는 확인하지 못했다. 알람 이름은 리소스 이름과 따로 정할 수 있어, 필요하면 알람 이름이나 설명에 리전을 넣는다.
   - ECS 클러스터 이름이 리전마다 따로인지는 문서로 확인하지 못했다(가설: 리전마다 따로). 도쿄 첫 apply에서 확인한다.
   - DB 비밀값과 일회성 스키마 변경 태스크의 이름은 그 방식을 정할 때 추가한다.
