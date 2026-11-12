@@ -29,6 +29,7 @@
 | [023](#adr-023) | 부하 기준선 조건: 발생기는 퍼블릭 서브넷에서 앱 공인 IP로, t3는 unlimited 명시 |
 | [024](#adr-024) | 2단계 전에 DB 병목을 로컬에서 분석·개선한다 (1단계 기록은 그대로) |
 | [025](#adr-025) | bootstrap은 관리자 역할로 1회 적용, state는 도쿄 버킷 하나에 계정 전용 이름으로 |
+| [026](#adr-026) | GitHub OIDC 역할은 main 브랜치만, 권한 정책은 리소스 이름이 정해지는 2-2에서 |
 
 ---
 
@@ -335,3 +336,27 @@
   - 도쿄 장애 중에는 어떤 루트도 apply할 수 없다.
   - 2-2에서 ECS가 쓰는 IAM 역할을 어느 루트가 만들지 같은 질문이 다시 나온다.
   - 프로젝트를 끝낼 때는 `prevent_destroy`를 풀고 버킷을 버전까지 비운 뒤 destroy한다.
+
+<a name="adr-026"></a>
+## ADR-026 GitHub OIDC 역할: main 브랜치만, 권한 정책은 리소스 이름이 정해지는 2-2에서
+
+- **상황:** 2단계 CD는 GitHub Actions가 ECR 푸시와 ECS 배포를 한다([ADR-010](#adr-010)). runner가 AWS에 로그인해야 하는데 장기 액세스 키는 저장하지 않는다. AWS도 CI/CD처럼 AWS 밖에서 도는 작업은 JWT로 `AssumeRoleWithWebIdentity`를 불러 임시 자격 증명을 쓰라고 권한다([IAM 모범 사례](https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html)). v1은 AWS 배포를 CodePipeline이 GitHub에서 가져가는 방식(CodeConnections)으로 했고, Azure 배포는 GitHub Secrets에 Azure 비밀값을 저장했다.
+- **검토한 대안:**
+  - 신뢰 조건을 저장소 전체(`repo:...:*`)로: 리뷰 전 PR과 다른 브랜치의 job도 배포 역할을 받는다.
+  - GitHub environment(`repo:...:environment:<이름>`)로: 배포 전 승인 같은 단계를 넣을 수 있지만 혼자 작업하는 지금은 과하다.
+  - 권한 정책까지 지금 작성: ECR 저장소·ECS 클러스터·서비스·태스크 역할 이름이 2-2에서 정해진다.
+- **결정:**
+  - OIDC 공급자(`https://token.actions.githubusercontent.com`, 받는 대상 `sts.amazonaws.com`)와 역할 `hotel-booking-aws-v2-github-deploy`를 bootstrap에 둔다([iam.tf](../infra/bootstrap/iam.tf)). 공급자는 계정 안에서 URL마다 하나뿐이라 리전 루트에 둘 수 없다.
+  - 신뢰 조건은 `StringEquals`로 `aud`와 `sub`를 고정한다. `sub`는 main 브랜치 하나: `repo:yubin05@87186282/hotel-booking-aws-v2@1443891878:ref:refs/heads/main`.
+  - `thumbprint_list`는 적지 않는다.
+  - 권한 정책은 2-2에서 리소스 이름이 정해질 때 bootstrap에 추가하고 관리자 역할로 다시 적용한다. 그전까지 역할은 권한이 없다.
+- **근거:**
+  - 2026-07-15 이후 만든 저장소는 `sub` 기본 형식이 `repo:OWNER@OWNER-ID/REPO@REPO-ID:...`다([OIDC 참조](https://docs.github.com/en/actions/reference/security/oidc)의 Immutable subject claims). 이 저장소는 2026-11-03에 만들었으므로 문서 첫 예시(`repo:ORG/REPO:...`)를 그대로 쓰면 맞지 않는다.
+  - job이 environment를 참조하면 `sub`가 브랜치 형식 대신 environment 형식이 된다(같은 문서). 배포 job에 `environment:`를 붙이면 신뢰 조건도 같이 바꿔야 한다.
+  - IAM은 GitHub 공급자를 믿는 신뢰 정책에 `sub` 조건이 없거나 값이 `*`·`?`뿐이면 만들기·바꾸기를 거부한다([OIDC 역할 만들기](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_create_for-idp_oidc.html)).
+  - AWS는 신뢰하는 루트 CA로 GitHub 인증서를 검증하고 thumbprint는 그게 안 될 때만 쓴다. API로 만들 때 thumbprint는 선택이고, 빼면 IAM이 채운다([OIDC 공급자 만들기](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers_create_oidc.html)). AWS provider 6.73.0 스키마에서 `thumbprint_list`는 선택 인자다(`terraform providers schema -json`으로 확인).
+  - 신뢰 조건은 어디서 왔는지만 본다. main에 push할 수 있으면 워크플로를 고쳐 역할 권한 안의 일은 무엇이든 시킬 수 있으므로, 권한 정책을 최소로 잡는 것이 다음 방어선이다.
+- **결과:**
+  - GitHub에는 AWS 비밀값을 저장하지 않는다. 워크플로에는 `permissions: id-token: write`와 역할 ARN만 적는다.
+  - 권한 없는 역할로 신뢰 조건만 먼저 확인했다. 손으로 실행하는 [oidc-check.yml](../.github/workflows/oidc-check.yml)이 역할을 받고 `aws sts get-caller-identity`까지 성공했다(2026-11-12). 이 API는 권한이 필요 없다([GetCallerIdentity](https://docs.aws.amazon.com/STS/latest/APIReference/API_GetCallerIdentity.html)). main이 아닌 브랜치에서 거부되는지는 확인하지 않았다.
+  - 저장소 이름을 바꾸거나 옮기면 `sub`가 바뀌므로 신뢰 조건을 고쳐야 한다.
