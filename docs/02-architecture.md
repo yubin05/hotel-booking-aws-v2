@@ -153,7 +153,7 @@ terraform apply는 사람이 실행 (인프라 변경은 자동 적용하지 않
 ```
 
 - DNS 대신 **CloudFront 원본을 바꾸는** 이유: CloudFront는 글로벌 서비스라 서울 장애의 영향을 받지 않습니다. 같은 배포의 원본만 바꾸면 DNS 캐시 지연이 없고, 같은 도메인을 CloudFront 배포 두 개에 동시에 붙일 수 없는 제약도 피합니다([ADR-012](04-decisions.md#adr-012)). 다른 리전 VPC Origin으로의 전환과 반영 시간은 확인 필요.
-- Terraform state 버킷은 도쿄에 둡니다. 서울 장애 중에도 Terraform을 실행해야 하기 때문입니다.
+- Terraform state 버킷은 도쿄에 둡니다. 서울 장애 중에도 Terraform을 실행해야 하기 때문입니다([ADR-025](04-decisions.md#adr-025)).
 
 ## 9. RTO·RPO 측정 방법
 

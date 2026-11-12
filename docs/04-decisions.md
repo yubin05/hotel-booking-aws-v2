@@ -28,6 +28,7 @@
 | [022](#adr-022) | 이미지 태그는 커밋 SHA |
 | [023](#adr-023) | 부하 기준선 조건: 발생기는 퍼블릭 서브넷에서 앱 공인 IP로, t3는 unlimited 명시 |
 | [024](#adr-024) | 2단계 전에 DB 병목을 로컬에서 분석·개선한다 (1단계 기록은 그대로) |
+| [025](#adr-025) | bootstrap은 관리자 역할로 1회 적용, state는 도쿄 버킷 하나에 계정 전용 이름으로 |
 
 ---
 
@@ -302,3 +303,35 @@
 - **결정:** 2단계 전에 로컬에서(DB 컨테이너 CPU 제한 + seed-volume) 1단계의 모양을 재현해 원인을 찾고 앱을 고친다. 1단계 기록(옛 앱 + 옛 구조 = 500명)은 지우지 않는다. 고친 앱으로 같은 옛날 구조에서 한 번 더 재서 "앱 개선 효과"를 따로 남기고, 3단계는 고친 앱으로 비교해 "인프라 효과"만 남긴다.
 - **근거:** 한 번에 하나씩 바꿔야 무엇 덕분에 좋아졌는지 나눠 설명할 수 있다. 로컬은 비용이 없다.
 - **결과:** 03 진행 계획에 1.5단계가 생긴다. 로컬 PC는 t3.micro와 CPU가 달라 숫자가 아니라 모양(DB 포화, 무너지는 방식)을 재현한다. 옛날 구조 재측정에 AWS 1회(약 $0.3)가 든다.
+
+<a name="adr-025"></a>
+## ADR-025 bootstrap은 관리자 역할로 1회 적용, state는 도쿄 버킷 하나에 계정 전용 이름으로
+
+- **상황:** 2단계 시작(2026-11-12). seoul·tokyo·global 루트는 원격 state가 필요하고, CD는 GitHub Actions용 IAM 역할이 필요하다. 이 둘과 Budgets 알림은 다른 루트보다 먼저 있어야 하고 매일 destroy하면 안 되므로 `bootstrap` 루트로 따로 둔다([ADR-011](#adr-011)). bootstrap은 IAM 역할을 만들고, 자기 state를 둘 버킷이 처음에는 없다. 저장소는 Public이고 backend 블록은 변수를 쓸 수 없어([backend](https://developer.hashicorp.com/terraform/language/backend)) 버킷 이름이 각 루트 파일에 그대로 들어간다.
+- **검토한 대안:**
+  - 평소 사용자 정책에 IAM 권한 추가: `iam:CreateRole`·`iam:AttachRolePolicy`가 있으면 자기를 신뢰하는 역할에 AdministratorAccess를 붙여 사실상 관리자가 된다(권한 상승). 막으려면 권한 경계를 `iam:PermissionsBoundary` 조건으로 강제해야 하는데([IAM 권한 경계](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies_boundaries.html)), 가끔 적용하는 루트 하나에 비해 설계가 크다.
+  - state 버킷을 서울에: 서울 장애 때 도쿄 루트의 state를 읽지 못해 리전 복원을 못 한다.
+  - 리전별 버킷 2개 또는 리전 간 복제: 도쿄 장애 중에도 서울을 바꿀 수 있지만 버킷과 설정이 2벌이다.
+  - 전역 이름 공간의 이름: 버킷 이름은 모든 계정에서 하나뿐이고 지운 이름의 재사용은 보장되지 않는다([이름 규칙](https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html)). 우리 버킷이 없는 사이 남이 같은 이름을 만들면 이름이 적힌 루트가 남의 버킷을 향한다.
+  - DynamoDB 잠금: Terraform 1.11.0부터 deprecated([S3 backend](https://developer.hashicorp.com/terraform/language/backend/s3)).
+  - 지난 버전 3일 보관: 주말 한 번이면 지나가고, 드릴 때만 여는 tokyo 루트는 몇 주 뒤에야 문제를 알아챈다.
+- **결정:**
+  - bootstrap은 관리자 역할로 전환해 적용한다(apply 전 `aws sts get-caller-identity`가 `:assumed-role/`인지 확인). 평소 사용자 정책에는 IAM 권한을 넣지 않는다.
+  - state 버킷은 도쿄(ap-northeast-1)에 1개, 계정 전용 이름 공간(`bucket_namespace = "account-regional"`, `<이름>-<계정ID>-ap-northeast-1-an`)으로 만든다.
+  - 버전 관리를 켜고, 지난 버전은 30일이 지나고 더 새 지난 버전이 5개를 넘을 때만 지운다. 지난 버전이 없는 삭제 마커는 정리한다.
+  - 잠금은 S3 네이티브 `use_lockfile`.
+  - 버킷에 `prevent_destroy`를 걸고 `force_destroy`는 기본값(false)으로 둔다.
+  - 공개 차단은 기본값에 맡기지 않고 코드에 적는다. 암호화는 적지 않는다(새 업로드는 SSE-S3로 암호화되고 끌 수 없다, [FAQ](https://docs.aws.amazon.com/AmazonS3/latest/userguide/default-encryption-faq.html)).
+  - bootstrap 자신의 state는 로컬로 apply → backend 블록 추가 → `terraform init -migrate-state` 순서로, 한 PC에서 한 번에 버킷으로 옮긴다.
+- **근거:**
+  - 관리자 권한은 가끔 쓰는 bootstrap에만, 역할 전환의 임시 자격 증명으로만 존재한다.
+  - 서울 장애 중에도 tokyo·global을 적용할 수 있다. 도쿄 장애 때는 서비스가 서울에서 그대로 돌고 인프라 변경만 잠시 못 한다.
+  - 계정 전용 이름 공간은 다른 계정의 같은 이름 생성 요청을 거절한다([이름 공간](https://docs.aws.amazon.com/AmazonS3/latest/userguide/gpbucketnamespaces.html)). 대가로 계정 ID가 공개되지만 AWS는 계정 ID를 비밀로 보지 않는다([계정 식별자](https://docs.aws.amazon.com/accounts/latest/reference/manage-acct-identifiers.html)).
+  - Terraform은 apply 중에도 원격 state를 최소 20초마다 저장하므로([TF_STATE_PERSIST_INTERVAL](https://developer.hashicorp.com/terraform/cli/config/environment-variables)) 개수 조건만으로는 긴 apply 한 번에 멀쩡한 버전이 밀려난다. 두 조건을 모두 넘어야 지우므로([수명 주기 규칙](https://docs.aws.amazon.com/AmazonS3/latest/userguide/intro-lifecycle-rules.html)) 30일 안의 버전은 개수와 상관없이 남는다. 개수는 파일마다 세므로 `.tflock` 버전이 state 버전을 밀어내지 않는다.
+  - plan은 코드에 적은 설정만 실제와 비교해 되돌린다. 기본값은 만들 때 한 번 적용될 뿐이다.
+- **결과:**
+  - 요금: IAM 역할·OIDC 공급자는 무료([IAM FAQ](https://aws.amazon.com/iam/faqs/)), 알림만 보내는 Budgets도 무료([Budgets 요금](https://aws.amazon.com/aws-cost-management/aws-budgets/pricing/)). state 버킷은 legacy state가 리소스 약 30개에 51.6KB였던 것으로 보아 월 1센트 안팎으로 예상한다(가설, 첫 청구서로 확인).
+  - 프로젝트가 30일 안에 끝나면 삭제 규칙은 사실상 돌지 않는다(전부 남김). 프로젝트 중 복구 가능성을 최대로 두려는 의도와 같고, 버킷이 남을 때를 대비한 규칙이다.
+  - 도쿄 장애 중에는 어떤 루트도 apply할 수 없다.
+  - 2-2에서 ECS가 쓰는 IAM 역할을 어느 루트가 만들지 같은 질문이 다시 나온다.
+  - 프로젝트를 끝낼 때는 `prevent_destroy`를 풀고 버킷을 버전까지 비운 뒤 destroy한다.
