@@ -35,6 +35,7 @@
 | [029](#adr-029) | ECS 실행 역할은 bootstrap에서 관리자가 만들고, 평소 사용자 · CD에는 PassRole만 |
 | [030](#adr-030) | 리소스 이름은 `hotel-booking-aws-v2` 접두사, 서울 · 도쿄 같은 이름 |
 | [031](#adr-031) | 스키마 변경은 CD가 일회성 ECS 태스크로 먼저 적용, 앱과 DB 계정 분리 |
+| [032](#adr-032) | 서비스 연결 역할은 필요한 것 전부를 bootstrap에서 관리한다 |
 
 ---
 
@@ -487,3 +488,23 @@
   - 배포마다 태스크 정의 두 개(앱, 스키마)의 새 버전을 등록한다.
   - 앱에 스키마 적용 스크립트가 필요하다. DB 계정 2개와 비밀값 2개가 생기고, 실행 역할에는 두 비밀값을 읽는 권한이 필요하다.
   - v1 덤프 이관([ADR-008](#adr-008))은 한 번뿐인 작업이라 따로 정한다.
+
+<a name="adr-032"></a>
+## ADR-032 서비스 연결 역할은 필요한 것 전부를 bootstrap에서 관리한다
+
+- **상황:** ALB·ECS·RDS·App Auto Scaling·ECR 복제·CloudFront VPC Origin은 우리 계정 안에서 일할 때(서브넷에 네트워크 카드 꽂기 등) AWS가 정해 둔 서비스 연결 역할(SLR)을 쓴다. 계정에서 처음 쓸 때 서비스가 SLR을 자동으로 만드는데, 그 순간 호출한 사람에게 `iam:CreateServiceLinkedRole`이 필요하다([ELB](https://docs.aws.amazon.com/elasticloadbalancing/latest/userguide/elb-service-linked-roles.html) · [ECS](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/using-service-linked-roles-for-clusters.html) · [RDS](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.IAM.ServiceLinkedRoles.html) · [App Auto Scaling](https://docs.aws.amazon.com/autoscaling/application/userguide/application-auto-scaling-service-linked-roles.html) · [ECR 복제](https://docs.aws.amazon.com/AmazonECR/latest/userguide/slr-replication.html) · [CloudFront VPC Origin](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-service-linked-roles.html)). 평소 사용자 정책에는 IAM 권한이 없다([ADR-025](#adr-025)). SLR도 IAM 역할이라 계정에 하나이고, 서울·도쿄가 같이 쓰며, 루트를 destroy해도 남는다. 2026-11-12 관리자 역할로 확인하니 ECS·ELB·RDS·App Auto Scaling(ECS) 4개는 이 프로젝트 전부터 있었고, ECR 복제·CloudFront VPC Origin 2개는 없었다.
+- **검토한 대안:**
+  - 관리자가 CLI(`aws iam create-service-linked-role`)로 직접 만들기: 가장 빠르지만 코드에 남지 않아, 다른 계정에서 재현할 때 기억에 의존한다.
+  - 평소 정책에 `iam:CreateServiceLinkedRole`(`iam:AWSServiceName` 조건으로 서비스 한정): SLR은 권한을 AWS가 정하고 그 서비스만 쓸 수 있어 뚫려도 권한 상승은 없다. 하지만 "평소 정책엔 IAM 없음" 규칙에 예외가 생기고, 서비스가 늘 때마다 정책을 고쳐야 한다.
+  - 해당 루트의 첫 apply만 관리자로: 관리자는 뭐든 되므로 평소 정책에 빠진 권한을 첫 apply에서 찾지 못한다.
+  - 계정에 없는 2개만 코드로: 지금 계정에서는 충분하다. 하지만 다른 계정에서 재현하면 나머지 4개가 없어 평소 사용자의 apply가 중간에 막히고, 코드만 보고는 어떤 SLR이 필요한지 알 수 없다.
+- **결정:**
+  - 필요한 SLR 6개를 bootstrap에 `aws_iam_service_linked_role`로 두고 관리자 역할로 적용한다.
+  - 이미 있는 역할은 만들지 않고 `import` 블록으로 state에 가져온다. import는 있는 것만 가져올 수 있어, 없는 역할을 넣으면 plan이 `Cannot import non-existent remote object`로 멈춘다([Terraform 소스](https://github.com/hashicorp/terraform/blob/main/internal/terraform/node_resource_plan_instance.go)). 그래서 6개 모두 import 블록을 적되, 그 계정에 있는 역할만 주석을 풀어 apply하고 가져온 뒤 다시 주석 처리한다. 이 계정은 4개를 풀고 시작한다. 이 provider의 만들기 코드에는 "이미 있으면 넘어가기" 처리가 없다([소스](https://github.com/hashicorp/terraform-provider-aws/blob/main/internal/service/iam/service_linked_role.go)). 지우지 않고 주석으로 두어 다른 계정에서 다시 쓸 수 있게 한다(HashiCorp도 import 블록을 기록으로 남기기를 권한다, [Import a single resource](https://developer.hashicorp.com/terraform/language/import/single-resource)).
+  - 설명(`description`)은 코드에 적지 않고 변경을 무시한다. 이 인자는 Optional이라, 적지 않으면 가져온 역할에 AWS가 붙여 둔 설명을 다음 apply가 지우려 한다.
+- **근거:** IAM은 bootstrap에서 관리자가 적용한다는 원칙([ADR-025](#adr-025) · [ADR-029](#adr-029))을 예외 없이 지키고, 평소 정책은 그대로 둔다. 필요한 SLR 목록이 코드에 남아, 어느 계정에서든 bootstrap 한 번이면 seoul·global 첫 apply가 권한 문제로 멈추지 않는다.
+- **결과:**
+  - 요금 없음(IAM 무료).
+  - 프로젝트를 끝낼 때 bootstrap destroy가 이 프로젝트 전부터 있던 4개도 지운다. 그 서비스를 다시 쓰면 SLR이 자동으로 다시 생긴다(ELB·RDS 문서 기준). SLR은 그 서비스 리소스(로드밸런서, 복제 설정, VPC Origin 등)를 먼저 지운 뒤에야 지울 수 있다(각 문서의 삭제 절차).
+  - ECR 복제를 쓰지 않기로 하면([03 구현 전 확인](03-plan.md#구현-전에-확인할-것)) 그 SLR은 쓰이지 않은 채 남는다.
+  - CloudFront VPC Origin SLR 지원 표에서 도쿄는 AZ `apne1-az3`이 빠져 있다. 도쿄 서브넷을 만들 때 AZ ID로 확인한다.
