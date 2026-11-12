@@ -10,7 +10,7 @@ resource "aws_iam_openid_connect_provider" "github" {
 resource "aws_iam_role" "github_deploy" {
   name = "${local.project_name}-github-deploy"
 
-  # 신뢰 정책(출입 명단): 누가 이 역할을 받을 수 있나
+  # 신뢰 정책(출입 명단): github action
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -25,5 +25,65 @@ resource "aws_iam_role" "github_deploy" {
         }
       }
     }]
+  })
+}
+
+# ECS가 실행할 때 받는 역할
+resource "aws_iam_role" "ecs_execution" {
+  name = "${local.project_name}-ecs-execution"
+
+  # 신뢰 정책(출입 명단): ecs tasks
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+# ECS가 실행할 때 받는 역할에 들어가는 정책
+resource "aws_iam_role_policy" "ecs_execution" {
+  name = "${local.project_name}-ecs-execution-policy"
+  role = aws_iam_role.ecs_execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "ecrGetAuthorizationToken"
+        Effect = "Allow"
+        Action = [
+          "ecr:GetAuthorizationToken"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "ecrGetImage"
+        Effect = "Allow"
+        Action = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage"
+        ]
+        Resource = [
+          "arn:aws:ecr:${local.main_region}:${local.account_id}:repository/${local.project_name}",
+          "arn:aws:ecr:${local.backup_region}:${local.account_id}:repository/${local.project_name}",
+        ]
+      },
+      {
+        Sid    = "AccessLogsStream"
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        # 두 액션 모두 리소스 타입이 log-stream. 스트림 이름은 ECS가 태스크마다 만들어 이름 자리만 *
+        Resource = [
+          "arn:aws:logs:${local.main_region}:${local.account_id}:log-group:/ecs/${local.project_name}:log-stream:*",
+          "arn:aws:logs:${local.backup_region}:${local.account_id}:log-group:/ecs/${local.project_name}:log-stream:*",
+        ]
+      }
+    ]
   })
 }
