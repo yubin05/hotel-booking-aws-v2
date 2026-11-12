@@ -36,6 +36,7 @@
 | [030](#adr-030) | 리소스 이름은 `hotel-booking-aws-v2` 접두사, 서울 · 도쿄 같은 이름 |
 | [031](#adr-031) | 스키마 변경은 CD가 일회성 ECS 태스크로 먼저 적용, 앱과 DB 계정 분리 |
 | [032](#adr-032) | 서비스 연결 역할은 필요한 것 전부를 bootstrap에서 관리한다 |
+| [033](#adr-033) | VPC 주소 대역은 리전마다 겹치지 않게 /16으로 (서울 10.0, 도쿄 10.1) |
 
 ---
 
@@ -508,3 +509,17 @@
   - 프로젝트를 끝낼 때 bootstrap destroy가 이 프로젝트 전부터 있던 4개도 지운다. 그 서비스를 다시 쓰면 SLR이 자동으로 다시 생긴다(ELB·RDS 문서 기준). SLR은 그 서비스 리소스(로드밸런서, 복제 설정, VPC Origin 등)를 먼저 지운 뒤에야 지울 수 있다(각 문서의 삭제 절차).
   - ECR 복제를 쓰지 않기로 하면([03 구현 전 확인](03-plan.md#구현-전에-확인할-것)) 그 SLR은 쓰이지 않은 채 남는다.
   - CloudFront VPC Origin SLR 지원 표에서 도쿄는 AZ `apne1-az3`이 빠져 있다. 도쿄 서브넷을 만들 때 AZ ID로 확인한다.
+
+<a name="adr-033"></a>
+## ADR-033 VPC 주소 대역은 리전마다 겹치지 않게 /16으로 (서울 10.0, 도쿄 10.1)
+
+- **상황:** 2-2(2026-11-12)에서 서울 VPC를 `modules/regional`로 만든다. 도쿄도 같은 모듈을 쓰므로 VPC CIDR을 모듈에 하나로 고정할지, 루트마다 다르게 줄지 정해야 한다.
+- **검토한 대안:**
+  - 서울·도쿄 같은 CIDR을 모듈에 고정: 입력이 없어 단순하고, 도쿄는 백업에서 새로 복원할 뿐 서울과 연결하지 않아 지금 설계에서는 동작한다. 그러나 겹치는 CIDR끼리는 VPC 피어링을 만들 수 없고([피어링 기본](https://docs.aws.amazon.com/vpc/latest/peering/vpc-peering-basics.html)), 처음 만든 CIDR(primary)은 떼어 낼 수 없어([VPC CIDR 블록](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-cidr-blocks.html)) 나중에 두 VPC를 이어야 하면 VPC를 다시 만들어야 한다.
+  - /16보다 작은 VPC: VPC 자체는 요금이 없어([VPC 요금](https://docs.aws.amazon.com/vpc/latest/userguide/what-is-amazon-vpc.html#pricing)) 주소를 아껴 얻는 것이 없다. 반대로 작게 잡았다가 모자라면 primary CIDR은 넓힐 수 없다. ALB는 서브넷마다 /27 이상과 빈 IP 8개가 필요하다([ALB 서브넷](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/application-load-balancers.html)).
+- **결정:** VPC CIDR은 모듈 입력 변수로 두고 루트 파일에 고정한다(옵션으로 바꾸지 않음, [ADR-011](#adr-011)). seoul `10.0.0.0/16`, tokyo `10.1.0.0/16`. 크기는 VPC 최대치인 /16.
+- **근거:** 비용은 변수 1개다. 대역이 겹치지 않으면 나중에 피어링 같은 연결이 필요해져도 VPC를 다시 만들지 않는다. 실무에서도 리전·계정마다 겹치지 않는 대역을 미리 나눠 둔다.
+- **결과:**
+  - 넓은 대역의 대가는 조직 전체의 사설 대역(10.0.0.0/8 = /16 256개)을 빨리 쓰는 것뿐이고, VPC가 2개인 이 프로젝트에서는 문제가 되지 않는다.
+  - 대역이 넓다고 더 열리지는 않는다. 무엇이 통하는지는 라우트 테이블과 보안 그룹이 정하고, 보안 그룹은 CIDR이 아니라 앞 단계 보안 그룹을 참조해 연다([02 네트워크](02-architecture.md)).
+  - 실제로 쓰는 양은 서브넷 크기가 정한다(2-2 네트워크에서 결정).

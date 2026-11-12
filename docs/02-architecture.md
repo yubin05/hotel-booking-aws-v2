@@ -29,7 +29,7 @@
 ## 2. 네트워크
 
 ```
-VPC (서울)
+VPC (서울 10.0.0.0/16, 도쿄 10.1.0.0/16, ADR-033)
 ├─ 퍼블릭 서브넷 ×2 (AZ-a, AZ-c)     NAT Gateway 1개 (AZ-a)
 ├─ 프라이빗 앱 서브넷 ×2              Internal ALB, ECS 태스크
 └─ 프라이빗 DB 서브넷 ×2              RDS (Multi-AZ 대기 DB는 다른 AZ)
