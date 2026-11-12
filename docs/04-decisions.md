@@ -366,6 +366,9 @@
   - GitHub에는 AWS 비밀값을 저장하지 않는다. 워크플로에는 `permissions: id-token: write`와 역할 ARN만 적는다.
   - 권한 없는 역할로 신뢰 조건만 먼저 확인했다. 손으로 실행하는 [oidc-check.yml](../.github/workflows/oidc-check.yml)이 역할을 받고 `aws sts get-caller-identity`까지 성공했다(2026-11-12). 이 API는 권한이 필요 없다([GetCallerIdentity](https://docs.aws.amazon.com/STS/latest/APIReference/API_GetCallerIdentity.html)). main이 아닌 브랜치에서 거부되는지는 확인하지 않았다.
   - 저장소 이름을 바꾸거나 옮기면 `sub`가 바뀌므로 신뢰 조건을 고쳐야 한다.
+  - 2026-11-12 권한 정책을 추가했다([iam.tf](../infra/bootstrap/iam.tf), statement 7개). ECR 로그인(`*`)·이미지 넣기(저장소), 태스크 정의 등록(앱·스키마 패밀리 `:*`), 스키마 태스크 `RunTask`(스키마 패밀리만, `ecs:cluster` 조건 `ArnEquals`), `DescribeTasks`(`task/<클러스터>/*`), `UpdateService`·`DescribeServices`(서비스 `app`), `iam:PassRole`(실행 역할만, `iam:PassedToService` = `ecs-tasks.amazonaws.com`). 리소스 타입과 조건 키 타입은 [Service Authorization Reference](https://docs.aws.amazon.com/service-authorization/latest/reference/reference.html) 기계 판독용 JSON으로 확인했다([ADR-029](#adr-029)·[ADR-031](#adr-031)).
+  - 도쿄 ARN도 지금 넣는다. 장애 중 새 배포는 드물지만, 서울에 같은 권한이 이미 있어 도쿄를 더해도 이 역할이 뚫렸을 때의 피해 범위가 거의 늘지 않고, 장애 중에 IAM을 고치는 절차(관리자 전환 → 코드 수정 → apply)를 피할 수 있다. 서울만 두고 필요할 때 여는 break-glass 안은 버렸다. 실제로 도쿄로 배포하려면 CD 워크플로가 리전을 입력으로 받아야 한다.
+  - `RegisterTaskDefinition`을 패밀리로 좁힌 것(ECS 배포 액션 README 예시는 `*`)이 동작하는지는 첫 CD 실행에서 확인한다.
 
 <a name="adr-027"></a>
 ## ADR-027 예산 알림: 콘솔 예산을 import, 이메일은 커밋하지 않는 tfvars로
