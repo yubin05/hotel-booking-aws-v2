@@ -30,6 +30,7 @@
 | [024](#adr-024) | 2단계 전에 DB 병목을 로컬에서 분석·개선한다 (1단계 기록은 그대로) |
 | [025](#adr-025) | bootstrap은 관리자 역할로 1회 적용, state는 도쿄 버킷 하나에 계정 전용 이름으로 |
 | [026](#adr-026) | GitHub OIDC 역할은 main 브랜치만, 권한 정책은 리소스 이름이 정해지는 2-2에서 |
+| [027](#adr-027) | 예산 알림은 콘솔 예산을 import, 이메일은 커밋하지 않는 tfvars로 |
 
 ---
 
@@ -335,7 +336,7 @@
   - 프로젝트가 30일 안에 끝나면 삭제 규칙은 사실상 돌지 않는다(전부 남김). 프로젝트 중 복구 가능성을 최대로 두려는 의도와 같고, 버킷이 남을 때를 대비한 규칙이다.
   - 도쿄 장애 중에는 어떤 루트도 apply할 수 없다.
   - 2-2에서 ECS가 쓰는 IAM 역할을 어느 루트가 만들지 같은 질문이 다시 나온다.
-  - 프로젝트를 끝낼 때는 `prevent_destroy`를 풀고 버킷을 버전까지 비운 뒤 destroy한다.
+  - 프로젝트를 끝낼 때는 bootstrap state를 먼저 로컬로 되돌린다(backend 블록 삭제 → `terraform init -migrate-state`). state가 지울 버킷 안에 있으면 destroy 도중 state를 저장할 곳이 사라진다. 그다음 `prevent_destroy`를 풀고 버킷을 버전까지 비운 뒤 destroy한다. 콘솔에서 버킷을 바로 지우면 OIDC 역할 · 예산의 state도 함께 사라져 그것들은 손으로 지워야 한다.
 
 <a name="adr-026"></a>
 ## ADR-026 GitHub OIDC 역할: main 브랜치만, 권한 정책은 리소스 이름이 정해지는 2-2에서
@@ -360,3 +361,27 @@
   - GitHub에는 AWS 비밀값을 저장하지 않는다. 워크플로에는 `permissions: id-token: write`와 역할 ARN만 적는다.
   - 권한 없는 역할로 신뢰 조건만 먼저 확인했다. 손으로 실행하는 [oidc-check.yml](../.github/workflows/oidc-check.yml)이 역할을 받고 `aws sts get-caller-identity`까지 성공했다(2026-11-12). 이 API는 권한이 필요 없다([GetCallerIdentity](https://docs.aws.amazon.com/STS/latest/APIReference/API_GetCallerIdentity.html)). main이 아닌 브랜치에서 거부되는지는 확인하지 않았다.
   - 저장소 이름을 바꾸거나 옮기면 `sub`가 바뀌므로 신뢰 조건을 고쳐야 한다.
+
+<a name="adr-027"></a>
+## ADR-027 예산 알림: 콘솔 예산을 import, 이메일은 커밋하지 않는 tfvars로
+
+- **상황:** 1단계에서 콘솔로 만든 월 $50 예산(실제 50·80·100%, 예측 100%에서 이메일 알림)이 있다. 2단계부터 bootstrap 코드로 관리한다([ADR-025](#adr-025)). 예산 이름은 계정 안에서 하나뿐이라 같은 이름으로 만들면 `DuplicateRecordException`이 난다([CreateBudget](https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_budgets_CreateBudget.html)). 저장소는 Public이다.
+- **검토한 대안:**
+  - 다른 이름으로 새로 만들고 콘솔 예산 삭제: 지우는 순서에 따라 알림이 겹치거나 비는 때가 생긴다.
+  - 이메일을 코드에 그대로: 공개 저장소에 개인 이메일이 남는다.
+  - 변수에 `sensitive = true`: plan에서 알림 블록 내용 전체가 가려져 무엇이 바뀌는지 볼 수 없다.
+- **결정:**
+  - `import` 블록(`계정ID:예산이름`)으로 가져온다. `terraform plan -generate-config-out`이 만든 설정에서 콘솔에서 정한 값(이름, 종류, 한도, 주기, 알림 4개)만 남긴다([budgets.tf](../infra/bootstrap/budgets.tf)).
+  - 이메일은 변수로 받는다. 값은 `terraform.tfvars`(.gitignore), 형식은 `terraform.tfvars.example`에 둔다.
+  - `metrics`는 `ignore_changes`로 Terraform이 건드리지 않게 한다.
+  - import 블록은 남긴다.
+  - 프로젝트를 끝낼 때 예산은 다른 리소스를 다 지우고 마지막 청구서가 $0인 것을 확인한 뒤 지운다.
+- **근거:**
+  - 생성된 설정은 `metrics = ["UnblendedCost"]`만 있고 `filter_expression`이 없어 plan이 실패했다(`all of filter_expression,metrics must be specified`). `metrics`를 빼면 plan이 실제 값을 지우려 한다. AWS provider 6.73.0 스키마에서 `metrics`는 선택 인자이고 AWS가 채우는 값(computed)이 아니다. 지웠을 때 AWS 동작은 확인하지 않았다.
+  - 생성 설정에서 지운 나머지 줄(`account_id`, 기간, 빈 태그 · SNS 목록)은 plan 차이가 없었다.
+  - import 블록은 다시 적용해도 아무 일이 없고, 공식 문서는 출처 기록으로 남기길 권한다([import](https://developer.hashicorp.com/terraform/language/import/single-resource)). apply 뒤 블록을 빼고 plan해도 `No changes`였다.
+  - 알림만 쓰는 예산은 무료다([Budgets 요금](https://aws.amazon.com/aws-cost-management/aws-budgets/pricing/)). 다른 리소스를 지운 뒤 남은 요금을 알려 줄 마지막 안전장치다.
+- **결과:**
+  - 이메일은 state(공개가 차단된 버킷)에는 남는다.
+  - 다른 PC에서 bootstrap을 적용하려면 `terraform.tfvars`를 다시 만들어야 한다(GitHub로 옮겨지지 않는다).
+  - 콘솔 예산이 없는 새 계정에 처음 적용할 때는 import 블록을 빼야 할 것으로 본다(가설: 없는 리소스를 import하면 plan이 실패한다).
