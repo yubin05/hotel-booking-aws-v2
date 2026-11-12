@@ -34,6 +34,7 @@
 | [028](#adr-028) | 평소 사용자의 state 권한은 루트별 허용 목록, bootstrap은 제외 |
 | [029](#adr-029) | ECS 실행 역할은 bootstrap에서 관리자가 만들고, 평소 사용자 · CD에는 PassRole만 |
 | [030](#adr-030) | 리소스 이름은 `hotel-booking-aws-v2` 접두사, 서울 · 도쿄 같은 이름 |
+| [031](#adr-031) | 스키마 변경은 CD가 일회성 ECS 태스크로 먼저 적용, 앱과 DB 계정 분리 |
 
 ---
 
@@ -276,6 +277,7 @@
   - 1GB라 MySQL 컨테이너와 Docker가 함께 돌기에 빠듯하다. 설치 단계에서 뜨지 않으면 t3.small로 올리고, 부하 중 메모리 부족은 기준선 결과로 기록한다. DB만 키워야 하면 그때 DB 전용 타입 변수로 나눈다.
   - DB 이미지도 인터넷(Docker Hub)에서 받으므로 NAT는 그대로 필요하다. 2단계 비밀값은 Secrets Manager에 둔다([02 아키텍처](02-architecture.md)).
 
+<a name="adr-022"></a>
 ## ADR-022 이미지 태그는 커밋 SHA
 
 - **상황:** 1단계 수동 배포([ADR-016](#adr-016))는 PC에서 빌드한 이미지를 Docker Hub 공개 저장소에 올리고 앱 서버가 받는다. 태그 규칙이 필요하고, 2단계 CD([ADR-010](#adr-010))·ECR([ADR-020](#adr-020))도 같은 규칙을 이어 쓴다.
@@ -449,6 +451,7 @@
   | ECS 클러스터 | `hotel-booking-aws-v2` | 리전 |
   | ECS 서비스 | `app` | 클러스터 안 |
   | 태스크 정의 패밀리 | `hotel-booking-aws-v2-app` | 리전(클러스터에 속하지 않음) |
+  | 스키마 적용 태스크 정의 패밀리 | `hotel-booking-aws-v2-migrate` | 리전([ADR-031](#adr-031)) |
   | 실행 역할 | `hotel-booking-aws-v2-ecs-execution` | 계정 전체 1개 |
   | 로그 그룹 | `/ecs/hotel-booking-aws-v2` | 리전 |
   | ALB · 대상 그룹 | `hotel-booking-aws-v2` · `hotel-booking-aws-v2-app` | 리전 |
@@ -458,4 +461,26 @@
   - 콘솔·CLI에서 리전을 잘못 고르면 이름만으로는 알아채기 어렵다. 작업 전에 리전을 확인한다.
   - 알림에서 서울·도쿄를 구분하는 방법은 모니터링을 만들 때 정한다. 기본 알림 메시지에 리전이 들어가는지는 확인하지 못했다. 알람 이름은 리소스 이름과 따로 정할 수 있어, 필요하면 알람 이름이나 설명에 리전을 넣는다.
   - ECS 클러스터 이름이 리전마다 따로인지는 문서로 확인하지 못했다(가설: 리전마다 따로). 도쿄 첫 apply에서 확인한다.
-  - DB 비밀값과 일회성 스키마 변경 태스크의 이름은 그 방식을 정할 때 추가한다.
+  - DB 비밀값의 이름은 보관 방식을 정할 때 추가한다.
+
+<a name="adr-031"></a>
+## ADR-031 스키마 변경: CD가 일회성 ECS 태스크로 먼저 적용, 앱과 DB 계정 분리
+
+- **상황:** RDS는 프라이빗 서브넷에 있고 GitHub Actions runner는 인터넷에 있어 직접 붙지 못한다. 앱에는 마이그레이션 도구 없이 `app/db/schema.sql`·`seed.sql`만 있다. 롤링 배포라 배포 중 옛 버전과 새 버전이 함께 돌므로, 스키마는 새 앱보다 먼저 바뀌어야 하고 옛 버전과 호환돼야 한다(expand-contract).
+- **검토한 대안:**
+  - 앱이 시작할 때 적용: CD 단계가 하나 줄어 간단하다. 하지만 새 태스크 수만큼 동시에 실행돼 충돌을 막는 잠금이 따로 필요하고, 앱 DB 계정이 테이블 변경·삭제 권한을 늘 가져 앱이 뚫리면(SQL 인젝션 등) `DROP TABLE`까지 가능하다.
+  - 사람이 수동으로: "스키마 먼저, 배포 나중" 순서를 사람이 지켜야 하고, 리전·DB를 잘못 고르는 실수가 생길 수 있으며, 접속 경로 자체가 공격 표면이 된다. 한 번뿐인 작업에만 맞다.
+- **결정:**
+  - CD가 이미지를 ECR에 넣은 뒤, 같은 이미지로 스키마만 적용하고 끝나는 태스크를 `RunTask`로 1번 실행한다. 종료 코드가 0인 것을 확인한 뒤에 `UpdateService`로 앱을 롤링 교체한다.
+  - 스키마 태스크와 앱은 DB 계정을 나눈다. 스키마 계정만 테이블 변경 권한을 갖고, 앱 계정은 데이터 읽기·쓰기만 한다.
+  - RunTask의 컨테이너 덮어쓰기로는 비밀값을 바꿀 수 없으므로(`command`·`environment` 등만 가능, [ContainerOverride](https://docs.aws.amazon.com/AmazonECS/latest/APIReference/API_ContainerOverride.html)) 스키마 태스크는 태스크 정의 패밀리를 따로 둔다(`hotel-booking-aws-v2-migrate`, [ADR-030](#adr-030)).
+  - RunTask에 필요한 네트워크 설정(서브넷·보안 그룹)은 `describe-services`가 돌려주는 서비스 설정에서 가져온다. CD는 Terraform state를 읽지 않는다.
+- **근거:**
+  - 스키마 변경이 딱 1번, 새 앱보다 먼저 실행되는 순서를 CD가 강제한다. 실패하면 앱 교체 전에 멈춘다.
+  - 테이블을 뜯는 권한은 스키마 태스크만 갖는다. 비유하면 공사 기사 한 명이 공사를 끝내고 나간 뒤에 직원이 교대한다.
+  - `awsvpc` 네트워크 모드 태스크는 RunTask에 `networkConfiguration`이 필요하고([RunTask](https://docs.aws.amazon.com/AmazonECS/latest/APIReference/API_RunTask.html)), 서비스 객체가 그 설정을 갖고 있다([Service](https://docs.aws.amazon.com/AmazonECS/latest/APIReference/API_Service.html)). 서브넷·보안 그룹 ID는 매일 apply·destroy로 바뀌지만 이름(ADR-030)만 알면 찾을 수 있다.
+- **결과:**
+  - GitHub 배포 역할에 `ecs:RunTask`(리소스 타입 task-definition, `ecs:cluster` 조건 가능)와 `ecs:DescribeTasks`(리소스 타입 task)가 추가된다.
+  - 배포마다 태스크 정의 두 개(앱, 스키마)의 새 버전을 등록한다.
+  - 앱에 스키마 적용 스크립트가 필요하다. DB 계정 2개와 비밀값 2개가 생기고, 실행 역할에는 두 비밀값을 읽는 권한이 필요하다.
+  - v1 덤프 이관([ADR-008](#adr-008))은 한 번뿐인 작업이라 따로 정한다.
