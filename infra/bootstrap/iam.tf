@@ -200,3 +200,52 @@ resource "aws_iam_role_policy" "ecs_execution" {
     ]
   })
 }
+
+# 서비스 연결 역할(SLR): AWS 서비스가 우리 계정 안에서 일할 때(서브넷에 네트워크 카드 꽂기 등) 쓰는 역할
+# 서비스를 처음 쓸 때 자동으로 생기는데, 그때 apply한 사람에게 iam:CreateServiceLinkedRole이 필요함
+# 평소 사용자에겐 IAM 권한이 없어(ADR-025) 필요한 것을 전부 여기서 미리 만듦. 계정에 하나라 서울·도쿄가 같이 씀 (ADR-032)
+resource "aws_iam_service_linked_role" "service" {
+  for_each = {
+    ecs             = "ecs.amazonaws.com"                         # ECS: 태스크마다 네트워크 카드 꽂기
+    elb             = "elasticloadbalancing.amazonaws.com"        # ALB: 로드밸런서 네트워크 카드 꽂기
+    rds             = "rds.amazonaws.com"                         # RDS: DB 네트워크 카드 꽂기
+    ecs_autoscaling = "ecs.application-autoscaling.amazonaws.com" # 오토스케일링: ECS 태스크 수 조절(예약 스케일링)
+    ecr_replication = "replication.ecr.amazonaws.com"             # ECR: 레지스트리 복제 설정(서울 → 도쿄)
+    vpc_origin      = "vpcorigin.cloudfront.amazonaws.com"        # CloudFront VPC Origin(global): Internal ALB로 가는 네트워크 카드 꽂기
+  }
+  aws_service_name = each.value
+
+  lifecycle {
+    # 이미 있던 역할을 가져오면 AWS가 붙인 설명이 들어오는데, 코드에 설명이 없다고 지우지 않게
+    ignore_changes = [description]
+  }
+}
+
+# 계정에 이미 있는 역할은 만들지 않고 state로 가져옴(import). 없는 역할을 import하면 plan이 멈춤(Cannot import non-existent remote object)
+# 쓰는 법: 그 계정에 있는 역할만 주석을 풀고 apply → 가져온 뒤 다시 주석 처리. 없는 역할은 주석인 채로 두면 위 리소스가 새로 만듦
+# 있는지 확인: MSYS_NO_PATHCONV=1 aws iam list-roles --path-prefix /aws-service-role/ --query "Roles[].RoleName" --output text
+# 이 계정: ecs·elb·rds·ecs_autoscaling 4개는 2026-04~05에 생겨 있어 가져옴, ecr_replication·vpc_origin은 새로 만듦(2026-11-12 apply)
+# import {
+#   to = aws_iam_service_linked_role.service["ecs"]
+#   id = "arn:aws:iam::${local.account_id}:role/aws-service-role/ecs.amazonaws.com/AWSServiceRoleForECS"
+# }
+# import {
+#   to = aws_iam_service_linked_role.service["elb"]
+#   id = "arn:aws:iam::${local.account_id}:role/aws-service-role/elasticloadbalancing.amazonaws.com/AWSServiceRoleForElasticLoadBalancing"
+# }
+# import {
+#   to = aws_iam_service_linked_role.service["rds"]
+#   id = "arn:aws:iam::${local.account_id}:role/aws-service-role/rds.amazonaws.com/AWSServiceRoleForRDS"
+# }
+# import {
+#   to = aws_iam_service_linked_role.service["ecs_autoscaling"]
+#   id = "arn:aws:iam::${local.account_id}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService"
+# }
+# import {
+#   to = aws_iam_service_linked_role.service["ecr_replication"]
+#   id = "arn:aws:iam::${local.account_id}:role/aws-service-role/replication.ecr.amazonaws.com/AWSServiceRoleForECRReplication"
+# }
+# import {
+#   to = aws_iam_service_linked_role.service["vpc_origin"]
+#   id = "arn:aws:iam::${local.account_id}:role/aws-service-role/vpcorigin.cloudfront.amazonaws.com/AWSServiceRoleForCloudFrontVPCOrigin"
+# }
