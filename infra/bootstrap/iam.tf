@@ -27,6 +27,118 @@ resource "aws_iam_role" "github_deploy" {
     }]
   })
 }
+# GitHub Actions(CD)가 배포할 때 받는 역할에 들어가는 정책
+resource "aws_iam_role_policy" "github_deploy" {
+  name = "${local.project_name}-github-deploy-policy"
+  role = aws_iam_role.github_deploy.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        # ECR 로그인 권한
+        Sid    = "ecrGetAuthorizationToken"
+        Effect = "Allow"
+        Action = [
+          "ecr:GetAuthorizationToken"
+        ]
+        Resource = "*"
+      },
+      {
+        # ECR에 이미지 넣는 권한
+        Sid    = "ecrAccessImage"
+        Effect = "Allow"
+        Action = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:InitiateLayerUpload",
+          "ecr:UploadLayerPart",
+          "ecr:CompleteLayerUpload",
+          "ecr:PutImage",
+          "ecr:BatchGetImage"
+        ]
+        Resource = [
+          "arn:aws:ecr:${local.main_region}:${local.account_id}:repository/${local.project_name}",
+          "arn:aws:ecr:${local.backup_region}:${local.account_id}:repository/${local.project_name}",
+        ]
+      },
+      {
+        # 태스크 정의 등록
+        Sid    = "ecsRegisterTaskDefinition"
+        Effect = "Allow"
+        Action = [
+          "ecs:RegisterTaskDefinition"
+        ]
+        # 앱 · 스키마 패밀리만(ADR-030·031). 리비전 번호는 등록할 때마다 늘어 :*
+        Resource = [
+          "arn:aws:ecs:${local.main_region}:${local.account_id}:task-definition/${local.project_name}-app:*",
+          "arn:aws:ecs:${local.main_region}:${local.account_id}:task-definition/${local.project_name}-migrate:*",
+          "arn:aws:ecs:${local.backup_region}:${local.account_id}:task-definition/${local.project_name}-app:*",
+          "arn:aws:ecs:${local.backup_region}:${local.account_id}:task-definition/${local.project_name}-migrate:*",
+        ]
+      },
+      {
+        # 스키마 적용 태스크를 1번 실행 (ADR-031). 앱 패밀리는 서비스가 띄우므로 RunTask 불필요
+        Sid    = "ecsRunMigrateTask"
+        Effect = "Allow"
+        Action = [
+          "ecs:RunTask"
+        ]
+        Resource = [
+          "arn:aws:ecs:${local.main_region}:${local.account_id}:task-definition/${local.project_name}-migrate:*",
+          "arn:aws:ecs:${local.backup_region}:${local.account_id}:task-definition/${local.project_name}-migrate:*",
+        ]
+        # 우리 클러스터에서만 실행. 값 형식이 ARN이라 ArnEquals, 목록은 둘 중 하나면 통과
+        Condition = {
+          ArnEquals = {
+            "ecs:cluster" = [
+              "arn:aws:ecs:${local.main_region}:${local.account_id}:cluster/${local.project_name}",
+              "arn:aws:ecs:${local.backup_region}:${local.account_id}:cluster/${local.project_name}",
+            ]
+          }
+        }
+      },
+      {
+        # 스키마 태스크가 끝났는지 · 종료 코드 확인. 태스크 ID는 실행할 때 생겨 *
+        Sid    = "ecsDescribeTasks"
+        Effect = "Allow"
+        Action = [
+          "ecs:DescribeTasks"
+        ]
+        Resource = [
+          "arn:aws:ecs:${local.main_region}:${local.account_id}:task/${local.project_name}/*",
+          "arn:aws:ecs:${local.backup_region}:${local.account_id}:task/${local.project_name}/*",
+        ]
+      },
+      {
+        # 앱 롤링 교체 지시 + 상태 확인(RunTask에 쓸 서브넷 · 보안 그룹도 여기서 읽음)
+        Sid    = "ecsDeployService"
+        Effect = "Allow"
+        Action = [
+          "ecs:UpdateService",
+          "ecs:DescribeServices"
+        ]
+        Resource = [
+          "arn:aws:ecs:${local.main_region}:${local.account_id}:service/${local.project_name}/app",
+          "arn:aws:ecs:${local.backup_region}:${local.account_id}:service/${local.project_name}/app",
+        ]
+      },
+      {
+        # 태스크 정의에 적힌 실행 역할을 ECS에 건네기 (ADR-029). 이 역할만, ECS 태스크에게만
+        Sid    = "iamPassExecutionRole"
+        Effect = "Allow"
+        Action = [
+          "iam:PassRole"
+        ]
+        Resource = aws_iam_role.ecs_execution.arn
+        Condition = {
+          StringEquals = {
+            "iam:PassedToService" = "ecs-tasks.amazonaws.com"
+          }
+        }
+      }
+    ]
+  })
+}
 
 # ECS가 실행할 때 받는 역할
 resource "aws_iam_role" "ecs_execution" {
@@ -51,6 +163,7 @@ resource "aws_iam_role_policy" "ecs_execution" {
     Version = "2012-10-17"
     Statement = [
       {
+        # ECR 로그인 권한
         Sid    = "ecrGetAuthorizationToken"
         Effect = "Allow"
         Action = [
