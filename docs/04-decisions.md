@@ -318,7 +318,7 @@
 - **결정:**
   - bootstrap은 관리자 역할로 전환해 적용한다(apply 전 `aws sts get-caller-identity`가 `:assumed-role/`인지 확인). 평소 사용자 정책에는 IAM 권한을 넣지 않는다.
   - state 버킷은 도쿄(ap-northeast-1)에 1개, 계정 전용 이름 공간(`bucket_namespace = "account-regional"`, `<이름>-<계정ID>-ap-northeast-1-an`)으로 만든다.
-  - 버전 관리를 켜고, 지난 버전은 30일이 지나고 더 새 지난 버전이 5개를 넘을 때만 지운다. 지난 버전이 없는 삭제 마커는 정리한다.
+  - 버전 관리를 켜고, 지난 버전은 30일이 지났고 최근 지난 버전 5개 밖으로 밀려났을 때만 지운다(5는 남기는 개수). 지난 버전이 없는 삭제 마커는 정리한다.
   - 잠금은 S3 네이티브 `use_lockfile`.
   - 버킷에 `prevent_destroy`를 걸고 `force_destroy`는 기본값(false)으로 둔다.
   - 공개 차단은 기본값에 맡기지 않고 코드에 적는다. 암호화는 적지 않는다(새 업로드는 SSE-S3로 암호화되고 끌 수 없다, [FAQ](https://docs.aws.amazon.com/AmazonS3/latest/userguide/default-encryption-faq.html)).
