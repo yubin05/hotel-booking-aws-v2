@@ -32,6 +32,8 @@
 | [026](#adr-026) | GitHub OIDC 역할은 main 브랜치만, 권한 정책은 리소스 이름이 정해지는 2-2에서 |
 | [027](#adr-027) | 예산 알림은 콘솔 예산을 import, 이메일은 커밋하지 않는 tfvars로 |
 | [028](#adr-028) | 평소 사용자의 state 권한은 루트별 허용 목록, bootstrap은 제외 |
+| [029](#adr-029) | ECS 실행 역할은 bootstrap에서 관리자가 만들고, 평소 사용자 · CD에는 PassRole만 |
+| [030](#adr-030) | 리소스 이름은 `hotel-booking-aws-v2` 접두사, 서울 · 도쿄 같은 이름 |
 
 ---
 
@@ -336,7 +338,7 @@
   - 요금: IAM 역할·OIDC 공급자는 무료([IAM FAQ](https://aws.amazon.com/iam/faqs/)), 알림만 보내는 Budgets도 무료([Budgets 요금](https://aws.amazon.com/aws-cost-management/aws-budgets/pricing/)). state 버킷은 legacy state가 리소스 약 30개에 51.6KB였던 것으로 보아 월 1센트 안팎으로 예상한다(가설, 첫 청구서로 확인).
   - 프로젝트가 30일 안에 끝나면 삭제 규칙은 사실상 돌지 않는다(전부 남김). 프로젝트 중 복구 가능성을 최대로 두려는 의도와 같고, 버킷이 남을 때를 대비한 규칙이다.
   - 도쿄 장애 중에는 어떤 루트도 apply할 수 없다.
-  - 2-2에서 ECS가 쓰는 IAM 역할을 어느 루트가 만들지 같은 질문이 다시 나온다.
+  - 2-2에서 ECS가 쓰는 IAM 역할을 어느 루트가 만들지 같은 질문이 다시 나온다. → [ADR-029](#adr-029)
   - 프로젝트를 끝낼 때는 bootstrap state를 먼저 로컬로 되돌린다(backend 블록 삭제 → `terraform init -migrate-state`). state가 지울 버킷 안에 있으면 destroy 도중 state를 저장할 곳이 사라진다. 그다음 `prevent_destroy`를 풀고 버킷을 버전까지 비운 뒤 destroy한다. 콘솔에서 버킷을 바로 지우면 OIDC 역할 · 예산의 state도 함께 사라져 그것들은 손으로 지워야 한다.
 
 <a name="adr-026"></a>
@@ -408,3 +410,48 @@
   - 2026-11-12 평소 사용자로 확인: 목록은 보이고, bootstrap state HeadObject는 403, 아직 없는 seoul state는 404다. GetObject와 ListBucket이 모두 있으면 없는 객체에 404를 준다([HeadObject](https://docs.aws.amazon.com/AmazonS3/latest/API/API_HeadObject.html)). bootstrap이 403이므로 평소 그룹의 다른 정책도 bootstrap state를 허용하지 않는다. 쓰기·잠금은 seoul의 첫 plan에서 확인한다.
   - 루트를 새로 만들면 이 목록에 줄을 추가해야 한다.
   - 정책은 그룹 인라인이라 관리자 역할로 `put-group-policy`로 반영하고, 덮어쓰면 이전 내용이 남지 않는다. 반영 전에 `get-group-policy`로 백업한다. 파일 이름은 `legacy-`로 시작하지만 2단계 루트도 이 정책을 쓴다.
+
+<a name="adr-029"></a>
+## ADR-029 ECS 실행 역할: bootstrap에서 관리자가 만들고, 평소 사용자·CD에는 PassRole만
+
+- **상황:** 2-2의 ECS 태스크는 실행 역할이 필요하다. ECS가 이 역할로 ECR 이미지를 받고, CloudWatch Logs로 로그를 보내고, Secrets Manager 비밀값을 꺼낸다([실행 역할](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_execution_IAM_role.html)). 태스크 역할은 앱 코드가 AWS API를 부를 때 쓰는데, 앱에는 AWS SDK 의존성이 없다([태스크 역할](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-iam-roles.html)). 역할을 만드는 루트에는 IAM 생성 권한이 있어야 하고, 평소 사용자에게 그 권한을 주면 권한 상승이다([ADR-025](#adr-025)). 태스크 정의를 등록하는 쪽은 그 역할에 대한 `iam:PassRole`이 필요하다.
+- **검토한 대안:**
+  - global 루트(평소 사용자): `iam:CreateRole`·`AttachRolePolicy`로 자기를 믿는 역할을 만들고 AdministratorAccess를 붙이면, MFA를 거는 관리자 역할을 우회한다.
+  - regional 모듈(seoul·tokyo가 각자): 같은 권한 상승에 더해, IAM 이름은 계정 전체에서 하나뿐이라 리전마다 다른 이름이 필요하다.
+  - 평소 사용자 + 권한 경계 강제: 경계 정책 수정·삭제, 역할에서 경계 떼기 같은 구멍을 따로 막아야 해서 설계가 크다.
+- **결정:**
+  - 실행 역할은 bootstrap에서 관리자 역할로 만들어 상시 둔다.
+  - 평소 사용자(seoul·tokyo apply)와 GitHub 배포 역할(태스크 정의 새 버전 등록)에는 이 역할 ARN으로 한정한 `iam:PassRole`만 준다.
+  - 태스크 역할은 지금 만들지 않는다. 앱이 AWS API를 부를 일이 생기면(예: ECS Exec) 같은 방식으로 추가한다.
+- **근거:**
+  - 비유하면 AssumeRole은 출입증을 내가 빌려 목에 거는 것, PassRole은 보관함의 정해진 출입증을 업체(ECS)에 맡기는 것, CreateRole은 출입증 발급기를 갖는 것이다. PassRole은 이미 있는 역할을 서비스에 맡길 뿐이라, 역할 권한은 관리자가 정해 둔 범위를 넘지 못한다. 범위를 `*`로 주면 어떤 역할이든 맡길 수 있으므로 ARN으로 한정한다([PassRole](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_passrole.html)).
+  - IAM은 글로벌이라 역할 하나를 서울·도쿄가 같이 쓴다. 복원 드릴 때 관리자 없이 tokyo를 apply할 수 있다. 역할은 무료다([IAM FAQ](https://aws.amazon.com/iam/faqs/)).
+- **결과:**
+  - 역할 정책에 적을 리소스(ECR 저장소, 로그 그룹, 비밀값)의 이름을 먼저 정해야 한다.
+  - 역할 권한을 바꿀 때마다 관리자 apply가 필요하다.
+  - 평소 사용자는 bootstrap state를 못 읽으므로([ADR-028](#adr-028)) seoul·tokyo는 역할을 이름으로 참조한다.
+  - 평소 사용자 정책에 PassRole statement를 추가해야 한다.
+
+<a name="adr-030"></a>
+## ADR-030 리소스 이름: `hotel-booking-aws-v2` 접두사, 서울·도쿄 같은 이름
+
+- **상황:** 실행 역할과 GitHub 배포 역할의 정책에 리소스 ARN을 적으려면 이름이 먼저 정해져야 한다([ADR-026](#adr-026), [ADR-029](#adr-029)). 도쿄는 서울과 같은 모듈로 만든다([ADR-011](#adr-011)).
+- **검토한 대안:**
+  - 리전 표시(`-seoul`·`-tokyo`): 알림이나 대시보드에서 이름만 보고 리전을 알 수 있다. 하지만 ECR은 복제해도 이름이 같고 바꿀 수 없으며([ECR 복제](https://docs.aws.amazon.com/AmazonECR/latest/userguide/replication.html)), IAM 역할은 계정 전체에서 이름이 하나뿐이라([CreateRole](https://docs.aws.amazon.com/IAM/latest/APIReference/API_CreateRole.html)) 리전을 표시할 수 없어 규칙이 섞인다. ALB 이름은 32자까지라 리전과 용도를 붙이면 빠듯하다.
+- **결정:** 접두사는 기존 버킷·역할과 같은 `hotel-booking-aws-v2`로 한다. 리전 리소스는 서울과 도쿄에서 같은 이름을 쓰고, 리전은 ARN과 provider로 구분한다.
+
+  | 리소스 | 이름 | 범위 |
+  |---|---|---|
+  | ECR 저장소 | `hotel-booking-aws-v2` | 리전(복제하면 도쿄도 같은 이름) |
+  | ECS 클러스터 | `hotel-booking-aws-v2` | 리전 |
+  | ECS 서비스 | `app` | 클러스터 안 |
+  | 태스크 정의 패밀리 | `hotel-booking-aws-v2-app` | 리전(클러스터에 속하지 않음) |
+  | 실행 역할 | `hotel-booking-aws-v2-ecs-execution` | 계정 전체 1개 |
+  | 로그 그룹 | `/ecs/hotel-booking-aws-v2` | 리전 |
+  | ALB · 대상 그룹 | `hotel-booking-aws-v2` · `hotel-booking-aws-v2-app` | 리전 |
+
+- **근거:** ALB와 대상 그룹 이름은 리전·계정마다 하나면 된다([ALB](https://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_CreateLoadBalancer.html), [대상 그룹](https://docs.aws.amazon.com/elasticloadbalancing/latest/APIReference/API_CreateTargetGroup.html)). IAM 정책과 CD 워크플로에서 이름은 고정되고 리전만 바뀐다. 도쿄는 서울의 복사본이라 같은 이름표를 달고 주소(리전)로 구분한다.
+- **결과:**
+  - 콘솔·CLI에서 리전을 잘못 고르면 이름만으로는 알아채기 어렵다. 작업 전에 리전을 확인한다.
+  - ECS 클러스터 이름이 리전마다 따로인지는 문서로 확인하지 못했다(가설: 리전마다 따로). 도쿄 첫 apply에서 확인한다.
+  - DB 비밀값과 일회성 스키마 변경 태스크의 이름은 그 방식을 정할 때 추가한다.
