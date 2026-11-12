@@ -79,8 +79,39 @@ flowchart LR
 
 주요 선택마다 검토한 대안과 근거를 [설계 결정 기록](docs/04-decisions.md)에 남겼습니다.
 
-- [ECR 선택 이유 (vs Docker Hub)](docs/04-decisions.md#adr-020)
+**아키텍처**
+
+- [AWS로 이관한 이유 (vs SaaS · PaaS 조합)](docs/04-decisions.md#adr-002)
+- [ECS Fargate 선택 이유 (vs EKS · EC2)](docs/04-decisions.md#adr-003)
+- [모듈러 모놀리스 선택 이유 (vs 마이크로서비스)](docs/04-decisions.md#adr-004)
+- [RDS for MySQL 선택 이유 (vs Aurora)](docs/04-decisions.md#adr-005)
+- [CloudFront VPC Origin + Internal ALB 선택 이유 (vs API Gateway)](docs/04-decisions.md#adr-006)
+- [앱 자체 JWT 선택 이유 (vs Cognito)](docs/04-decisions.md#adr-007)
+- [프론트를 앱 컨테이너에 포함한 이유 (vs S3 + OAC)](docs/04-decisions.md#adr-013)
+- [선착순 쿠폰을 DB 조건부 갱신으로 처리한 이유 (vs Redis · 대기열)](docs/04-decisions.md#adr-014)
+
+**DR · 이관**
+
+- [멀티클라우드 DR을 쓰지 않는 이유 (vs Azure 대기 · GCP Cold DR)](docs/04-decisions.md#adr-001)
+- [Backup & Restore 선택 이유 (vs Pilot Light · Warm Standby)](docs/04-decisions.md#adr-009)
+- [리전 전환을 CloudFront 원본 전환으로 하는 이유 (vs DNS 전환)](docs/04-decisions.md#adr-012)
+- [덤프로 이관하는 이유 (vs DMS CDC)](docs/04-decisions.md#adr-008)
+
+**배포 · 운영**
+
 - [GitHub Actions 선택 이유 (vs CodePipeline)](docs/04-decisions.md#adr-010)
+- [ECR 선택 이유 (vs Docker Hub)](docs/04-decisions.md#adr-020)
+- [이미지 태그를 커밋 SHA로 하는 이유 (vs latest)](docs/04-decisions.md#adr-022)
+- [스키마 변경을 일회성 ECS 태스크로 하는 이유 (vs 앱 시작 시 적용)](docs/04-decisions.md#adr-031)
+- [Terraform 리전별 루트 선택 이유 (vs 변수로 리전 전환)](docs/04-decisions.md#adr-011)
+- [예약 스케일링과 목표 추적을 나눠 쓰는 이유](docs/04-decisions.md#adr-015)
+
+**보안 · 권한**
+
+- [평소 최소 권한 + 관리자 역할 전환을 고른 이유 (vs 관리자 그룹)](docs/04-decisions.md#adr-018)
+- [GitHub OIDC 선택 이유 (vs 장기 액세스 키)](docs/04-decisions.md#adr-026)
+- [ECS 실행 역할을 관리자 루트에서 만드는 이유 (vs 평소 사용자에게 IAM 생성 권한)](docs/04-decisions.md#adr-029)
+- [Terraform state를 도쿄 버킷 하나에 두는 이유 (vs 서울 · 리전별 버킷)](docs/04-decisions.md#adr-025)
 
 ## 단계적 검증
 
