@@ -21,3 +21,9 @@ terraform {
 provider "aws" {
   region = local.backup_region
 }
+
+# 서울에 만드는 상시 리소스용 (ECR 저장소 · 복제 설정, ADR-040). 쓰는 리소스에 provider = aws.seoul
+provider "aws" {
+  alias  = "seoul"
+  region = local.main_region
+}
