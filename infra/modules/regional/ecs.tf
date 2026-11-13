@@ -43,6 +43,13 @@ resource "aws_ecs_task_definition" "app" {
     essential    = true
     portMappings = [{ containerPort = local.app_port, protocol = "tcp" }]
 
+    # DB 접속 정보 (비밀이 아닌 것만). 앱은 관리자가 아니라 앱 전용 계정으로 붙음 (ADR-031)
+    environment = [
+      { name = "DB_HOST", value = aws_db_instance.this.address },
+      { name = "DB_NAME", value = aws_db_instance.this.db_name },
+      { name = "DB_USER", value = "app" },
+    ]
+
     # 값이 아니라 금고 주소. ECS가 태스크를 띄울 때 꺼내 환경 변수로 넣음
     secrets = [
       { name = "JWT_SECRET", valueFrom = data.aws_secretsmanager_secret.jwt.arn },

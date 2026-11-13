@@ -23,6 +23,11 @@ variable "nat_count" {
   }
 }
 
+variable "db_multi_az" {
+  description = "RDS Multi-AZ. 설계는 켬(true), 포트폴리오는 평소 끄고 AZ 장애 테스트 때 켬 (ADR-042)"
+  type        = bool
+}
+
 variable "image_tag" {
   description = "처음 서비스를 만들 때 쓸 이미지 태그(짧은 커밋 SHA, ADR-022). 이후 배포는 CD가 바꿈 (ADR-039)"
   type        = string
