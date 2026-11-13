@@ -42,6 +42,8 @@
 | [036](#adr-036) | 장애 종류별 복구 목표 (잠정: AZ 10분, 리전 1시간) |
 | [037](#adr-037) | 예약 알림은 이메일(SES) + 카카오톡("나에게 보내기") 두 채널 |
 | [038](#adr-038) | 평소 사용자 권한은 고객 관리형 정책 2개(v2 · legacy)로, bootstrap이 관리 |
+| [039](#adr-039) | 태스크 정의 설정은 Terraform 모듈, 이미지는 CD (ECS의 최신 리비전을 읽어 교체) |
+| [040](#adr-040) | ECR 저장소는 bootstrap(상시), 서울에 push하면 도쿄로 자동 복제 |
 
 ---
 
@@ -740,5 +742,57 @@
 - 크기 한도: 그룹 인라인 합계 5,120자, 관리형 정책 하나 6,144자, 그룹당 관리형 10개(공백 제외, [IAM 한도](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_iam-quotas.html)).
 - 정책 설명은 바꿀 수 없다(*"The policy description is immutable"*, [CreatePolicy](https://docs.aws.amazon.com/IAM/latest/APIReference/API_CreatePolicy.html)).
 - 처음에 그룹 인라인 목록에 `AssumeAdminRolePolicy`만 보여 평소 권한의 위치를 확인했다. 그것은 관리자 전환 권한이었고, 평소 권한 인라인은 이미 지운 뒤였다.
+
+</details>
+
+<a name="adr-039"></a>
+## ADR-039 태스크 정의 설정은 Terraform 모듈, 이미지는 CD (ECS의 최신 리비전을 읽어 교체)
+
+- **상황:** 2-2 ALB · ECS 덩어리 전(2026-11-13). CD는 새 이미지로 태스크 정의 리비전을 등록하고 서비스를 교체한다([ADR-026](#adr-026), [ADR-031](#adr-031)). Terraform도 서비스와 태스크 정의를 갖고 있으면, 다음 apply가 서비스를 Terraform의 리비전으로 되돌려 배포가 조용히 롤백된다.
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | Terraform이 전부 (CD가 `terraform apply`로 이미지 값만 바꿈) | 배포 역할에 인프라 전체 권한과 state 접근이 필요해 뚫리면 피해 범위가 인프라 전체다. 배포마다 인프라 apply라 느리고 위험하다 |
+  | CD가 저장소의 태스크 정의 JSON 파일을 원본으로 씀 | 설정이 Terraform 코드와 JSON 파일 두 곳에 생겨, 한쪽만 고치면 다음 배포가 설정을 되돌린다. v1이 이 방식이라 배포 때마다 JSON을 손봐야 했다 |
+
+- **결정:** `modules/regional`(서울 · 도쿄 공용)이 태스크 정의(CPU · 메모리 · 비밀값 · 로그 설정)와 서비스를 만들고, 서비스의 `task_definition`은 `lifecycle { ignore_changes }`로 CD 몫이라고 선언한다. 이후 리비전 등록과 서비스 교체는 CD가 AWS 공식 액션(render → deploy)으로 한다. CD는 원본을 저장소 파일이 아니라 **ECS에 등록된 최신 리비전**에서 패밀리 이름으로 읽어(`task-definition-family`) 이미지만 바꾼다. 스키마 태스크(`-migrate` 패밀리)도 같다.
+- **근거:** 배포 역할은 "새 리비전 등록 + 서비스 교체"만 할 수 있고 인프라를 못 건드린다(ADR-026에서 이미 그렇게 좁힘). 설정은 Terraform 한 곳, 이미지는 CD만 바꿔서 원본이 한 벌이다. Terraform에서 설정을 바꾸면 새 리비전이 생기고, 다음 배포가 그 최신 리비전을 읽어 이미지만 바꾸므로 설정이 이어진다. `ignore_changes`는 밖에서 바뀌는 값을 Terraform이 되돌리지 않게 하는 공식 방법이다.
+- **결과:**
+  - destroy 뒤 다시 apply하면 서비스는 Terraform의 첫 리비전으로 뜬다. 최신 이미지는 CD를 한 번 돌려 맞춘다(재현성 확인 때 절차로 정리).
+  - 배포 역할에 읽기 권한 `ecs:DescribeTaskDefinition`을 더해야 한다(CD 덩어리 때 bootstrap에 반영).
+  - 리전마다 다른 값(이미지 주소의 ECR, 로그 리전, 비밀값 ARN)은 모듈이 리전을 읽어 채운다. 도쿄 복원 때 tokyo 루트가 같은 모듈로 도쿄에 태스크 정의를 등록하고, CD는 그것을 읽는다.
+
+<details>
+<summary>확인한 근거와 메모</summary>
+
+- `ignore_changes`로 밖에서 바뀌는 값을 무시하는 예: [aws_ecs_service](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/ecs_service)(서비스 개수 예시).
+- AWS 공식 액션: [render-task-definition](https://github.com/aws-actions/amazon-ecs-render-task-definition)(*"Inserts a container image URI into an Amazon ECS task definition JSON file"*, 파일 대신 `task-definition-family` 등으로 등록된 정의를 읽어 올 수도 있음), [deploy-task-definition](https://github.com/aws-actions/amazon-ecs-deploy-task-definition).
+
+</details>
+
+<a name="adr-040"></a>
+## ADR-040 ECR 저장소는 bootstrap(상시), 서울에 push하면 도쿄로 자동 복제
+
+- **상황:** 2-2 ALB · ECS 전(2026-11-13). ECS 서비스는 만들어지자마자 태스크를 띄우며 이미지를 받으려 하고, 리전 장애 때 도쿄에도 이미지가 있어야 복원할 수 있다(02 5절). 저장소를 어느 루트에 둘지 정해야 한다.
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | seoul 모듈 (매일 destroy) | destroy 때 이미지도 지워지거나(이미지가 있으면 destroy가 막혀 강제 삭제 설정이 필요) apply할 때마다 이미지를 다시 빌드 · push해야 ECS가 뜬다. 도쿄 복제본이 늘 있다는 DR 전제가 흔들린다 |
+
+- **결정:** bootstrap에 서울 · 도쿄 저장소(`hotel-booking-aws-v2`, [ADR-030](#adr-030))와 서울 레지스트리의 도쿄 복제 설정을 둔다([ecr.tf](../infra/bootstrap/ecr.tf)). CD는 서울에만 push하고 복제가 도쿄로 복사한다. 태그는 불변(커밋 SHA, [ADR-022](#adr-022)), 올릴 때 기본 스캔, 최근 N개만 남긴다.
+- **근거:** state 버킷처럼 매일 지우면 안 되는 것이라 bootstrap 원칙과 같다. apply 직후 남아 있는 이미지로 바로 뜬다. ECS 실행 역할 · 배포 역할의 ECR 권한이 이미 이 이름으로 서울 · 도쿄에 걸려 있고([ADR-029](#adr-029), [ADR-026](#adr-026)), 복제용 서비스 연결 역할도 있다([ADR-032](#adr-032)).
+- **결과:**
+  - 복제는 도쿄 저장소를 자동으로 만들지만 저장소 설정은 기본으로 복사하지 않아, 도쿄 저장소도 같은 설정으로 직접 만든다.
+  - 저장 요금은 서울 GB당 월 $0.10(Price List API, 2026-11-13)이고 도쿄 복제본도 따로 든다. 최근 N개만 남겨 작게 유지한다.
+  - ECS를 처음 띄우기 전에 이미지가 하나 있어야 해서, CD의 빌드 · push 부분을 ECS보다 먼저 만든다.
+  - 서울 장애 중 새로 배포할 때는 CD가 도쿄 저장소에 바로 push한다(CD 덩어리에서 배포 리전 선택).
+
+<details>
+<summary>확인한 근거와 메모</summary>
+
+- 복제는 대상 레지스트리에 저장소가 없으면 만들고, 저장소 설정(태그 불변 · 암호화 · 권한 · 수명 주기)은 생성 템플릿 없이는 복제되지 않는다([ECR 복제](https://docs.aws.amazon.com/AmazonECR/latest/userguide/replication.html)).
+- 수명 주기 규칙 형식(`imageCountMoreThan`): [예시](https://docs.aws.amazon.com/AmazonECR/latest/userguide/lifecycle_policy_examples.html).
 
 </details>
