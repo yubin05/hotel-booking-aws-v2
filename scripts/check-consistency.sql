@@ -1,3 +1,4 @@
+-- 고객사 저장소(hotel-booking-app)의 scripts/에도 같은 파일이 있다. 여기서는 기준선 시험 뒤 정합성 확인에 쓴다 (ADR-043)
 -- 실험 뒤 정합성 검사 (docs/07-experiments.md). 첫 표의 bad가 모두 0이어야 한다
 -- 실행 (Git Bash, 저장소 루트):
 --   docker compose exec -T db mysql -uroot -plocal-root-pw --default-character-set=utf8mb4 -t hotel_booking < scripts/check-consistency.sql

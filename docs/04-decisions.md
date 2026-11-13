@@ -46,7 +46,7 @@
 | [040](#adr-040) | ECR 저장소는 bootstrap(상시), 서울에 push하면 도쿄로 자동 복제 |
 | [041](#adr-041) | 비밀값은 쓰기 전용으로 넣어 state에 남기지 않고(금고는 bootstrap · 도쿄 복제), DB 관리자 비밀번호는 RDS가 관리 |
 | [042](#adr-042) | RDS는 apply마다 새로 만들고 시드를 다시 넣음, 백업 7일은 켜되 destroy 때 같이 삭제 |
-| [043](#adr-043) | 앱 · 이전 환경은 고객사 저장소(hotel-booking-app, Public)로 분리, 이 저장소는 To-Be 인프라만 |
+| [043](#adr-043) | 앱 · 이전 환경은 고객사 저장소(hotel-booking-app, Public)로 분리, 이 저장소는 To-Be 인프라와 이관 전후 부하 시험 |
 
 ---
 
@@ -274,7 +274,7 @@
   - IAM Identity Center: 과거 활성화 후 무료 크레딧이 끝난 경험이 있어 제외했다(원인 미확인).
 - **결정:** 루트는 MFA를 걸고 결제·계정 설정과 처음 IAM 구성에만 쓴다. 일상 작업은 MFA를 건 IAM 사용자 1개로 하고, 권한은 그룹으로 최소한만 준다. 관리자 권한(AdministratorAccess)은 MFA로 로그인해야 전환할 수 있는 관리자 역할로 분리해 필요할 때만 쓴다. CLI는 `aws login`(AWS CLI 2.32.0 이상)으로 임시 자격 증명을 받는다.
 - **근거:** 장기 액세스 키가 어디에도 없다. 공용 PC에 세션이 남아도 최대 12시간 뒤 만료되고 `aws logout`으로 바로 지울 수 있다. 관리자 권한은 필요할 때 역할 전환으로 받는 임시 자격 증명으로만 존재한다. 사고가 나면 루트로 IAM 사용자만 끄면 된다.
-- **결과:** Terraform은 `aws login` 자격 증명을 `credential_process` 없이 바로 읽는다(2026-11-10 1단계 plan에서 확인, Terraform 1.17.0 · AWS provider 6.72.0). 그룹 권한은 그 단계 Terraform이 쓰는 서비스부터 시작해, 권한 거부가 나면 원인을 보고 넓힌다. 1단계는 AWS 관리형 AmazonEC2FullAccess(`ec2:*`에 로드밸런서·CloudWatch·Auto Scaling까지 포함) 대신 필요한 액션만 적은 정책을 직접 써서 평소 그룹에 인라인 정책으로 붙인다. AWS는 관리형 정책으로 시작해 사용 기록(예: 90일)을 보고 줄이라고 권하지만, 이 프로젝트는 최소 권한을 직접 설계해 보는 것이 목적이고 매일 만들고 지워서 그만큼 기록이 쌓이지 않는다. 정책은 읽기 `ec2:Describe*`·`ec2:GetConsoleOutput`, 쓰기는 그 단계 리소스의 만들기·바꾸기·지우기 액션만 서울 리전 조건으로 허용한다([legacy-operator-policy.json](../infra/iam/legacy-operator-policy.json), 2026-11-10 평소 사용자로 apply·destroy 통과). 2단계 루트의 state 권한은 [ADR-028](#adr-028). 콘솔에서 관리자 역할로 전환한 상태로 `aws login`을 하면 CLI 세션도 관리자 역할이 된다(2026-11-10 확인, `login_session`에 역할 ARN). 평소 권한으로 작업하려면 역할에서 돌아온 상태로 로그인하고 `aws sts get-caller-identity`가 `:user/`인지 확인한다. 2단계 GitHub Actions는 사용자 대신 OIDC 역할을 쓴다.
+- **결과:** Terraform은 `aws login` 자격 증명을 `credential_process` 없이 바로 읽는다(2026-11-10 1단계 plan에서 확인, Terraform 1.17.0 · AWS provider 6.72.0). 그룹 권한은 그 단계 Terraform이 쓰는 서비스부터 시작해, 권한 거부가 나면 원인을 보고 넓힌다. 1단계는 AWS 관리형 AmazonEC2FullAccess(`ec2:*`에 로드밸런서·CloudWatch·Auto Scaling까지 포함) 대신 필요한 액션만 적은 정책을 직접 써서 평소 그룹에 인라인 정책으로 붙인다. AWS는 관리형 정책으로 시작해 사용 기록(예: 90일)을 보고 줄이라고 권하지만, 이 프로젝트는 최소 권한을 직접 설계해 보는 것이 목적이고 매일 만들고 지워서 그만큼 기록이 쌓이지 않는다. 정책은 읽기 `ec2:Describe*`·`ec2:GetConsoleOutput`, 쓰기는 그 단계 리소스의 만들기·바꾸기·지우기 액션만 서울 리전 조건으로 허용한다([legacy-operator-policy.json](https://github.com/yubin05/hotel-booking-aws-v2/blob/39d08196c7ef0c4bc7ff2370bba035cc3c5e7acd/infra/iam/legacy-operator-policy.json), 2026-11-10 평소 사용자로 apply·destroy 통과). 2단계 루트의 state 권한은 [ADR-028](#adr-028). 콘솔에서 관리자 역할로 전환한 상태로 `aws login`을 하면 CLI 세션도 관리자 역할이 된다(2026-11-10 확인, `login_session`에 역할 ARN). 평소 권한으로 작업하려면 역할에서 돌아온 상태로 로그인하고 `aws sts get-caller-identity`가 `:user/`인지 확인한다. 2단계 GitHub Actions는 사용자 대신 OIDC 역할을 쓴다.
   - 관리자 전환 설정(2026-11-13 관리자 역할로 `get-role` 확인): 평소 그룹 인라인 `AssumeAdminRolePolicy`는 `Administrator-Role` ARN 하나에만 `sts:AssumeRole`을 `aws:MultiFactorAuthPresent: true` 조건으로 허용한다. 역할의 신뢰 정책은 `Principal`이 이 계정(`:root`)이고 같은 MFA 조건이 있으며, 최대 세션은 3600초다. 신뢰 정책에 계정을 적으면 계정 안 누구나 후보가 되고, 실제 전환은 관리자가 `sts:AssumeRole`을 준 그룹·사용자만 할 수 있다([역할 전환 권한](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_permissions-to-switch.html)). 그래서 계정 ID와 역할 이름은 비밀이 아니고(*"not considered secret"*, [계정 식별자](https://docs.aws.amazon.com/accounts/latest/reference/manage-acct-identifiers.html)), 관리자를 주지 않을 사용자에게는 이 정책을 붙이지 않고 IAM 쓰기 권한도 주지 않는다. MFA가 양쪽에 있어 비밀번호만 훔쳐서는 전환할 수 없다. 남은 위험은 MFA를 이미 통과한 세션을 가져가는 경우라, 공용 PC에서는 작업 뒤 로그아웃한다.
   - 평소 사용자 권한에 있는 AWS 관리형 정책 2개:
     - `IAMUserChangePassword`: 본인 비밀번호만 바꾸기(`iam:ChangePassword`, 리소스 `user/${aws:username}`)와 비밀번호 규칙 읽기다([정책](https://docs.aws.amazon.com/aws-managed-policy/latest/reference/IAMUserChangePassword.html)). 콘솔에서 사용자를 만들 때 "다음 로그인 때 새 비밀번호"를 고르면 필요한 권한이 생긴다고 문서에 나와 있어([사용자 만들기](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_users_create.html)), 이 정책도 그때 붙은 것으로 추정한다(문서에 정책 이름은 없다).
@@ -328,7 +328,7 @@
 
 - **상황:** 1단계 수동 배포([ADR-016](#adr-016))는 PC에서 빌드한 이미지를 Docker Hub 공개 저장소에 올리고 앱 서버가 받는다. 태그 규칙이 필요하고, 2단계 CD([ADR-010](#adr-010))·ECR([ADR-020](#adr-020))도 같은 규칙을 이어 쓴다.
 - **검토한 대안:** `latest`. 명령은 짧지만 태그가 올릴 때마다 다른 이미지로 옮겨 간다. 지금 서버에서 도는 코드가 어느 커밋인지 답할 수 없고, 이전 `latest`가 사라져 되돌릴 이름이 없으며, 서버에 같은 태그가 이미 있으면 `docker run`이 새 이미지를 받지 않는다.
-- **결정:** 태그는 짧은 커밋 SHA(`git rev-parse --short HEAD`)로 한다. 빌드 범위인 `app` 폴더에 커밋하지 않은 변경이 없을 때만 빌드한다(`git status --short app`가 비어 있음). [start-app.sh](../infra/legacy/start-app.sh)는 태그를 인자로 받고 `run` 전에 `pull`한다.
+- **결정:** 태그는 짧은 커밋 SHA(`git rev-parse --short HEAD`)로 한다. 빌드 범위인 `app` 폴더에 커밋하지 않은 변경이 없을 때만 빌드한다(`git status --short app`가 비어 있음). [start-app.sh](https://github.com/yubin05/hotel-booking-aws-v2/blob/39d08196c7ef0c4bc7ff2370bba035cc3c5e7acd/infra/legacy/start-app.sh)는 태그를 인자로 받고 `run` 전에 `pull`한다.
 - **근거:** 이미지와 커밋이 1:1로 이어져 롤백(이전 SHA로 다시 배포), 원인 추적(두 SHA 사이 `git diff`), 라이브러리 취약점 영향 판단(그 커밋의 `package-lock.json`)이 된다. 2026-11-11 예약 화면 버그를 고친 커밋 `62702e2`를 새 태그로 다시 배포했고, 브라우저가 받는 JS 파일명이 바뀐 것으로 새 이미지가 뜬 것을 확인했다.
 - **결과:** 태그 이름은 변조를 막지 못한다. SHA 태그도 쓰기 권한이 있으면 같은 이름으로 덮어쓸 수 있고, 공개 저장소는 태그 목록이 보여 SHA를 숨길 수도 없다. 막는 것은 쓰기 토큰 관리, 태그 불변 설정, 다이제스트(`@sha256:`) 고정이다. Docker Hub 개인 액세스 토큰은 저장소 하나로 범위를 좁힐 수 없어 계정의 모든 저장소에 쓰기 권한을 준다. 2단계 ECR에서는 장기 토큰 없이(OIDC) 올리고, 태그 불변 설정은 그때 정한다.
 
@@ -443,7 +443,7 @@
 <a name="adr-028"></a>
 ## ADR-028 평소 사용자의 state 권한: 루트별 허용 목록, bootstrap은 제외
 
-- **상황:** 2-2부터 seoul·global 루트는 평소 사용자로 apply하고, state는 bootstrap과 같은 버킷의 `<루트>/terraform.tfstate`에 둔다([ADR-025](#adr-025)). 평소 그룹 인라인 정책([legacy-operator-policy.json](../infra/iam/legacy-operator-policy.json))에는 S3 권한이 없었다. Terraform S3 backend는 버킷에 `s3:ListBucket`, state 파일에 `GetObject`·`PutObject`, 잠금 파일(`<key>.tflock`)에 `GetObject`·`PutObject`·`DeleteObject`가 필요하다. state 파일은 Terraform이 지우지 않으므로 `DeleteObject`가 필요 없다([S3 backend](https://developer.hashicorp.com/terraform/language/backend/s3#s3-bucket-permissions)).
+- **상황:** 2-2부터 seoul·global 루트는 평소 사용자로 apply하고, state는 bootstrap과 같은 버킷의 `<루트>/terraform.tfstate`에 둔다([ADR-025](#adr-025)). 평소 그룹 인라인 정책([legacy-operator-policy.json](https://github.com/yubin05/hotel-booking-aws-v2/blob/39d08196c7ef0c4bc7ff2370bba035cc3c5e7acd/infra/iam/legacy-operator-policy.json))에는 S3 권한이 없었다. Terraform S3 backend는 버킷에 `s3:ListBucket`, state 파일에 `GetObject`·`PutObject`, 잠금 파일(`<key>.tflock`)에 `GetObject`·`PutObject`·`DeleteObject`가 필요하다. state 파일은 Terraform이 지우지 않으므로 `DeleteObject`가 필요 없다([S3 backend](https://developer.hashicorp.com/terraform/language/backend/s3#s3-bucket-permissions)).
 - **검토한 대안:**
   - `<버킷>/*/terraform.tfstate` 같은 와일드카드: `bootstrap/terraform.tfstate`도 걸려 평소 사용자가 OIDC 역할·예산의 state를 읽고 덮어쓸 수 있다(예산 이메일도 state에 평문으로 있다). IAM ARN 와일드카드에는 "이것만 빼고" 문법이 없다.
   - `<버킷>/*` 허용 + `bootstrap/*` 명시 Deny: 막히긴 하지만 앞으로 버킷에 넣는 파일이 모두 자동으로 열린다. 명시 Deny는 다른 정책이 넓게 허용할 때 쓰는 가드레일이다.
@@ -733,7 +733,7 @@
 - **결정:**
   - 우리가 쓴 **고객 관리형** 정책 2개를 bootstrap Terraform(관리자 역할)이 만들어 평소 그룹에 연결한다([iam.tf](../infra/bootstrap/iam.tf)).
     - `hotel-booking-aws-v2-operator-v2`: 2단계 루트용. `ec2:Describe*`, 서울 조건의 네트워크 액션, seoul · global · tokyo state([v2-operator-policy.json](../infra/iam/v2-operator-policy.json))
-    - `hotel-booking-aws-v2-operator-legacy`: 1단계 legacy 루트용. 1단계 때 쓰던 권한 그대로(읽기, 네트워크, EC2 · 키 페어, state는 로컬이라 없음, [legacy-operator-policy.json](../infra/iam/legacy-operator-policy.json))
+    - `hotel-booking-aws-v2-operator-legacy`: 1단계 legacy 루트용. 1단계 때 쓰던 권한 그대로(읽기, 네트워크, EC2 · 키 페어, state는 로컬이라 없음, [legacy-operator-policy.json](https://github.com/yubin05/hotel-booking-aws-v2/blob/39d08196c7ef0c4bc7ff2370bba035cc3c5e7acd/infra/iam/legacy-operator-policy.json)). (2026-11-14 [ADR-043](#adr-043)에서 고객사 저장소의 `legacy/iam`으로 옮김)
     - 두 정책은 각자 완결이고, **작업하는 단계의 정책만 붙인다.** bootstrap의 `attach_operator_v2` · `attach_operator_legacy` 값을 바꿔 관리자 역할로 apply한다. 3단계 덤프 이관처럼 둘 다 쓸 때는 둘 다 붙인다
   - 기존 인라인은 백업한 뒤 지웠다. 관리자 전환 권한(인라인 `AssumeAdminRolePolicy`)은 그대로 둔다.
 - **근거:** AWS는 대부분 관리형을 권하고, 최소 권한을 주는 가장 안전한 방법으로 팀에 필요한 권한만 담은 고객 관리형을 든다. 정책마다 6,144자, 그룹에 10개까지라 여유가 크고, 버전(최대 5개)으로 되돌릴 수 있으며, 바꾸기 전에 plan으로 차이를 본다. 인라인의 장점은 1:1 관계(다른 사람에게 실수로 붙지 않음)인데, 평소 사용자는 IAM 권한이 없어 정책을 남에게 붙일 수 없으므로 이 장점이 작다. IAM은 bootstrap에서 관리자가 다룬다는 원칙([ADR-025](#adr-025) · [ADR-029](#adr-029) · [ADR-032](#adr-032))과 같다.
@@ -870,7 +870,7 @@
 </details>
 
 <a name="adr-043"></a>
-## ADR-043 앱 · 이전 환경은 고객사 저장소(hotel-booking-app, Public)로 분리, 이 저장소는 To-Be 인프라만
+## ADR-043 앱 · 이전 환경은 고객사 저장소(hotel-booking-app, Public)로 분리, 이 저장소는 To-Be 인프라와 이관 전후 부하 시험
 
 - **상황:** 시나리오는 고객사 개발팀이 GitHub으로 앱을 운영하고, 우리(인프라팀)가 AWS로 이관하는 것이다. 그런데 앱 코드, CI/CD, 고객사가 운영하던 이전 환경(legacy)이 모두 이 저장소에 있어 시나리오와 맞지 않았다(2026-11-13).
 - **검토한 대안:**
@@ -887,14 +887,19 @@
   - 앱은 [yubin05/hotel-booking-app](https://github.com/yubin05/hotel-booking-app)(Public)으로 분리한다. 고객사 앱 저장소 역할이고, 그 README에 "평가 대상은 인프라 저장소"라고 적는다.
   - CI와 CD는 앱 저장소에서 돈다. CD 워크플로는 인프라팀이 작성해 고객사 저장소에 제공하는 형태다. 배포 역할 · 권한 · 신뢰 조건은 이 저장소(bootstrap)가 관리한다. 고객사에 넘기는 값은 역할 ARN · 리전 · ECR 이름 같은 식별자뿐이고, AWS 키는 넘기지 않는다.
   - 배포 역할의 `sub`는 앱 저장소 main 하나: `repo:yubin05@87186282/hotel-booking-app@1456714451:ref:refs/heads/main`.
-  - legacy(1단계 이전 환경), 그 환경에서 돌리는 k6(`load/`), legacy IAM 정책도 고객사 쪽(앱 저장소 `legacy/`)으로 옮긴다(④-b, 옮기는 방식은 그때 정한다).
-  - 이 저장소에는 To-Be(v2) 인프라와 문서만 남는다.
+  - 고객사가 운영하던 이전 환경(legacy)과 0단계 앱 실험(E-01~E-06, `run-k6.sh`, 보고서, 정합성 검사 · 데이터 채우기 SQL)은 고객사 쪽(앱 저장소 `legacy/` · `load/` · `scripts/`)으로 옮긴다(④-b). 앱 로직이 맞는지(중복 예약, 쿠폰 초과)는 개발팀 몫이다.
+  - 이관 전후 부하 비교는 이관 수행사인 우리 몫이다. 1단계 기준선 도구(`baseline.js`, `run-baseline.sh`, 서버 상태 기록 스크립트, 기준선 보고서)는 이 저장소 `load/`에 남기고, 3단계 이관 후에도 같은 `baseline.js`로 잰다.
+  - 예외: 부하 발생기 Terraform은 이전 환경의 서브넷 · 키 페어를 같이 써서 고객사 legacy 루트에 그대로 둔다. "우리 측정 장비를 고객사 환경 안에 띄운 것"으로 본다. 따로 떼면 이 저장소가 다른 저장소의 서브넷에 기대게 되어 legacy를 바꿀 때 깨질 수 있다.
+  - legacy 작업용 IAM 정책은 고객사 저장소의 별도 루트 `legacy/iam`(관리자만 apply, state는 S3 `legacy-iam/terraform.tfstate`)으로 옮긴다. legacy 루트 안에 두면 매일 apply하는 평소 사용자에게 IAM 쓰기 권한이 필요해 자기 권한을 스스로 늘릴 수 있다. 정책이 아무 데도 붙어 있지 않아, 관리 주체를 옮기는 `removed` · `import` 대신 bootstrap에서 지우고 같은 이름으로 다시 만든다.
+  - `k6-lib.mjs`와 `check-consistency.sql`은 0단계 보고서와 기준선 시험이 함께 써서 양쪽에 같은 파일을 두고 출처를 적는다.
+  - 이 저장소에는 To-Be(v2) 인프라, 이관 전후 부하 시험, 문서만 남는다.
 - **근거:** 실제 이관 프로젝트에서 앱 저장소는 고객사에 이미 있고, 인프라팀은 인프라 저장소를 새로 만든다. [ADR-039](#adr-039)에서 "태스크 정의 설정은 Terraform, 이미지는 CD"로 나눠 두어 경계가 이미 있었다. 코드를 공개해도 RDS는 `publicly_accessible = false`이고 프라이빗 서브넷에 있으며 비밀번호는 Secrets Manager가 관리해 보안이 약해지지 않는다. 공개 저장소는 Actions 표준 러너가 무료이고 비밀 스캔이 자동으로 돈다([Actions 요금](https://docs.github.com/en/billing/concepts/product-billing/github-actions), [비밀 스캔](https://docs.github.com/en/code-security/secret-scanning/introduction/about-secret-scanning)).
 - **결과:**
   - 바꾸는 순서는 "두 저장소 같이 허용 → 새 저장소에서 확인 → 옛 것 제거"(병행 후 전환)로, 배포 수단이 비는 때가 없게 했다.
   - ① 2026-11-13: `git subtree split`으로 `app/` 히스토리 26개를 옮기고, 워크플로와 compose를 저장소 루트 기준으로 바꿨다. `.gitattributes`가 없어 `db/test-db.sh`가 CRLF로 받아진 것을 같은 LF 규칙을 넣어 고쳤다. ② 저장소를 만들고 첫 CI가 성공했다(23:42).
   - ③ 2026-11-14: `sub`를 두 저장소 목록으로 바꿔 apply(state 저장 00:00:49). 앱 저장소의 OIDC check가 성공했다(00:01:19). Arn은 역할 이름 · 세션 이름이라 그대로였다.
   - ④-a 2026-11-14: 이 저장소에서 `app/`, compose, 워크플로 3개를 지우고 `sub`에서 이 저장소를 뺐다(apply는 [03-plan](03-plan.md)). 앱 코드를 가리키던 문서 링크 24개는 지우기 직전 커밋 `d04aad9`의 고정 링크로 바꿨다. 실험 당시의 코드를 가리켜야 하고, 분리하면서 앱 저장소의 커밋 해시가 달라졌기 때문이다. 앱 저장소의 OIDC check 워크플로는 확인이 끝나 지웠다.
+  - ④-b 2026-11-14: bootstrap에서 legacy 정책을 빼는 변경을 ④-a와 한 번에 apply했다(0 · 1 · 1, state 저장 00:47:00). `infra/legacy` · `load` · `scripts`를 `git subtree split`과 `subtree add`로 히스토리째 고객사 저장소에 넣고, 양쪽에서 상대편 몫의 파일을 지웠다. `run-baseline.sh`는 이 저장소 `load/`로 옮기고 서버 IP를 고객사 저장소 legacy state에서 읽게 했다(`terraform -chdir`, 기본 `../../hotel-booking-app/legacy`, 다르면 `LEGACY_DIR`). PC에만 있던 legacy state(리소스 0개) · 변수 파일은 새 위치로 복사해 내용이 같은지 확인한 뒤 옛 폴더를 지웠다. 지운 파일을 가리키던 문서 링크 15개는 직전 커밋 `39d0819`의 고정 링크로 바꿨다. 고객사 저장소 CI는 `legacy/` · `load/` · `scripts/` · 문서만 바뀌면 건너뛴다.
 
 <details>
 <summary>확인한 근거와 메모</summary>

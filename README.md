@@ -6,7 +6,7 @@
 
 > **현재 상태: 0단계 완료(앱·CI, 로컬 장애·부하 실험 6개, 비용 추정). 1단계 완료: AWS 이전 환경(웹+앱 · MySQL · NAT EC2 3대)을 Terraform으로 만들고, 부하 기준선은 동시 접속 500명(초당 약 85건)까지 버티고 1,000명에서 무너짐(DB가 먼저 한계, 3회 같음). 1.5단계: 병목을 측정해 앱만 고쳐 같은 서버에서 1,000명 실패율 64% → 1.5%. 2단계 진행 중: 지우지 않는 기반(Terraform state 버킷, 액세스 키 없이 배포하는 GitHub OIDC 역할, 예산 알림)을 코드로 만들었고, 다음은 목표 인프라와 CD.** 측정값이 기록된 항목만 "검증했다"고 표기합니다.
 
-**▶ [새 PC에서 1단계 AWS 이전 환경 올리기](infra/legacy/README.md)** · 준비물 → 매일 올리기 · 확인 → 지우기를 한 페이지에
+**▶ [새 PC에서 1단계 AWS 이전 환경 올리기](https://github.com/yubin05/hotel-booking-app/blob/main/legacy/README.md)** · 준비물 → 매일 올리기 · 확인 → 지우기를 한 페이지에
 
 ## 핵심 내용
 
@@ -168,7 +168,8 @@ flowchart LR
 | [트러블슈팅](docs/troubleshooting/README.md) | 재현 → 원인 → 해결 → 검증 기록 |
 | [08 실제 사례 조사](docs/08-real-cases.md) | 시나리오·결정의 근거가 된 실제 기업 사례와 신뢰도 |
 | [09 비용 추정](docs/09-cost-estimate.md) | v1·v2 월 고정 비용, 단계별 예상, Budgets 금액 |
-| [1단계 이전 환경 올리기](infra/legacy/README.md) | 새 PC 준비, 매일 apply → 앱 배포 → destroy 명령 |
+| [1단계 이전 환경 올리기](https://github.com/yubin05/hotel-booking-app/blob/main/legacy/README.md) (고객사 저장소) | 새 PC 준비, legacy 권한 붙이기, 매일 apply → 앱 배포 → destroy 명령 |
+| [부하 시험](load/README.md) | 이관 전 기준선 · 이관 후 비교를 재는 방법 (인프라팀) |
 
 ## 저장소 구조 (예정)
 
@@ -178,9 +179,8 @@ infra/
   global/           Route 53, ACM, CloudFront, WAF
   modules/regional/ VPC, ALB, ECS, RDS, ECR (서울·도쿄 공통)
   seoul/ · tokyo/   리전별 루트: 리전·state 위치를 파일에 고정하고 modules/regional 호출
-  legacy/           1단계 이전 환경 (IDC 역할)
-load/               k6 부하·장애 실험 (eNN-이름.js, 실행기 run-k6.sh)
-scripts/            이관·복원·드릴 스크립트
+load/               이관 전후 부하 시험 (baseline.js, 실행기 run-baseline.sh)
+scripts/            결과 보고서, 단계 그림, 이관·복원·드릴 스크립트
 docs/               설계 문서
 ```
 

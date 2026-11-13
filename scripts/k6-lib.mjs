@@ -1,3 +1,4 @@
+// 고객사 저장소(hotel-booking-app)의 scripts/k6-lib.mjs와 같은 파일. 여기서는 기준선 보고서가 쓴다 (ADR-043)
 // k6 결과를 표·그래프로 정리하는 공용 함수. load/run-k6.sh가 남기는 요청별 기록(.json.gz)을 읽고,
 // 포트폴리오에 넣을 SVG 카드(E-01과 같은 모양, 색은 CSS 변수라 다크 모드 자동)를 만든다
 import { createReadStream } from 'node:fs';

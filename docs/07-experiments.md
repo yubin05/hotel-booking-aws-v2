@@ -47,13 +47,13 @@ AWS 실험이 끝날 때도 [정합성 검사](#정합성-검사)는 돌립니�
 ## 공통 준비
 
 - **k6**: `grafana/k6` Docker 이미지라서 설치할 것이 없습니다. compose 네트워크에 붙여 `http://app:3000`으로 요청합니다. 이미지는 `grafana/k6:1.0.0`으로 고정했습니다.
-- **스크립트 위치**: `load/`에 실험마다 `eNN-이름.js` 파일 하나를 둡니다. 기본은 [e01-normal-traffic.js](../load/e01-normal-traffic.js)이고, 나머지 실험은 이를 복사해 고쳐 씁니다.
+- **스크립트 위치**: `load/`에 실험마다 `eNN-이름.js` 파일 하나를 둡니다. 기본은 [e01-normal-traffic.js](https://github.com/yubin05/hotel-booking-aws-v2/blob/39d08196c7ef0c4bc7ff2370bba035cc3c5e7acd/load/e01-normal-traffic.js)이고, 나머지 실험은 이를 복사해 고쳐 씁니다.
 - **실행**: `load/run-k6.sh e01-normal-traffic.js` (실행기 하나로 모든 실험을 돌립니다). 터미널 출력은 `load/results/<이름>-<시각>.txt`, 그래프 리포트는 같은 이름의 `.html`, 요청 하나하나의 기록은 `.json.gz`로 저장됩니다(git에서 제외).
 - **사용자·토큰**: 회원가입은 k6 준비 단계(`setup`)에서만 합니다(비밀번호 해시라 느림). 로그인은 E-01에서 방문 일부가 실제로 합니다.
 - **깨끗한 상태에서 시작**: `docker compose down -v && docker compose up -d --build --wait`
 - **데이터 양 채우기** (E-01부터, 약 10초): `docker compose exec -T db mysql -uroot -plocal-root-pw --default-character-set=utf8mb4 hotel_booking < scripts/seed-volume.sql`. 시드만으로는 숙소가 10개라 성능 숫자를 믿을 수 없습니다. E-02·E-03(2026-11-04)은 시드만으로 실행했습니다. E-02는 객실 하나에 몰리는 실험이라 영향이 거의 없고, E-03의 조회 p95는 데이터가 늘면 달라질 수 있습니다
 - **Git Bash 주의**: `docker run -v`의 경로가 Windows 경로로 바뀌면 `MSYS_NO_PATHCONV=1`을 앞에 붙입니다.
-- **실행 위치** (2026-11-14, [ADR-043](04-decisions.md#adr-043)): compose가 고객사 앱 저장소로 옮겨져 `docker compose` 명령은 [hotel-booking-app](https://github.com/yubin05/hotel-booking-app) 루트에서 실행합니다. 위 실험 기록은 분리 전 이 저장소 루트 기준입니다.
+- **실행 위치** (2026-11-14, [ADR-043](04-decisions.md#adr-043)): 0단계 실험 도구(compose, `load/`의 E-01~E-06과 `run-k6.sh`, `scripts/`의 보고서 · 정합성 검사 · 데이터 채우기 SQL)는 고객사 앱 저장소로 옮겨졌습니다. 이 문서의 명령은 [hotel-booking-app](https://github.com/yubin05/hotel-booking-app) 루트에서 실행합니다. 위 실험 기록은 분리 전 이 저장소 루트 기준입니다. 1단계 기준선 도구는 이 저장소의 [load/](../load/README.md)에 남았습니다.
 
 ## 정합성 검사
 

@@ -10,7 +10,7 @@
 | 결과 | 2026-11-11 3회 완료(3회차는 다른 PC · 새 서버). 세 번 모두 **동시 접속 500명(초당 85~86건, p95 0.76~0.96초)까지 버팀, 1,000명에서 무너짐**(에러율 59~69%, p95 9초). 500명에서 이미 DB CPU 평균 91~93%로 DB가 먼저 한계. 정합성 검사 모두 0. 2회차에 "실패로 받았는데 저장된 예약" 1건. 1,000명 이후 서버가 한가한데 실패하는 원인은 미확인 |
 | 3단계에서 | 같은 계단으로 CloudFront에 보내 비교. 3,000명도 버티면 같은 모양으로 층만 더 얹고, 겹치는 층끼리 비교. **먼저 무너진 건 DB라 ECS 오토스케일링(앱 수 늘리기)만으로는 안 풀린다**: 앱이 늘면 DB 연결도 늘어(태스크 수 × 10개) DB가 더 빨리 꽉 찰 수 있다. RDS 크기, 태스크 수 × DB 연결 수, 조회 캐시를 2단계 설계에서 확인하고, 3단계 비교 전에 1,000명 이후 원인 진단(아래 남은 일)을 끝낸다 |
 
-- 실행: [run-baseline.sh](../../infra/legacy/run-baseline.sh) · 시나리오 [baseline.js](../../load/baseline.js) · 정리 `node scripts/baseline-report.mjs load/results/<이름>/<이름>.json.gz`
+- 실행: [run-baseline.sh](../../load/run-baseline.sh) · 시나리오 [baseline.js](../../load/baseline.js) · 정리 `node scripts/baseline-report.mjs load/results/<이름>/<이름>.json.gz`
 
 ## 조건과 한계 (실행 전에 적음)
 
@@ -96,11 +96,11 @@
   - 3회차 1,000명 층(8~11분)에서 DB 처리 목록(`SHOW FULL PROCESSLIST`)을 찍어 확인한다. 2회차에는 실시간으로 볼 사람이 없어 찍지 못함.
 - **실패로 받았는데 저장된 예약 1건(2회차).** k6 성공 92건, DB 93건(1회차는 97 = 97). 사용자는 실패 화면을 봤는데 예약은 됐다. [db.ts](https://github.com/yubin05/hotel-booking-aws-v2/blob/d04aad9257eb038e2eb3446131102b9de7aadf5e/app/src/db.ts) 주석의 "이미 보낸 COMMIT은 막지 못한다"(확정 명령을 보낸 직후 3초가 지나 503) 경우로 보이며 확인 필요. 실제 사용자라면 같은 멱등키로 다시 누르면 기존 예약을 돌려받는다.
 - **t3 steal.** 크레딧 unlimited인데 앱·DB·발생기 모두 vmstat `st`(가상화 층이 CPU를 가져간 비율)가 순간 최대 9~20%. 같은 물리 서버 이웃의 영향으로 보이나 확인하지 않음.
-- 2회차 중 PC의 실시간 로그 보기(SSH)가 끊김(무너진 뒤 경고가 초당 수백 줄). 시험은 발생기에서 끝까지 돌았고 `collect`로 회수. 화면에서는 경고를 거르도록 [run-baseline.sh](../../infra/legacy/run-baseline.sh) 수정.
+- 2회차 중 PC의 실시간 로그 보기(SSH)가 끊김(무너진 뒤 경고가 초당 수백 줄). 시험은 발생기에서 끝까지 돌았고 `collect`로 회수. 화면에서는 경고를 거르도록 [run-baseline.sh](../../load/run-baseline.sh) 수정.
 
 ### 남은 일: 1,000명 이후 원인 진단
 
-**2026-11-11 이후: 아래 수동 명령 대신 [run-baseline.sh](../../infra/legacy/run-baseline.sh)가 30초마다 자동으로 남긴다(`app.snap` · `db.snap`). 고친 앱으로 재측정할 때 확인한다([1.5단계](db-bottleneck.md)).**
+**2026-11-11 이후: 아래 수동 명령 대신 [run-baseline.sh](../../load/run-baseline.sh)가 30초마다 자동으로 남긴다(`app.snap` · `db.snap`). 고친 앱으로 재측정할 때 확인한다([1.5단계](db-bottleneck.md)).**
 
 3회차에서 찍기로 했지만 실시간으로 볼 사람이 없어 찍지 못했다. 1단계 완료 기준(무너지는 지점의 처리량 · p95)과는 별개라, 다음에 1,000명만 유지하는 짧은 진단(`bash run-baseline.sh --stage 1m:1000 --stage 10m:1000 --stage 30s:0`, 약 12분)으로 확인한다. 시작하고 **3~10분 사이** 다른 Git Bash 창에서(먼저 `eval "$(ssh-agent -s)"; ssh-add ~/.ssh/hotel-legacy`):
 
