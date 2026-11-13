@@ -64,8 +64,9 @@ variable "is_load_test" {
   default     = false
   description = "부하 발생기 생성 여부"
 }
+
 variable "load_test_instance_type" {
-  type = string
+  type        = string
   default     = "t3.medium"
   description = "부하 발생기 인스턴스 타입 (vCPU·메모리 세트)."
 }
