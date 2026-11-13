@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 부하 기준선 실행 (과제 3): 발생기에서 load/baseline.js를 돌리는 동안 서버 3대(앱·DB·발생기)의 CPU·메모리를 5초마다 남기고,
 # 끝나면 결과를 PC의 load/results/<이름>/ 으로 가져온다.
-# 순서: terraform apply -var is_load_test=true → start-db.sh → start-app.sh <이미지:태그> → 이 스크립트
+# 순서(고객사 저장소 hotel-booking-app/legacy에서): terraform apply -var is_load_test=true → start-db.sh → start-app.sh <이미지:태그> → 이 스크립트
 #
 #   bash run-baseline.sh                         본 실행 (약 37분)
 #   bash run-baseline.sh --stage 30s:5 --stage 10s:0   뒤에 붙인 k6 옵션으로 짧게 (스모크 점검, 이름에 -try)
@@ -12,14 +12,16 @@
 #              consistency.txt(정합성 검사, 첫 표의 bad가 모두 0이어야 함)
 set -euo pipefail
 cd "$(dirname "$0")"
+# 서버 IP는 고객사 저장소의 legacy state에서 읽는다 (ADR-043). 두 저장소가 C:/dev 아래 나란히 있다고 보고, 다르면 LEGACY_DIR로 지정
+LEGACY_DIR=${LEGACY_DIR:-../../hotel-booking-app/legacy}
 
 ssh-add -l >/dev/null 2>&1 || {
   echo '먼저 실행: eval "$(ssh-agent -s)"; ssh-add ~/.ssh/hotel-legacy' >&2
   exit 1
 }
-APP=$(terraform output -raw web_instance_1_public_ip | tr -d '\r')
-DB=$(terraform output -raw db_instance_1_private_ip | tr -d '\r')
-LOAD=$(terraform output -raw load_test_instance_1_public_ip 2>/dev/null | tr -d '\r' || true)
+APP=$(terraform -chdir="$LEGACY_DIR" output -raw web_instance_1_public_ip | tr -d '\r')
+DB=$(terraform -chdir="$LEGACY_DIR" output -raw db_instance_1_private_ip | tr -d '\r')
+LOAD=$(terraform -chdir="$LEGACY_DIR" output -raw load_test_instance_1_public_ip 2>/dev/null | tr -d '\r' || true)
 [ -n "$LOAD" ] && [ "$LOAD" != null ] || {
   echo '발생기가 없음: terraform apply -var is_load_test=true 로 켜기' >&2
   exit 1
@@ -27,7 +29,7 @@ LOAD=$(terraform output -raw load_test_instance_1_public_ip 2>/dev/null | tr -d 
 ON_APP=(ssh "ec2-user@$APP")
 ON_DB=(ssh -J "ec2-user@$APP" "ec2-user@$DB")
 ON_LOAD=(ssh "ec2-user@$LOAD")
-RESULTS=../../load/results
+RESULTS=results
 STOP_SNAP='kill "$(cat ~/snap.pid 2>/dev/null)" 2>/dev/null; rm -f ~/snap.pid; cat ~/snap.log'
 
 collect() {
@@ -57,7 +59,7 @@ collect() {
     "${ON_DB[@]}" "sudo dmesg -T | grep -iE 'out of memory|killed process' || echo '커널 OOM 기록 없음'"
   } >"$out/containers.txt" 2>&1
   "${ON_DB[@]}" "sudo docker exec -i hotel-db sh -c 'mysql -uapp -p\"\$MYSQL_PASSWORD\" --default-character-set=utf8mb4 -t hotel_booking' 2>/dev/null" \
-    <../../scripts/check-consistency.sql >"$out/consistency.txt"
+    <../scripts/check-consistency.sql >"$out/consistency.txt"
   "${ON_LOAD[@]}" 'sudo docker rm k6 >/dev/null'
   echo "결과: load/results/$name/"
   ls -1 "$out"
@@ -80,7 +82,7 @@ if [ "$("${ON_LOAD[@]}" "sudo docker inspect -f '{{.State.Running}}' k6 2>/dev/n
   exit 1
 fi
 "${ON_LOAD[@]}" 'cloud-init status --wait >/dev/null; mkdir -p ~/load/results; sudo docker rm k6 >/dev/null 2>&1 || true'
-scp -q ../../load/baseline.js "ec2-user@$LOAD:load/"
+scp -q baseline.js "ec2-user@$LOAD:load/"
 
 # 5초마다 CPU·메모리(MB) 기록 시작. SSH가 끊겨도 서버에서 계속 돈다
 START_VMSTAT='pkill vmstat; nohup vmstat -t -S M 5 >~/vmstat.log 2>&1 </dev/null &'
