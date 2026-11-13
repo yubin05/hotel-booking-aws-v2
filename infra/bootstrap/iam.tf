@@ -266,13 +266,12 @@ resource "aws_iam_service_linked_role" "service" {
 # }
 
 # 평소 사용자 그룹 권한 (ADR-038). 그룹 자체는 처음 IAM 구성 때 만들어 Terraform 밖에 있음
-# 정책 내용은 infra/iam/의 JSON. 두 정책은 각자 완결이라 그 단계 작업을 할 때 그것만 붙인다
+# 정책 내용은 infra/iam/의 JSON. 1단계 legacy 정책은 고객사 앱 저장소의 legacy/iam이 관리한다 (ADR-043)
 locals {
   operator_group = "normal-user-group" # 평소 사용자가 속한 그룹 (list-groups-for-user로 확인)
 
-  # 작업할 단계만 true로 바꿔 관리자 역할로 apply (붙였다 떼기). 3단계 덤프 이관처럼 둘 다 쓸 때는 둘 다 true
-  attach_operator_v2     = true
-  attach_operator_legacy = false
+  # v2 작업을 할 때만 true로 두고 관리자 역할로 apply (붙였다 떼기)
+  attach_operator_v2 = true
 }
 
 resource "aws_iam_policy" "operator_v2" {
@@ -282,31 +281,14 @@ resource "aws_iam_policy" "operator_v2" {
   policy      = file("${path.module}/../iam/v2-operator-policy.json")
 }
 
-resource "aws_iam_policy" "operator_legacy" {
-  name        = "${local.project_name}-operator-legacy"
-  description = "Operator: stage 1 legacy root (attach only while working on legacy)"
-  policy      = file("${path.module}/../iam/legacy-operator-policy.json")
-}
-
 resource "aws_iam_group_policy_attachment" "operator_v2" {
   count      = local.attach_operator_v2 ? 1 : 0
   group      = local.operator_group
   policy_arn = aws_iam_policy.operator_v2.arn
 }
 
-resource "aws_iam_group_policy_attachment" "operator_legacy" {
-  count      = local.attach_operator_legacy ? 1 : 0
-  group      = local.operator_group
-  policy_arn = aws_iam_policy.operator_legacy.arn
-}
-
 # count를 붙이며 주소가 [0]으로 바뀌어서, 이미 있는 연결을 지우고 다시 만들지 않게 옮김을 알림
 moved {
   from = aws_iam_group_policy_attachment.operator_v2
   to   = aws_iam_group_policy_attachment.operator_v2[0]
-}
-
-moved {
-  from = aws_iam_group_policy_attachment.operator_legacy
-  to   = aws_iam_group_policy_attachment.operator_legacy[0]
 }
