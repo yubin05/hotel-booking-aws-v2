@@ -20,12 +20,8 @@ resource "aws_iam_role" "github_deploy" {
       Condition = {
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-          # main 브랜치에서 돈 job만. 2026-07-15 이후 만든 저장소라 OWNER@ID/REPO@ID 형식
-          # 앱 분리 중이라 두 저장소 다 허용(값 목록은 OR). 앱 저장소 CD 확인 뒤 인프라 저장소 줄을 지운다
-          "token.actions.githubusercontent.com:sub" = [
-            "repo:yubin05@87186282/hotel-booking-aws-v2@1443891878:ref:refs/heads/main", # 인프라 저장소 (분리 전)
-            "repo:yubin05@87186282/hotel-booking-app@1456714451:ref:refs/heads/main",    # 고객사 앱 저장소
-          ]
+          # 고객사 앱 저장소의 main 브랜치에서 돈 job만 (ADR-043). 2026-07-15 이후 만든 저장소라 OWNER@ID/REPO@ID 형식
+          "token.actions.githubusercontent.com:sub" = "repo:yubin05@87186282/hotel-booking-app@1456714451:ref:refs/heads/main"
         }
       }
     }]

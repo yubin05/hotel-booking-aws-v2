@@ -1,7 +1,0 @@
-node_modules
-web/node_modules
-dist
-public
-# Vite는 빌드 때 web의 .env·.env.local·.env.production·.env.production.local을 읽어 VITE_ 값을 화면 JS에 써 넣는다
-**/*.env
-**/.env.*
