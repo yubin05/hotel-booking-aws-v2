@@ -37,7 +37,7 @@ AWS 실험이 끝날 때도 [정합성 검사](#정합성-검사)는 돌립니�
 
 | 위험 | 로컬에서 안 보이는 이유 | 확인 시점 |
 |---|---|---|
-| 가끔 502 에러 | Node는 쉬는 연결을 5초 뒤 닫는데([server.ts](../app/src/server.ts)에 별도 설정 없음) ALB는 60초까지 재사용하려 합니다. 이미 닫힌 연결로 요청을 보내면 502가 납니다. 로컬에는 ALB가 없습니다 | 2단계 배포 직후 E-01 부하에서 502 개수 |
+| 가끔 502 에러 | Node는 쉬는 연결을 5초 뒤 닫는데([server.ts](https://github.com/yubin05/hotel-booking-aws-v2/blob/d04aad9257eb038e2eb3446131102b9de7aadf5e/app/src/server.ts)에 별도 설정 없음) ALB는 60초까지 재사용하려 합니다. 이미 닫힌 연결로 요청을 보내면 502가 납니다. 로컬에는 ALB가 없습니다 | 2단계 배포 직후 E-01 부하에서 502 개수 |
 | DB 연결 수 초과 | 태스크마다 연결 10개라서 태스크가 늘면 RDS 최대 연결 수를 넘을 수 있습니다. 로컬은 앱이 1개입니다 | 2단계 설계 때 계산, 3단계 오토스케일링 중 확인 |
 | DB 장애 조치 때 요청이 오래 매달림 | 실제 장애는 연결 종료 신호 없이 사라질 수 있습니다. E-04 ②로 일부만 흉내 낼 수 있습니다 | 4단계 RDS 장애 조치 |
 | 작은 Fargate CPU에서 로그인 몰림 | 비밀번호 해시(scrypt)는 1번에 메모리 약 32MiB를 쓰고 CPU를 많이 씁니다. 쿠폰 오픈 직전 로그인이 몰리면 응답이 느려지고 헬스체크가 실패해 태스크가 교체될 수 있습니다. 로컬 PC는 CPU가 넉넉합니다 | 3단계 쿠폰 스파이크에 로그인 포함 |
@@ -53,6 +53,7 @@ AWS 실험이 끝날 때도 [정합성 검사](#정합성-검사)는 돌립니�
 - **깨끗한 상태에서 시작**: `docker compose down -v && docker compose up -d --build --wait`
 - **데이터 양 채우기** (E-01부터, 약 10초): `docker compose exec -T db mysql -uroot -plocal-root-pw --default-character-set=utf8mb4 hotel_booking < scripts/seed-volume.sql`. 시드만으로는 숙소가 10개라 성능 숫자를 믿을 수 없습니다. E-02·E-03(2026-11-04)은 시드만으로 실행했습니다. E-02는 객실 하나에 몰리는 실험이라 영향이 거의 없고, E-03의 조회 p95는 데이터가 늘면 달라질 수 있습니다
 - **Git Bash 주의**: `docker run -v`의 경로가 Windows 경로로 바뀌면 `MSYS_NO_PATHCONV=1`을 앞에 붙입니다.
+- **실행 위치** (2026-11-14, [ADR-043](04-decisions.md#adr-043)): compose가 고객사 앱 저장소로 옮겨져 `docker compose` 명령은 [hotel-booking-app](https://github.com/yubin05/hotel-booking-app) 루트에서 실행합니다. 위 실험 기록은 분리 전 이 저장소 루트 기준입니다.
 
 ## 정합성 검사
 

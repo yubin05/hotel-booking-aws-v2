@@ -57,7 +57,7 @@ PC의 DB는 t3.micro보다 빨라서 CPU를 0.3코어로 묶어 DB가 먼저 꽉
 
 ## 4-1. 추천 숙소 수정
 
-[hotel/index.ts](../../app/src/hotel/index.ts): 평점순 8개를 먼저 고르고, 최저가는 고른 8개에 대해서만 하위 조회로 계산한다. 같은 점수면 id순으로 고정했다. 테스트: 예전 조회(전체를 묶어 계산)와 결과(숙소 · 최저가 · 순서)가 같은지 확인([booking.test.ts](../../app/test/booking.test.ts)).
+[hotel/index.ts](https://github.com/yubin05/hotel-booking-aws-v2/blob/d04aad9257eb038e2eb3446131102b9de7aadf5e/app/src/hotel/index.ts): 평점순 8개를 먼저 고르고, 최저가는 고른 8개에 대해서만 하위 조회로 계산한다. 같은 점수면 id순으로 고정했다. 테스트: 예전 조회(전체를 묶어 계산)와 결과(숙소 · 최저가 · 순서)가 같은지 확인([booking.test.ts](https://github.com/yubin05/hotel-booking-aws-v2/blob/d04aad9257eb038e2eb3446131102b9de7aadf5e/app/test/booking.test.ts)).
 
 실행 계획: 최저가 계산이 숙소 8개에만 돈다(`loops=8`, 객실 약 40행). 조회 시간 14.4ms → 0.98ms(같은 데이터, 부하 없음).
 
@@ -73,10 +73,10 @@ PC의 DB는 t3.micro보다 빨라서 CPU를 0.3코어로 묶어 DB가 먼저 꽉
 
 ## 4-2. 무너지는 방식: 조회 시간 상한을 MySQL이 직접 지키게
 
-[db.ts](../../app/src/db.ts): 새 연결마다 `SET SESSION max_execution_time = 2000`을 건다. MySQL은 2초가 넘은 SELECT를 스스로 끝내고(`ERROR 3024 … maximum statement execution time exceeded`, 로컬 MySQL 8.4에서 직접 확인), 앱은 이 오류를 연결을 버리지 않고 503으로 바꾼다. 쓰기와 DB가 아예 답하지 않는 경우는 기존 3초 상한(TS-09)이 그대로 막는다.
+[db.ts](https://github.com/yubin05/hotel-booking-aws-v2/blob/d04aad9257eb038e2eb3446131102b9de7aadf5e/app/src/db.ts): 새 연결마다 `SET SESSION max_execution_time = 2000`을 건다. MySQL은 2초가 넘은 SELECT를 스스로 끝내고(`ERROR 3024 … maximum statement execution time exceeded`, 로컬 MySQL 8.4에서 직접 확인), 앱은 이 오류를 연결을 버리지 않고 503으로 바꾼다. 쓰기와 DB가 아예 답하지 않는 경우는 기존 3초 상한(TS-09)이 그대로 막는다.
 
 - 근거: [MAX_EXECUTION_TIME](https://dev.mysql.com/doc/refman/8.4/en/optimizer-hints.html)(읽기 전용 SELECT에 적용, 시간이 지나면 서버가 끝냄). mysql2 3.24.6 소스에서 promise 풀이 새 연결 이벤트를 연결을 넘겨주기 직전에 내는 것을 확인해 그 자리에서 설정한다.
-- 테스트([db-timeout.test.ts](../../app/test/db-timeout.test.ts)): 새 연결에 상한이 걸려 있고, 오래 걸리는 조회는 ERROR 3024로 끝나며 같은 연결을 그대로 다시 쓰고, 앱 경로에서는 503이 된다. 앱 테스트 29개 통과(화면 빌드 후, CI와 같은 순서).
+- 테스트([db-timeout.test.ts](https://github.com/yubin05/hotel-booking-aws-v2/blob/d04aad9257eb038e2eb3446131102b9de7aadf5e/app/test/db-timeout.test.ts)): 새 연결에 상한이 걸려 있고, 오래 걸리는 조회는 ERROR 3024로 끝나며 같은 연결을 그대로 다시 쓰고, 앱 경로에서는 503이 된다. 앱 테스트 29개 통과(화면 빌드 후, CI와 같은 순서).
 
 | DB 0.1코어 과부하 (추천 숙소 수정 후) | 수정 전 | 수정 후 |
 |---|---|---|
@@ -91,7 +91,7 @@ PC의 DB는 t3.micro보다 빨라서 CPU를 0.3코어로 묶어 DB가 먼저 꽉
 
 ## 4-3. 시간 초과된 예약: 화면이 같은 멱등키로 자동 재시도
 
-[api.ts](../../app/web/src/api.ts) `withRetry`, [BookingPage.tsx](../../app/web/src/pages/BookingPage.tsx): 예약 요청이 502 · 503 · 504 또는 연결 실패면 1초 · 2초 쉬고 같은 멱등키로 다시 보낸다. 409(이미 예약된 날짜) 같은 확실한 거절은 다시 보내지 않는다. 테스트 4개([api.test.ts](../../app/web/src/api.test.ts)), 화면 테스트 12개 · 빌드 통과.
+[api.ts](https://github.com/yubin05/hotel-booking-aws-v2/blob/d04aad9257eb038e2eb3446131102b9de7aadf5e/app/web/src/api.ts) `withRetry`, [BookingPage.tsx](https://github.com/yubin05/hotel-booking-aws-v2/blob/d04aad9257eb038e2eb3446131102b9de7aadf5e/app/web/src/pages/BookingPage.tsx): 예약 요청이 502 · 503 · 504 또는 연결 실패면 1초 · 2초 쉬고 같은 멱등키로 다시 보낸다. 409(이미 예약된 날짜) 같은 확실한 거절은 다시 보내지 않는다. 테스트 4개([api.test.ts](https://github.com/yubin05/hotel-booking-aws-v2/blob/d04aad9257eb038e2eb3446131102b9de7aadf5e/app/web/src/api.test.ts)), 화면 테스트 12개 · 빌드 통과.
 
 - 재현: 로컬 과부하에서도 "k6 성공 수 < DB 저장 수"가 반복됨(0.3코어 32 vs 35, 0.1코어 0 vs 1, 1 vs 4). k6 시나리오는 화면을 거치지 않고 재시도하지 않으므로(1 · 3단계 비교용으로 고정) 이 차이는 계속 남고, 화면에서는 재시도로 해결된다.
 
@@ -135,9 +135,9 @@ PC의 DB는 t3.micro보다 빨라서 CPU를 0.3코어로 묶어 DB가 먼저 꽉
 
 ## 7. 연결 유지 시간 늘리기 (keepAliveTimeout 5초 → 65초)
 
-[app.ts](../../app/src/app.ts) `listen()`: 운영과 테스트가 같은 함수로 서버를 띄우고 `server.keepAliveTimeout = 65_000`. 손님이 쉬는 시간(5~20초)과 3단계 ALB 유휴 시간(기본 60초)보다 길게 했다. AWS는 앱의 idle timeout을 로드 밸런서보다 길게 하라고 권장한다([ALB 속성](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/edit-load-balancer-attributes.html)). Node 24는 `keepAliveTimeout`(기본 5초) + `keepAliveTimeoutBuffer`(기본 1초) 뒤에 유휴 연결을 닫는다([Node 문서](https://nodejs.org/docs/latest-v24.x/api/http.html#serverkeepalivetimeout)).
+[app.ts](https://github.com/yubin05/hotel-booking-aws-v2/blob/d04aad9257eb038e2eb3446131102b9de7aadf5e/app/src/app.ts) `listen()`: 운영과 테스트가 같은 함수로 서버를 띄우고 `server.keepAliveTimeout = 65_000`. 손님이 쉬는 시간(5~20초)과 3단계 ALB 유휴 시간(기본 60초)보다 길게 했다. AWS는 앱의 idle timeout을 로드 밸런서보다 길게 하라고 권장한다([ALB 속성](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/edit-load-balancer-attributes.html)). Node 24는 `keepAliveTimeout`(기본 5초) + `keepAliveTimeoutBuffer`(기본 1초) 뒤에 유휴 연결을 닫는다([Node 문서](https://nodejs.org/docs/latest-v24.x/api/http.html#serverkeepalivetimeout)).
 
-- 테스트([keep-alive.test.ts](../../app/test/keep-alive.test.ts)): 응답 뒤 8초 쉬고 다시 요청해도 같은 연결(같은 손님 쪽 포트)인지. 설정 줄을 지운 빌드로 먼저 돌려 **실패**(포트 37806 → 43550, 새 연결)를 확인하고, 수정 후 통과. 앱 테스트 30개 통과(CI 순서).
+- 테스트([keep-alive.test.ts](https://github.com/yubin05/hotel-booking-aws-v2/blob/d04aad9257eb038e2eb3446131102b9de7aadf5e/app/test/keep-alive.test.ts)): 응답 뒤 8초 쉬고 다시 요청해도 같은 연결(같은 손님 쪽 포트)인지. 설정 줄을 지운 빌드로 먼저 돌려 **실패**(포트 37806 → 43550, 새 연결)를 확인하고, 수정 후 통과. 앱 테스트 30개 통과(CI 순서).
 - 로컬 k6 (DB 0.3코어, 500명 → 1,000명, `http_req_connecting > 0`인 요청 = 새로 연결한 요청):
 
 | | 수정 전 (추천 숙소만 고친 앱) | 수정 후 |
@@ -184,7 +184,7 @@ PC의 DB는 t3.micro보다 빨라서 CPU를 0.3코어로 묶어 DB가 먼저 꽉
 
 실행 계획(`EXPLAIN ANALYZE`, k6와 같은 조건: 도시 + 2명 + 12개)으로 원인을 확인했다. **추천 숙소와 같은 모양**이다: 조건에 맞는 숙소 전부(제주 202개)에 객실 1,006행을 붙여 최저가를 계산한 다음 인기순 12개만 남긴다. 개수 세기도 같은 일을 한 번 더 한다(최저가가 필요 없는데도).
 
-[hotel/index.ts](../../app/src/hotel/index.ts): 최저가를 하위 조회로 바꿔 정렬 · 가격 조건에 필요하지 않으면 보여 줄 숙소(LIMIT 뒤)에만 계산되게 했다. 가격 조건이 없으면 개수는 숙소만 센다. 같은 점수면 id순으로 고정했다(페이지를 넘겨도 겹치거나 빠지지 않게).
+[hotel/index.ts](https://github.com/yubin05/hotel-booking-aws-v2/blob/d04aad9257eb038e2eb3446131102b9de7aadf5e/app/src/hotel/index.ts): 최저가를 하위 조회로 바꿔 정렬 · 가격 조건에 필요하지 않으면 보여 줄 숙소(LIMIT 뒤)에만 계산되게 했다. 가격 조건이 없으면 개수는 숙소만 센다. 같은 점수면 id순으로 고정했다(페이지를 넘겨도 겹치거나 빠지지 않게).
 
 | 조회 (부하 없음, 캐시 데운 뒤) | 수정 전 | 수정 후 |
 |---|---|---|
@@ -192,7 +192,7 @@ PC의 DB는 t3.micro보다 빨라서 CPU를 0.3코어로 묶어 DB가 먼저 꽉
 | 개수 (가격 조건 없음) | 4.80ms | 1.97ms |
 | 가격순 · 가격 조건 | 4.86ms | 4.77ms (이때는 전부 계산해야 해 같음) |
 
-- 테스트([booking.test.ts](../../app/test/booking.test.ts)): 예전 조회(전부 묶어 계산)와 목록 · 순서 · 개수가 같은지 4가지 경우(인원 + 2쪽, 도시, 가격순 + 최소 가격, 평점순 + 최대 가격 + 2쪽). 같은 최저가 숙소가 2개라 같은 값일 때 순서 고정도 확인. 앱 테스트 31개 통과(CI 순서).
+- 테스트([booking.test.ts](https://github.com/yubin05/hotel-booking-aws-v2/blob/d04aad9257eb038e2eb3446131102b9de7aadf5e/app/test/booking.test.ts)): 예전 조회(전부 묶어 계산)와 목록 · 순서 · 개수가 같은지 4가지 경우(인원 + 2쪽, 도시, 가격순 + 최소 가격, 평점순 + 최대 가격 + 2쪽). 같은 최저가 숙소가 2개라 같은 값일 때 순서 고정도 확인. 앱 테스트 31개 통과(CI 순서).
 - 로컬 k6: 7절의 교훈(DB 상태 차이)대로 **같은 DB에서 1분 예열 → 수정 전 → 수정 후**를 연달아 쟀다(DB 0.3코어, 500명 → 1,000명).
 
 | 같은 조건 | 수정 전 | 수정 후 |

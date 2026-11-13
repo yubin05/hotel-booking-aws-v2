@@ -46,6 +46,7 @@
 | [040](#adr-040) | ECR 저장소는 bootstrap(상시), 서울에 push하면 도쿄로 자동 복제 |
 | [041](#adr-041) | 비밀값은 쓰기 전용으로 넣어 state에 남기지 않고(금고는 bootstrap · 도쿄 복제), DB 관리자 비밀번호는 RDS가 관리 |
 | [042](#adr-042) | RDS는 apply마다 새로 만들고 시드를 다시 넣음, 백업 7일은 켜되 destroy 때 같이 삭제 |
+| [043](#adr-043) | 앱 · 이전 환경은 고객사 저장소(hotel-booking-app, Public)로 분리, 이 저장소는 To-Be 인프라만 |
 
 ---
 
@@ -398,7 +399,7 @@
   - 권한 정책까지 지금 작성: ECR 저장소·ECS 클러스터·서비스·태스크 역할 이름이 2-2에서 정해진다.
 - **결정:**
   - OIDC 공급자(`https://token.actions.githubusercontent.com`, 받는 대상 `sts.amazonaws.com`)와 역할 `hotel-booking-aws-v2-github-deploy`를 bootstrap에 둔다([iam.tf](../infra/bootstrap/iam.tf)). 공급자는 계정 안에서 URL마다 하나뿐이라 리전 루트에 둘 수 없다.
-  - 신뢰 조건은 `StringEquals`로 `aud`와 `sub`를 고정한다. `sub`는 main 브랜치 하나: `repo:yubin05@87186282/hotel-booking-aws-v2@1443891878:ref:refs/heads/main`.
+  - 신뢰 조건은 `StringEquals`로 `aud`와 `sub`를 고정한다. `sub`는 main 브랜치 하나: `repo:yubin05@87186282/hotel-booking-aws-v2@1443891878:ref:refs/heads/main`. (2026-11-14 [ADR-043](#adr-043)에서 고객사 앱 저장소 `hotel-booking-app`의 main으로 바꿈)
   - `thumbprint_list`는 적지 않는다.
   - 권한 정책은 2-2에서 리소스 이름이 정해질 때 bootstrap에 추가하고 관리자 역할로 다시 적용한다. 그전까지 역할은 권한이 없다.
 - **근거:**
@@ -409,7 +410,7 @@
   - 신뢰 조건은 어디서 왔는지만 본다. main에 push할 수 있으면 워크플로를 고쳐 역할 권한 안의 일은 무엇이든 시킬 수 있으므로, 권한 정책을 최소로 잡는 것이 다음 방어선이다.
 - **결과:**
   - GitHub에는 AWS 비밀값을 저장하지 않는다. 워크플로에는 `permissions: id-token: write`와 역할 ARN만 적는다.
-  - 권한 없는 역할로 신뢰 조건만 먼저 확인했다. 손으로 실행하는 [oidc-check.yml](../.github/workflows/oidc-check.yml)이 역할을 받고 `aws sts get-caller-identity`까지 성공했다(2026-11-12). 이 API는 권한이 필요 없다([GetCallerIdentity](https://docs.aws.amazon.com/STS/latest/APIReference/API_GetCallerIdentity.html)). main이 아닌 브랜치에서 거부되는지는 확인하지 않았다.
+  - 권한 없는 역할로 신뢰 조건만 먼저 확인했다. 손으로 실행하는 [oidc-check.yml](https://github.com/yubin05/hotel-booking-aws-v2/blob/d04aad9257eb038e2eb3446131102b9de7aadf5e/.github/workflows/oidc-check.yml)이 역할을 받고 `aws sts get-caller-identity`까지 성공했다(2026-11-12). 이 API는 권한이 필요 없다([GetCallerIdentity](https://docs.aws.amazon.com/STS/latest/APIReference/API_GetCallerIdentity.html)). main이 아닌 브랜치에서 거부되는지는 확인하지 않았다.
   - 저장소 이름을 바꾸거나 옮기면 `sub`가 바뀌므로 신뢰 조건을 고쳐야 한다.
   - 2026-11-12 권한 정책을 추가했다([iam.tf](../infra/bootstrap/iam.tf), statement 7개). ECR 로그인(`*`)·이미지 넣기(저장소), 태스크 정의 등록(앱·스키마 패밀리 `:*`), 스키마 태스크 `RunTask`(스키마 패밀리만, `ecs:cluster` 조건 `ArnEquals`), `DescribeTasks`(`task/<클러스터>/*`), `UpdateService`·`DescribeServices`(서비스 `app`), `iam:PassRole`(실행 역할만, `iam:PassedToService` = `ecs-tasks.amazonaws.com`). 리소스 타입과 조건 키 타입은 [Service Authorization Reference](https://docs.aws.amazon.com/service-authorization/latest/reference/reference.html) 기계 판독용 JSON으로 확인했다([ADR-029](#adr-029)·[ADR-031](#adr-031)).
   - 도쿄 ARN도 지금 넣는다. 장애 중 새 배포는 드물지만, 서울에 같은 권한이 이미 있어 도쿄를 더해도 이 역할이 뚫렸을 때의 피해 범위가 거의 늘지 않고, 장애 중에 IAM을 고치는 절차(관리자 전환 → 코드 수정 → apply)를 피할 수 있다. 서울만 두고 필요할 때 여는 break-glass 안은 버렸다. 실제로 도쿄로 배포하려면 CD 워크플로가 리전을 입력으로 받아야 한다.
@@ -865,5 +866,41 @@
 - 백업 저장은 리전의 DB 저장 용량만큼 무료([RDS 요금](https://aws.amazon.com/rds/mysql/pricing/)). `delete_automated_backups` 기본값 true, `backup_retention_period`는 읽기 복제본의 원본이면 0보다 커야 함([aws_db_instance](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/db_instance)).
 - 트랜잭션 로그는 5분마다 S3에 올라가 시점 복구에 쓰인다([시점 복구](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_PIT.html)). MySQL 자동 백업은 서울 → 도쿄로 복제할 수 있다([백업 복제](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReplicateBackups.html)).
 - 관리 비밀번호에 필요한 호출자 권한: [RDS + Secrets Manager](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-secrets-manager.html). 삭제 방지 기본값: [DB 삭제](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_DeleteInstance.html).
+
+</details>
+
+<a name="adr-043"></a>
+## ADR-043 앱 · 이전 환경은 고객사 저장소(hotel-booking-app, Public)로 분리, 이 저장소는 To-Be 인프라만
+
+- **상황:** 시나리오는 고객사 개발팀이 GitHub으로 앱을 운영하고, 우리(인프라팀)가 AWS로 이관하는 것이다. 그런데 앱 코드, CI/CD, 고객사가 운영하던 이전 환경(legacy)이 모두 이 저장소에 있어 시나리오와 맞지 않았다(2026-11-13).
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | 한 저장소 유지 (monorepo) | 시나리오와 다르다. OIDC `sub`가 저장소 · 브랜치 단위라 "배포 실행은 고객사, 배포 권한은 우리"를 권한으로 나눌 수 없다 |
+  | 앱 저장소 비공개 | 앱 코드는 이미 이 공개 저장소의 기록에 있어 숨겨지지 않는다(지우려면 기록을 다시 쓰고 force push). 인프라 작업인 CD 워크플로가 면접관에게 보이지 않는다. 개인 Free 계정의 비공개 저장소는 비밀 스캔이 없다. Actions 한도(월 $12, Linux 2코어 약 2,000분)는 실측 약 600분/월이라 문제는 아니었다 |
+  | CD를 이 저장소에 | 배포 신호(main 머지)와 재료(이미지)가 앱 저장소에 있다. 이 저장소가 받으려면 고객사 저장소에 신호용 토큰을 비밀값으로 둬야 한다 |
+  | legacy를 이 저장소에 유지 | legacy는 "고객사가 이미 운영하던 환경"이라는 가정과 맞지 않는다 |
+  | legacy를 별도 고객사 저장소로 | 개발팀과 운영팀이 나뉜 고객사라면 더 사실적이지만 저장소가 3개가 된다 |
+
+- **결정:**
+  - 앱은 [yubin05/hotel-booking-app](https://github.com/yubin05/hotel-booking-app)(Public)으로 분리한다. 고객사 앱 저장소 역할이고, 그 README에 "평가 대상은 인프라 저장소"라고 적는다.
+  - CI와 CD는 앱 저장소에서 돈다. CD 워크플로는 인프라팀이 작성해 고객사 저장소에 제공하는 형태다. 배포 역할 · 권한 · 신뢰 조건은 이 저장소(bootstrap)가 관리한다. 고객사에 넘기는 값은 역할 ARN · 리전 · ECR 이름 같은 식별자뿐이고, AWS 키는 넘기지 않는다.
+  - 배포 역할의 `sub`는 앱 저장소 main 하나: `repo:yubin05@87186282/hotel-booking-app@1456714451:ref:refs/heads/main`.
+  - legacy(1단계 이전 환경), 그 환경에서 돌리는 k6(`load/`), legacy IAM 정책도 고객사 쪽(앱 저장소 `legacy/`)으로 옮긴다(④-b, 옮기는 방식은 그때 정한다).
+  - 이 저장소에는 To-Be(v2) 인프라와 문서만 남는다.
+- **근거:** 실제 이관 프로젝트에서 앱 저장소는 고객사에 이미 있고, 인프라팀은 인프라 저장소를 새로 만든다. [ADR-039](#adr-039)에서 "태스크 정의 설정은 Terraform, 이미지는 CD"로 나눠 두어 경계가 이미 있었다. 코드를 공개해도 RDS는 `publicly_accessible = false`이고 프라이빗 서브넷에 있으며 비밀번호는 Secrets Manager가 관리해 보안이 약해지지 않는다. 공개 저장소는 Actions 표준 러너가 무료이고 비밀 스캔이 자동으로 돈다([Actions 요금](https://docs.github.com/en/billing/concepts/product-billing/github-actions), [비밀 스캔](https://docs.github.com/en/code-security/secret-scanning/introduction/about-secret-scanning)).
+- **결과:**
+  - 바꾸는 순서는 "두 저장소 같이 허용 → 새 저장소에서 확인 → 옛 것 제거"(병행 후 전환)로, 배포 수단이 비는 때가 없게 했다.
+  - ① 2026-11-13: `git subtree split`으로 `app/` 히스토리 26개를 옮기고, 워크플로와 compose를 저장소 루트 기준으로 바꿨다. `.gitattributes`가 없어 `db/test-db.sh`가 CRLF로 받아진 것을 같은 LF 규칙을 넣어 고쳤다. ② 저장소를 만들고 첫 CI가 성공했다(23:42).
+  - ③ 2026-11-14: `sub`를 두 저장소 목록으로 바꿔 apply(state 저장 00:00:49). 앱 저장소의 OIDC check가 성공했다(00:01:19). Arn은 역할 이름 · 세션 이름이라 그대로였다.
+  - ④-a 2026-11-14: 이 저장소에서 `app/`, compose, 워크플로 3개를 지우고 `sub`에서 이 저장소를 뺐다(apply는 [03-plan](03-plan.md)). 앱 코드를 가리키던 문서 링크 24개는 지우기 직전 커밋 `d04aad9`의 고정 링크로 바꿨다. 실험 당시의 코드를 가리켜야 하고, 분리하면서 앱 저장소의 커밋 해시가 달라졌기 때문이다. 앱 저장소의 OIDC check 워크플로는 확인이 끝나 지웠다.
+
+<details>
+<summary>확인한 근거와 메모</summary>
+
+- 계정 ID는 비밀로 보지 않는다(*"not considered secret, sensitive, or confidential information"*, [계정 식별자](https://docs.aws.amazon.com/accounts/latest/reference/manage-acct-identifiers.html)). 역할 ARN도 신뢰 조건이 지킨다.
+- 공개 저장소의 표준 러너는 무료, 비공개 저장소는 Free 계정에 월 $12어치가 포함되고, 결제 수단이 없으면 넘을 때 과금되지 않고 막힌다(*"usage is blocked once you use up your quota"*). 2,000분은 문서의 Linux 2코어 단가 $0.006/분으로 계산한 값.
+- 실측(11-03 ~ 11-13): Actions 97회, CI 평균 1.2분, 합계 약 188분.
 
 </details>

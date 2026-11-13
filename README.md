@@ -142,18 +142,11 @@ flowchart LR
 
 시나리오는 실제 사례를 근거로 잡았습니다. 예를 들어 정부 숙박세일페스타는 야놀자 · 여기어때에서 숙박 할인쿠폰 9만 장을 정해진 시각에 선착순으로 배포했습니다. 이런 "오픈 순간의 쏠림"이 이 프로젝트의 쿠폰 실험 시나리오입니다.
 
-## 로컬 실행
+## 앱 저장소와 로컬 실행
 
-Docker와 Node 24가 필요합니다.
+앱 코드와 CI/CD는 고객사 앱 저장소 역할의 [yubin05/hotel-booking-app](https://github.com/yubin05/hotel-booking-app)에 있습니다. 이 저장소는 우리(인프라팀)가 만드는 To-Be 인프라와 문서만 둡니다. 배포 역할 · 권한은 이 저장소의 [bootstrap](infra/bootstrap/README.md)이 관리하고, 앱 저장소의 CD는 OIDC로 그 역할을 받습니다([ADR-043](docs/04-decisions.md#adr-043)).
 
-```bash
-docker compose up -d --build   # MySQL(호텔·객실 시드 포함) + 앱
-cd app && npm ci && npm test   # 테스트는 같은 MySQL의 테스트 전용 DB(hotel_booking_test)를 사용
-```
-
-브라우저에서 http://localhost:3000 을 열면 화면이 나옵니다. 화면 하단 배지는 응답한 서버(로컬·리전·AZ·태스크)를 보여 주며, 장애·리전 전환 시연에 씁니다.
-
-화면만 고칠 때는 `cd app/web && npm ci && npm run dev`로 개발 서버(5173)를 띄우면 API 요청은 3000번 앱으로 넘어갑니다.
+로컬 실행 방법은 앱 저장소 README에 있습니다. 화면 하단 배지는 응답한 서버(로컬·리전·AZ·태스크)를 보여 주며, 장애·리전 전환 시연에 씁니다.
 
 ## 비용 원칙
 
@@ -180,10 +173,8 @@ cd app && npm ci && npm test   # 테스트는 같은 MySQL의 테스트 전용 D
 ## 저장소 구조 (예정)
 
 ```
-app/                모듈러 모놀리스 API (인증·호텔·예약·쿠폰·리뷰)
-  web/              화면 (React + Vite + Tailwind, 빌드 결과는 app/public)
 infra/
-  bootstrap/        Terraform state 버킷, GitHub OIDC 역할 (1회 적용)
+  bootstrap/        Terraform state 버킷, GitHub OIDC 배포 역할, 평소 사용자 정책 (1회 적용)
   global/           Route 53, ACM, CloudFront, WAF
   modules/regional/ VPC, ALB, ECS, RDS, ECR (서울·도쿄 공통)
   seoul/ · tokyo/   리전별 루트: 리전·state 위치를 파일에 고정하고 modules/regional 호출
@@ -191,10 +182,11 @@ infra/
 load/               k6 부하·장애 실험 (eNN-이름.js, 실행기 run-k6.sh)
 scripts/            이관·복원·드릴 스크립트
 docs/               설계 문서
-.github/workflows/  CI/CD
 ```
 
 ## 관련 링크
+
+- 고객사 앱 저장소: [yubin05/hotel-booking-app](https://github.com/yubin05/hotel-booking-app)
 
 - v1 저장소: [yubin05/Project_TEAM_AWS](https://github.com/yubin05/Project_TEAM_AWS)
 - v1 포트폴리오: [멀티클라우드 DR](https://yubin05-portfolio.vercel.app/projects/multicloud-dr)
