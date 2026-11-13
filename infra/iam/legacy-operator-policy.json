@@ -24,10 +24,6 @@
         "ec2:AttachInternetGateway",
         "ec2:DetachInternetGateway",
         "ec2:DeleteInternetGateway",
-        "ec2:AllocateAddress",
-        "ec2:ReleaseAddress",
-        "ec2:CreateNatGateway",
-        "ec2:DeleteNatGateway",
         "ec2:CreateRouteTable",
         "ec2:AssociateRouteTable",
         "ec2:DisassociateRouteTable",
@@ -55,41 +51,6 @@
           "aws:RequestedRegion": "ap-northeast-2"
         }
       }
-    },
-    {
-      "Sid": "AccessS3tfstateBucket",
-      "Effect": "Allow",
-      "Action": [
-        "s3:ListBucket"
-      ],
-      "Resource": "arn:aws:s3:::hotel-booking-aws-v2-tfstate-248563009287-ap-northeast-1-an"
-    },
-    {
-      "Sid": "AccessS3tfstatefile",
-      "Effect": "Allow",
-      "Action": [
-        "s3:GetObject",
-        "s3:PutObject"
-      ],
-      "Resource": [
-        "arn:aws:s3:::hotel-booking-aws-v2-tfstate-248563009287-ap-northeast-1-an/seoul/terraform.tfstate",
-        "arn:aws:s3:::hotel-booking-aws-v2-tfstate-248563009287-ap-northeast-1-an/global/terraform.tfstate",
-        "arn:aws:s3:::hotel-booking-aws-v2-tfstate-248563009287-ap-northeast-1-an/tokyo/terraform.tfstate"
-      ]
-    },
-    {
-      "Sid": "AccessS3tflockfile",
-      "Effect": "Allow",
-      "Action": [
-        "s3:GetObject",
-        "s3:PutObject",
-        "s3:DeleteObject"
-      ],
-      "Resource": [
-        "arn:aws:s3:::hotel-booking-aws-v2-tfstate-248563009287-ap-northeast-1-an/seoul/*.tflock",
-        "arn:aws:s3:::hotel-booking-aws-v2-tfstate-248563009287-ap-northeast-1-an/global/*.tflock",
-        "arn:aws:s3:::hotel-booking-aws-v2-tfstate-248563009287-ap-northeast-1-an/tokyo/*.tflock"
-      ]
     }
   ]
 }
