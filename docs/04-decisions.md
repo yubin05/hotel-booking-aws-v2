@@ -45,6 +45,7 @@
 | [039](#adr-039) | 태스크 정의 설정은 Terraform 모듈, 이미지는 CD (ECS의 최신 리비전을 읽어 교체) |
 | [040](#adr-040) | ECR 저장소는 bootstrap(상시), 서울에 push하면 도쿄로 자동 복제 |
 | [041](#adr-041) | 비밀값은 쓰기 전용으로 넣어 state에 남기지 않고(금고는 bootstrap · 도쿄 복제), DB 관리자 비밀번호는 RDS가 관리 |
+| [042](#adr-042) | RDS는 apply마다 새로 만들고 시드를 다시 넣음, 백업 7일은 켜되 destroy 때 같이 삭제 |
 
 ---
 
@@ -827,5 +828,37 @@
 - `secret_string_wo` · `secret_string_wo_version`: [aws_secretsmanager_secret_version](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret_version). 임시 `random_password`: [random provider](https://registry.terraform.io/providers/hashicorp/random/latest/docs/ephemeral-resources/password).
 - `manage_master_user_password`: [aws_db_instance](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/db_instance).
 - 복제본 ARN은 리전만 다르고, 기본 비밀의 값 변경이 복제본으로 퍼진다([복제](https://docs.aws.amazon.com/secretsmanager/latest/userguide/replicate-secrets.html)). 복제본은 별도 비밀로 과금([요금](https://aws.amazon.com/secrets-manager/pricing/)). 삭제 복구 대기는 0(즉시) 또는 7~30일, 기본 30일([aws_secretsmanager_secret](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret)).
+
+</details>
+
+<a name="adr-042"></a>
+## ADR-042 RDS는 apply마다 새로 만들고 시드를 다시 넣음, 백업 7일은 켜되 destroy 때 같이 삭제
+
+- **상황:** 2-2 RDS 덩어리(2026-11-13). 서울을 매일 destroy하면 RDS도 지워진다. 데이터는 시드(합성)이고, 실험은 그날 안에 처음부터 끝까지 하도록 설계돼 있다.
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | destroy 때 최종 스냅샷 → 다음 apply에서 복원 | 스냅샷 보관 요금, 복원 시간, 스냅샷 이름 관리로 코드가 복잡해진다. 시드 데이터라 이어 갈 가치가 없다 |
+  | 데이터를 버리니 자동 백업도 끔(보존 0일) | 시점 복구(R3), 도쿄로 백업 복제(5단계 드릴의 전제), 읽기 복제본(Pilot Light로 올릴 때)이 같이 꺼진다. 백업은 DB 용량만큼 무료이고 destroy 때 같이 지워져 아낄 비용이 없다 |
+
+- **결정:**
+  - 매 apply마다 새 DB를 만들고 스키마 · 시드는 스키마 태스크([ADR-031](#adr-031))가 다시 넣는다. `skip_final_snapshot = true`, `deletion_protection = false`.
+  - 자동 백업은 7일 보존, `delete_automated_backups = true`로 destroy 때 같이 지운다.
+  - MySQL 8.4(0단계 로컬과 같음), db.t4g.micro · gp3 20GB. 1단계 DB 서버(t3.micro, [ADR-021](#adr-021))와 같은 급이라 3단계에서 크기가 아니라 구조 효과를 비교하고, 크기는 3단계 뒤 확정한다.
+  - Multi-AZ는 설계상 켜고 포트폴리오는 `db_multi_az = false`로 평소 끄며 AZ 장애 테스트 때 켠다(NAT와 같은 방식, [ADR-034](#adr-034)).
+  - 도쿄로 백업 복제는 5단계 드릴 때만 켠다(복사 전송 · 도쿄 저장 요금).
+- **근거:** 매번 깨끗한 상태에서 시작해 재현성(2단계 완료 기준)도 함께 확인된다. 백업 기능은 켜 두되 남는 것이 없어 비용이 생기지 않는다.
+- **결과:**
+  - 실운영이라면 최종 스냅샷과 삭제 방지를 켠다(콘솔로 만들면 삭제 방지가 기본으로 켜짐).
+  - t 계열은 CPU 크레딧 방식이라 3단계 긴 부하에서 크레딧 소진이나 추가 요금을 함께 본다.
+  - 관리자 비밀번호를 RDS가 만들 때 호출자에게 `secretsmanager:CreateSecret` · `TagResource` · `kms:DescribeKey`가 필요해 평소 권한에 넣었다(RDS가 만드는 비밀 이름 `rds!*`으로 좁힘).
+
+<details>
+<summary>확인한 근거와 메모</summary>
+
+- 백업 저장은 리전의 DB 저장 용량만큼 무료([RDS 요금](https://aws.amazon.com/rds/mysql/pricing/)). `delete_automated_backups` 기본값 true, `backup_retention_period`는 읽기 복제본의 원본이면 0보다 커야 함([aws_db_instance](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/db_instance)).
+- 트랜잭션 로그는 5분마다 S3에 올라가 시점 복구에 쓰인다([시점 복구](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_PIT.html)). MySQL 자동 백업은 서울 → 도쿄로 복제할 수 있다([백업 복제](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReplicateBackups.html)).
+- 관리 비밀번호에 필요한 호출자 권한: [RDS + Secrets Manager](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-secrets-manager.html). 삭제 방지 기본값: [DB 삭제](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_DeleteInstance.html).
 
 </details>
