@@ -179,6 +179,50 @@
         "secretsmanager:GetResourcePolicy"
       ],
       "Resource": "arn:aws:secretsmanager:ap-northeast-2:248563009287:secret:hotel-booking-aws-v2/*"
+    },
+    {
+      "Sid": "Rds",
+      "Effect": "Allow",
+      "Action": [
+        "rds:CreateDBInstance",
+        "rds:DeleteDBInstance",
+        "rds:ModifyDBInstance",
+        "rds:DescribeDBInstances",
+        "rds:CreateDBSubnetGroup",
+        "rds:DeleteDBSubnetGroup",
+        "rds:ModifyDBSubnetGroup",
+        "rds:DescribeDBSubnetGroups",
+        "rds:DescribeDBEngineVersions",
+        "rds:AddTagsToResource",
+        "rds:RemoveTagsFromResource",
+        "rds:ListTagsForResource"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-northeast-2"
+        }
+      }
+    },
+    {
+      "Sid": "RdsManagedMasterSecret",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:CreateSecret",
+        "secretsmanager:TagResource"
+      ],
+      "Resource": "arn:aws:secretsmanager:ap-northeast-2:248563009287:secret:rds!*"
+    },
+    {
+      "Sid": "DescribeDefaultKmsKey",
+      "Effect": "Allow",
+      "Action": "kms:DescribeKey",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-northeast-2"
+        }
+      }
     }
   ]
 }
