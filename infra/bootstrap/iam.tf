@@ -196,6 +196,21 @@ resource "aws_iam_role_policy" "ecs_execution" {
           "arn:aws:logs:${local.main_region}:${local.account_id}:log-group:/ecs/${local.project_name}:log-stream:*",
           "arn:aws:logs:${local.backup_region}:${local.account_id}:log-group:/ecs/${local.project_name}:log-stream:*",
         ]
+      },
+      {
+        # 태스크를 띄울 때 금고에서 비밀값을 꺼내 환경 변수로 넣기 (ADR-041)
+        Sid    = "ReadAppSecrets"
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue"
+        ]
+        # 서울 금고 + 도쿄 복제본. 복제본 주소는 리전만 달라서 replace로 리전 글자만 바꿈
+        Resource = flatten([
+          for s in [aws_secretsmanager_secret.jwt, aws_secretsmanager_secret.db_app] : [
+            s.arn,
+            replace(s.arn, local.main_region, local.backup_region),
+          ]
+        ])
       }
     ]
   })
