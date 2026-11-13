@@ -44,6 +44,7 @@
 | [038](#adr-038) | 평소 사용자 권한은 고객 관리형 정책 2개(v2 · legacy)로, bootstrap이 관리 |
 | [039](#adr-039) | 태스크 정의 설정은 Terraform 모듈, 이미지는 CD (ECS의 최신 리비전을 읽어 교체) |
 | [040](#adr-040) | ECR 저장소는 bootstrap(상시), 서울에 push하면 도쿄로 자동 복제 |
+| [041](#adr-041) | 비밀값은 쓰기 전용으로 넣어 state에 남기지 않고(금고는 bootstrap · 도쿄 복제), DB 관리자 비밀번호는 RDS가 관리 |
 
 ---
 
@@ -794,5 +795,37 @@
 
 - 복제는 대상 레지스트리에 저장소가 없으면 만들고, 저장소 설정(태그 불변 · 암호화 · 권한 · 수명 주기)은 생성 템플릿 없이는 복제되지 않는다([ECR 복제](https://docs.aws.amazon.com/AmazonECR/latest/userguide/replication.html)).
 - 수명 주기 규칙 형식(`imageCountMoreThan`): [예시](https://docs.aws.amazon.com/AmazonECR/latest/userguide/lifecycle_policy_examples.html).
+
+</details>
+
+<a name="adr-041"></a>
+## ADR-041 비밀값은 쓰기 전용으로 넣어 state에 남기지 않고(금고는 bootstrap · 도쿄 복제), DB 관리자 비밀번호는 RDS가 관리
+
+- **상황:** 앱은 시작할 때 `DB_PASSWORD`와 `JWT_SECRET` 환경 변수가 없으면 종료한다(`app/src/config.ts`). ECS는 태스크를 띄울 때 Secrets Manager에서 값을 꺼내 환경 변수로 넣고, 태스크 정의에는 값이 아니라 비밀의 주소(ARN)만 적는다. 값을 누가 만들고 Terraform state에 남는지를 정해야 한다(2026-11-13).
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | Terraform `random_password` 리소스 + `secret_string` | state와 plan 파일에 비밀값이 평문으로 남는다. 평소 사용자는 seoul state를 읽을 수 있어([ADR-028](#adr-028)) 그 세션만 털려도 DB 비밀번호가 나간다 |
+  | 금고(비밀)만 Terraform, 값은 사람이 CLI로 넣기 | state에는 안 남지만 destroy 뒤 다시 만들 때와 리전 드릴 때 사람 손이 필요해 재현성과 RTO가 나빠진다 |
+
+- **결정:**
+  - 앱 DB 계정 비밀번호와 JWT 서명 키는 임시(ephemeral) `random_password`로 만들어 쓰기 전용 인자 `secret_string_wo`로 금고에 넣는다. 값을 바꿀 때는 `secret_string_wo_version`을 올린다.
+  - DB 관리자 비밀번호는 `manage_master_user_password = true`로 RDS가 직접 만들어 Secrets Manager에 넣고 관리한다. 앱은 관리자가 아니라 앱 전용 계정으로 접속한다([ADR-031](#adr-031)).
+- **근거:** 쓰기 전용 인자는 값을 plan과 state에 남기지 않는다(Terraform 1.11+, 이 프로젝트는 `>= 1.11.0`). 전부 자동이라 destroy 뒤 다시 만들어도 손이 들지 않는다. state를 보는 사람이 비밀값을 볼 수 없다.
+- **결과:**
+  - Terraform은 값을 비교하지 않으므로 금고의 값이 바깥에서 바뀌어도 모른다. 바꿀 때는 버전 숫자로만 알린다.
+  - ECS 실행 역할에 해당 비밀들의 `secretsmanager:GetSecretValue`를 더해야 한다([ADR-029](#adr-029)에서 미뤄 둔 것).
+  - 금고(비밀)는 **bootstrap(상시)**에 두고 도쿄로 복제한다. 비밀값은 데이터와 짝이라(DB를 복원해도 앱 계정 비밀번호는 그대로여야 함) 매일 지우면 안 되고, seoul에 두면 지울 때마다 복구 대기 기간(기본 30일) 때문에 같은 이름으로 바로 다시 만들 수도 없다. 서울 리전 장애 때 도쿄 ECS가 열 금고가 도쿄에 있어야 해서 복제본을 둔다. 복제본 주소는 리전만 달라 모듈이 리전을 바꿔 만든다.
+  - 복제본도 별도 비밀로 과금된다(개당 월 $0.40). 비밀 3개(JWT, 앱 DB 계정, 카카오 키) + 복제본 3개.
+  - 앱 DB 계정 비밀번호를 교체할 때는 금고와 DB 안의 계정 비밀번호를 함께 바꾸는 절차가 필요하다(RDS 덩어리에서 정함). JWT 서명 키를 교체하면 그 순간 로그인 세션이 모두 풀린다.
+
+<details>
+<summary>확인한 근거와 메모</summary>
+
+- 쓰기 전용 인자: *"discards that value without storing it in the plan or state file"*([write-only](https://developer.hashicorp.com/terraform/language/manage-sensitive-data/write-only)). `sensitive`는 화면에서만 가리고 state와 plan에는 평문으로 남는다([민감 데이터](https://developer.hashicorp.com/terraform/language/manage-sensitive-data)).
+- `secret_string_wo` · `secret_string_wo_version`: [aws_secretsmanager_secret_version](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret_version). 임시 `random_password`: [random provider](https://registry.terraform.io/providers/hashicorp/random/latest/docs/ephemeral-resources/password).
+- `manage_master_user_password`: [aws_db_instance](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/db_instance).
+- 복제본 ARN은 리전만 다르고, 기본 비밀의 값 변경이 복제본으로 퍼진다([복제](https://docs.aws.amazon.com/secretsmanager/latest/userguide/replicate-secrets.html)). 복제본은 별도 비밀로 과금([요금](https://aws.amazon.com/secrets-manager/pricing/)). 삭제 복구 대기는 0(즉시) 또는 7~30일, 기본 30일([aws_secretsmanager_secret](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/secretsmanager_secret)).
 
 </details>
