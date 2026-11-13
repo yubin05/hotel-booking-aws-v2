@@ -32,7 +32,7 @@
 
 ```
 VPC (서울 10.0.0.0/16, 도쿄 10.1.0.0/16, ADR-033)
-├─ 퍼블릭 서브넷 ×2         NAT Gateway 1개 (첫 AZ)
+├─ 퍼블릭 서브넷 ×2         NAT Gateway AZ마다 (포트폴리오 평소 1개)
 ├─ 프라이빗 앱 서브넷 ×2     Internal ALB, ECS 태스크, VPC Origin의 ENI (+ S3 게이트웨이 엔드포인트 경로)
 └─ 프라이빗 DB 서브넷 ×2     RDS (Multi-AZ 대기 DB는 다른 AZ), 밖으로 나가는 경로 없음
 AZ는 ID로 지정 (서울 apne2-az1 · apne2-az3), 서브넷은 /24
@@ -40,7 +40,7 @@ AZ는 ID로 지정 (서울 apne2-az1 · apne2-az3), 서브넷은 /24
 
 - 보안 그룹은 앞 단계에서 오는 트래픽만 허용하는 사슬로 구성합니다: CloudFront(VPC Origin) → ALB → ECS → RDS.
 - ALB, ECS, RDS 모두 공인 IP가 없습니다. 공인 IP는 NAT만 씁니다.
-- 출구는 NAT Gateway 1개 + S3 게이트웨이 엔드포인트입니다([ADR-034](04-decisions.md#adr-034)). 고객사 서비스에는 결제·알림톡 같은 외부 연동이 거의 확실히 있어 NAT를 두고, ECR 이미지 레이어는 무료 S3 게이트웨이로 받습니다. NAT의 AZ가 장애 나면 다른 AZ의 출구도 끊겨 대체 태스크가 뜨지 못할 수 있습니다. 실운영이라면 AZ마다 둡니다.
+- 출구는 AZ마다 NAT Gateway + S3 게이트웨이 엔드포인트입니다([ADR-034](04-decisions.md#adr-034)). 고객사 서비스에는 결제·알림톡 같은 외부 연동이 거의 확실히 있어 NAT를 두고, ECR 이미지 레이어는 무료 S3 게이트웨이로 받습니다. AZ마다 두어야 한 AZ가 장애 나도 다른 AZ의 대체 태스크가 이미지를 받아 뜹니다. 포트폴리오는 비용 때문에 평소 1개로 돌리고 AZ 장애 테스트 때 2개로 켭니다(RDS Multi-AZ와 같은 방식).
 - VPC Origin을 쓰는 VPC에는 인터넷 게이트웨이가 있어야 합니다. 트래픽이 IGW를 지나지는 않고, VPC가 인터넷 트래픽을 받을 수 있다는 표시입니다([VPC Origin](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-vpc-origins.html), 2026-11-13 확인).
 
 ## 3. 컴퓨트와 앱

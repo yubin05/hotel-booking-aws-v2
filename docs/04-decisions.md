@@ -37,10 +37,11 @@
 | [031](#adr-031) | 스키마 변경은 CD가 일회성 ECS 태스크로 먼저 적용, 앱과 DB 계정 분리 |
 | [032](#adr-032) | 서비스 연결 역할은 필요한 것 전부를 bootstrap에서 관리한다 |
 | [033](#adr-033) | VPC 주소 대역은 리전마다 겹치지 않게 /16으로 (서울 10.0, 도쿄 10.1) |
-| [034](#adr-034) | 출구는 NAT Gateway 1개 + S3 게이트웨이 엔드포인트 |
+| [034](#adr-034) | 출구는 AZ마다 NAT Gateway(포트폴리오 평소 1개) + S3 게이트웨이 엔드포인트 |
 | [035](#adr-035) | CloudFront는 유지하고 숙소 사진은 전용 도메인 CDN으로 (진입점 재검토) |
 | [036](#adr-036) | 장애 종류별 복구 목표 (잠정: AZ 10분, 리전 1시간) |
 | [037](#adr-037) | 예약 알림은 이메일(SES) + 카카오톡("나에게 보내기") 두 채널 |
+| [038](#adr-038) | 평소 사용자 권한은 고객 관리형 정책 2개(v2 · legacy)로, bootstrap이 관리 |
 
 ---
 
@@ -449,7 +450,7 @@
 - **결과:**
   - 2026-11-12 평소 사용자로 확인: 목록은 보이고, bootstrap state HeadObject는 403, 아직 없는 seoul state는 404다. GetObject와 ListBucket이 모두 있으면 없는 객체에 404를 준다([HeadObject](https://docs.aws.amazon.com/AmazonS3/latest/API/API_HeadObject.html)). bootstrap이 403이므로 평소 그룹의 다른 정책도 bootstrap state를 허용하지 않는다. 쓰기·잠금은 seoul의 첫 plan에서 확인한다.
   - 루트를 새로 만들면 이 목록에 줄을 추가해야 한다.
-  - 정책은 그룹 인라인이라 관리자 역할로 `put-group-policy`로 반영하고, 덮어쓰면 이전 내용이 남지 않는다. 반영 전에 `get-group-policy`로 백업한다. 파일 이름은 `legacy-`로 시작하지만 2단계 루트도 이 정책을 쓴다.
+  - (2026-11-13 [ADR-038](#adr-038)에서 고객 관리형 2개로 바꿈) 정책은 그룹 인라인이라 관리자 역할로 `put-group-policy`로 반영하고, 덮어쓰면 이전 내용이 남지 않는다. 반영 전에 `get-group-policy`로 백업한다. 파일 이름은 `legacy-`로 시작하지만 2단계 루트도 이 정책을 쓴다.
 
 <a name="adr-029"></a>
 ## ADR-029 ECS 실행 역할: bootstrap에서 관리자가 만들고, 평소 사용자·CD에는 PassRole만
@@ -574,7 +575,7 @@
 </details>
 
 <a name="adr-034"></a>
-## ADR-034 출구는 NAT Gateway 1개 + S3 게이트웨이 엔드포인트
+## ADR-034 출구는 AZ마다 NAT Gateway(포트폴리오 평소 1개) + S3 게이트웨이 엔드포인트
 
 - **상황:** 앱 서브넷의 ECS 태스크는 ECR 이미지 받기, CloudWatch 로그 전송, (RDS·비밀값 덩어리부터) Secrets Manager 조회로 밖에 나가야 한다. 02 설계는 NAT Gateway 1개였지만 비교 기록이 없어 2-2 네트워크에서 다시 검토했다(2026-11-13).
 - **검토한 대안:**
@@ -584,11 +585,11 @@
   | NAT 인스턴스 (1단계 방식) | 가장 싸지만 패치·장애 대응을 직접 한다. v1과 같은 방식이라 목표 구조를 보여 주지 못한다 |
   | VPC 엔드포인트만 (NAT 없음) | 출구를 지정한 AWS 서비스로만 제한하고 AZ 장애에도 출구가 남는다. 그러나 고객사 서비스에는 결제·알림톡·소셜 로그인 같은 외부 연동이 거의 확실히 있고, 업체가 고정 출발 IP 등록을 요구하면 대응할 수 없다 |
   | NAT 앞 Network Firewall (도메인 허용 목록) | 출구 통제가 규제 요구일 때의 방식. 요금이 크고 지금 요구가 없다 |
-  | AZ마다 NAT | 실운영 기준. 시간당 요금이 2배 |
+  | 설계도 NAT 1개 | 비용은 절반이지만 NAT의 AZ가 장애 나면 다른 AZ의 대체 태스크가 ECR 매니페스트를 못 받아 뜨지 못한다. AZ 장애 목표([ADR-036](#adr-036))를 못 지킬 수 있고, "설계는 실운영 기준"(RDS Multi-AZ 상시) 원칙과도 어긋난다(2026-11-13 재검토) |
 
-- **결정:** 퍼블릭 서브넷 첫 AZ에 NAT Gateway 1개 + EIP. S3 게이트웨이 엔드포인트를 앱 라우트 테이블에 연결한다.
+- **결정:** 설계는 AZ마다 NAT Gateway + EIP를 두고, 앱 라우트 테이블도 AZ마다 두어 자기 AZ의 NAT로 나간다. 포트폴리오는 seoul 루트 파일의 `nat_count`로 평소 1개(두 AZ가 첫 NAT 공유), AZ 장애 테스트 때 2개로 켠다(RDS Multi-AZ와 같은 방식). S3 게이트웨이 엔드포인트를 앱 라우트 테이블들에 연결한다.
 - **근거:** 외부 연동을 받아들일 수 있는 출구를 두면서, S3에 저장된 ECR 이미지 레이어는 무료 게이트웨이로 받아 NAT 처리 요금을 줄인다.
-- **결과:** NAT의 AZ가 장애 나면 다른 AZ의 태스크도 출구를 잃어, 대체 태스크가 ECR 매니페스트를 받지 못해 뜨지 못할 수 있다. 장악된 컨테이너가 인터넷 어디로든 나갈 수 있다는 점과 함께 알고 받아들이는 한계다. 실운영이면 AZ마다 NAT를 두고, 외부 연동이 없고 보안 규제가 강한 고객이면 엔드포인트만 쓰는 안을 다시 본다.
+- **결과:** 상시 추정 비용에 NAT 2개가 들어가 v2가 월 약 $157에서 $204로 오른다([09 비용](09-cost-estimate.md)). 평소 1개로 돌 때는 그 NAT의 AZ가 장애 나면 다른 AZ의 출구도 끊긴다는 점을 알고 쓴다. 장악된 컨테이너가 인터넷 어디로든 나갈 수 있다는 점은 받아들이는 한계이고, 외부 연동이 없고 보안 규제가 강한 고객이면 엔드포인트만 쓰는 안을 다시 본다.
 
 <details>
 <summary>확인한 근거와 메모</summary>
@@ -703,5 +704,41 @@
 - SES 샌드박스: [production access](https://docs.aws.amazon.com/ses/latest/dg/request-production-access.html). 요금은 Essentials 기준 1,000통에 $0.16([SES 요금](https://aws.amazon.com/ses/pricing/), 2026-11-13). 앱 라이브러리로 손님 메일 서버에 직접 보내는 방식은 EC2 기반에서 25번 포트가 공인 주소로 막히고([EC2 제한](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-resource-limits.html)) 스팸으로 분류되기 쉬워 발송 서비스에 넘긴다. SES SMTP 자격 증명은 IAM 사용자로 만들어지는 장기 자격 증명이라, 구현할 때 API + 태스크 역할을 우선 검토한다.
 - "나에게 보내기"와 나와의 채팅방: [메시지 튜토리얼](https://developers.kakao.com/docs/ko/tutorial/message), [메시지 공통](https://developers.kakao.com/docs/latest/ko/kakaotalk-message/common). 친구에게 보내기 심사: [devtalk](https://devtalk.kakao.com/t/api-api/116052).
 - 알림톡 조건(비즈니스 채널, 사업자 서류, 딜러사, 템플릿 검수 1~3 영업일): [비즈고 가이드](https://blog.bizgo.io/howto/alim-talk-basic). 딜러사 자료다.
+
+</details>
+
+<a name="adr-038"></a>
+## ADR-038 평소 사용자 권한은 고객 관리형 정책 2개(v2 · legacy)로, bootstrap이 관리
+
+- **상황:** 평소 그룹(`normal-user-group`)의 권한은 인라인 정책 `legacy-operator-policy` 하나였는데 2단계 루트도 같이 써서 이름과 실제가 맞지 않았다. 그룹 인라인 정책은 합계 5,120자까지인데 이미 2,113자였고, 2-2에서 ALB · ECS · RDS · CloudFront 등의 액션이 더 붙는다. 반영은 CLI `put-group-policy`(덮어쓰기)라 매번 손으로 백업을 떴다(2026-11-13).
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | 파일 이름만 바꾸기 | 5,120자 한도가 그대로이고, 1단계가 끝나도 EC2 생성 같은 legacy 권한이 남는다 |
+  | 인라인 정책 2개로 나누기 | 한도가 그룹 인라인 합계라 여유가 늘지 않는다 |
+  | AWS 관리형 정책(예: AmazonEC2FullAccess) | 리소스가 `*`인 범용 정책이라 최소 권한에 맞지 않는다([ADR-018](#adr-018), [ADR-029](#adr-029)에서 같은 이유로 버림) |
+  | 두 정책을 늘 함께 붙이기 | 지금 하지 않는 단계의 권한(1단계의 EC2 생성 등)이 계속 살아 있다 |
+
+- **결정:**
+  - 우리가 쓴 **고객 관리형** 정책 2개를 bootstrap Terraform(관리자 역할)이 만들어 평소 그룹에 연결한다([iam.tf](../infra/bootstrap/iam.tf)).
+    - `hotel-booking-aws-v2-operator-v2`: 2단계 루트용. `ec2:Describe*`, 서울 조건의 네트워크 액션, seoul · global · tokyo state([v2-operator-policy.json](../infra/iam/v2-operator-policy.json))
+    - `hotel-booking-aws-v2-operator-legacy`: 1단계 legacy 루트용. 1단계 때 쓰던 권한 그대로(읽기, 네트워크, EC2 · 키 페어, state는 로컬이라 없음, [legacy-operator-policy.json](../infra/iam/legacy-operator-policy.json))
+    - 두 정책은 각자 완결이고, **작업하는 단계의 정책만 붙인다.** bootstrap의 `attach_operator_v2` · `attach_operator_legacy` 값을 바꿔 관리자 역할로 apply한다. 3단계 덤프 이관처럼 둘 다 쓸 때는 둘 다 붙인다
+  - 기존 인라인은 백업한 뒤 지웠다. 관리자 전환 권한(인라인 `AssumeAdminRolePolicy`)은 그대로 둔다.
+- **근거:** AWS는 대부분 관리형을 권하고, 최소 권한을 주는 가장 안전한 방법으로 팀에 필요한 권한만 담은 고객 관리형을 든다. 정책마다 6,144자, 그룹에 10개까지라 여유가 크고, 버전(최대 5개)으로 되돌릴 수 있으며, 바꾸기 전에 plan으로 차이를 본다. 인라인의 장점은 1:1 관계(다른 사람에게 실수로 붙지 않음)인데, 평소 사용자는 IAM 권한이 없어 정책을 남에게 붙일 수 없으므로 이 장점이 작다. IAM은 bootstrap에서 관리자가 다룬다는 원칙([ADR-025](#adr-025) · [ADR-029](#adr-029) · [ADR-032](#adr-032))과 같다.
+- **결과:**
+  - 2026-11-13 관리자 역할로 apply: 4개 추가(정책 2 + 연결 2, 예측과 같음). 정책 생성 13:10:19 KST, state 저장 13:10:21. 기존 인라인 백업은 13:05 · 13:11, 그 뒤 삭제했다.
+  - 처음에는 공통 네트워크 액션을 v2에만 두고 둘을 늘 함께 붙였다가(합은 기존 인라인과 같음, 스크립트로 비교), 같은 날 "단계별로 붙였다 떼기"로 바꿨다. legacy 정책을 1단계 때 그대로 완결되게 되돌리고, 평소에는 v2만 붙인다. 두 번째 apply: legacy 정책 교체 + legacy 연결 떼기(1 추가 · 2 삭제, 예측과 같음), legacy 정책 재생성 13:20:31 KST, state 저장 13:20:32. 그 뒤 그룹에는 v2만 붙어 있음을 확인했다.
+  - 앞으로 평소 권한은 JSON을 고친 뒤 bootstrap plan · apply(관리자)로 반영한다. 단계를 바꿀 때마다 관리자 apply가 한 번 필요한 것은 받아들인다(떼는 걸 잊지 않게 기본값을 코드에 둠). v2 정책이 커지면 `-edge`(CloudFront · WAF · Route 53)처럼 더 나눈다.
+  - 정책 설명(description)은 만든 뒤 바꿀 수 없어(바꾸면 정책 교체) 짧은 영어로 썼다.
+
+<details>
+<summary>확인한 근거와 메모</summary>
+
+- 관리형과 인라인 고르기: *"In most cases, we recommend that you use managed policies instead of inline policies"*, 인라인은 *"strict one-to-one relationship"*이 필요할 때([AWS 문서](https://docs.aws.amazon.com/IAM/latest/UserGuide/access_policies-choosing-managed-or-inline.html)).
+- 크기 한도: 그룹 인라인 합계 5,120자, 관리형 정책 하나 6,144자, 그룹당 관리형 10개(공백 제외, [IAM 한도](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_iam-quotas.html)).
+- 정책 설명은 바꿀 수 없다(*"The policy description is immutable"*, [CreatePolicy](https://docs.aws.amazon.com/IAM/latest/APIReference/API_CreatePolicy.html)).
+- 처음에 그룹 인라인 목록에 `AssumeAdminRolePolicy`만 보여 평소 권한의 위치를 확인했다. 그것은 관리자 전환 권한이었고, 평소 권한 인라인은 이미 지운 뒤였다.
 
 </details>
