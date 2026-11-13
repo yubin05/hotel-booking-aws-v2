@@ -37,6 +37,10 @@
 | [031](#adr-031) | 스키마 변경은 CD가 일회성 ECS 태스크로 먼저 적용, 앱과 DB 계정 분리 |
 | [032](#adr-032) | 서비스 연결 역할은 필요한 것 전부를 bootstrap에서 관리한다 |
 | [033](#adr-033) | VPC 주소 대역은 리전마다 겹치지 않게 /16으로 (서울 10.0, 도쿄 10.1) |
+| [034](#adr-034) | 출구는 NAT Gateway 1개 + S3 게이트웨이 엔드포인트 |
+| [035](#adr-035) | CloudFront는 유지하고 숙소 사진은 전용 도메인 CDN으로 (진입점 재검토) |
+| [036](#adr-036) | 장애 종류별 복구 목표 (잠정: AZ 10분, 리전 1시간) |
+| [037](#adr-037) | 예약 알림은 이메일(SES) + 카카오톡("나에게 보내기") 두 채널 |
 
 ---
 
@@ -60,7 +64,7 @@
   | 벤더 리스크·규제 | 멀티클라우드 |
 
   AWS 전체가 동시에 멈춘 사례는 드물고, 이 고객에게는 마지막 줄의 요구가 없다.
-- **결과:** 상시 대기 비용이 사라진다. 벤더 리스크는 다루지 않으며 한계로 명시한다. 2번 안을 검토하며 정리한 방법(공개키로 암호화한 백업을 HTTPS로 내보내기, 장애 중 AWS API에 의존하지 않는 전환)은 요구가 생기면 참고한다.
+- **결과:** 상시 대기 비용이 사라진다. 벤더 리스크는 다루지 않으며 한계로 명시한다. 2번 안을 검토하며 정리한 방법(공개키로 암호화한 백업을 HTTPS로 내보내기, 장애 중 AWS API에 의존하지 않는 전환)은 요구가 생기면 참고한다. 장애 종류별 목표 수치는 [ADR-036](#adr-036).
 
 <a name="adr-002"></a>
 ## ADR-002 SaaS·PaaS 조합 대신 AWS로 이관한다
@@ -99,15 +103,37 @@
 ## ADR-005 Aurora 대신 RDS for MySQL
 
 - **근거:** 이 규모에서 Aurora의 최소 비용과 리전 간 기능(Global Database)은 필요 이상이다. Multi-AZ와 리전 간 백업으로 요구를 충족한다. 커뮤니티 MySQL이라 덤프 이식성도 좋다.
-- **결과:** 장애 조치 시간이 Aurora보다 길 수 있다. 4단계에서 실측한다.
+- **검토한 대안 (2026-11-13 보강):**
+
+  | | RDS for MySQL Multi-AZ (선택) | Aurora MySQL |
+  |---|---|---|
+  | 저장소 | DB마다 자기 디스크, 다른 AZ의 대기 DB로 동기 복제 | 클러스터가 공유 저장소 하나를 쓰고, 데이터가 AZ 3곳에 복사된다 |
+  | 대기 DB | 읽기에 못 쓴다. 장애 때만 넘어간다 | 복제본이 읽기도 처리하고 장애 때 승격된다 |
+  | 장애 조치 | 보통 60~120초 | 공유 저장소라 더 빠르다고 알려져 있다(확인 못 함) |
+  | 비용 | 대기 DB만큼 약 2배 | 최소 비용이 더 크다 |
+
+- **결과:**
+  - 장애 조치 시간이 Aurora보다 길 수 있다. 4단계에서 실측해 AZ 장애 목표 10분([ADR-036](#adr-036)) 안인지 본다.
+  - Multi-AZ는 설계상 상시다. DB가 멈추면 예약 전체가 멈추고, AZ 장애는 리전 장애보다 흔하며, 넘어가는 것이 자동이다. 포트폴리오에서는 비용(db.t4g.micro 기준 상시 월 약 $21 → $42)을 아끼려고 장애 테스트 때만 켠다([09 비용](09-cost-estimate.md)).
+
+<details>
+<summary>확인한 근거와 메모</summary>
+
+- Multi-AZ는 다른 AZ에 동기 대기 복제본을 두고, 장애 조치는 보통 60~120초다([장애 조치](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZ.Failover.html)). 대기 DB는 읽기 트래픽에 쓸 수 없다(*"You can't use a standby replica to serve read traffic"*, [Multi-AZ](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZSingleStandby.html)).
+- Aurora 클러스터 볼륨은 한 리전의 AZ 3곳에 데이터 복사본을 둔다([Aurora 저장소](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/Aurora.Overview.StorageReliability.html)).
+
+</details>
 
 <a name="adr-006"></a>
 ## ADR-006 API Gateway 대신 CloudFront VPC Origin + Internal ALB
 
 - **상황:** 백엔드를 인터넷에 노출하지 않는다는 원칙은 유지해야 한다.
-- **검토한 대안:** API Gateway + VPC Link + Internal ALB(v1), Public ALB, CloudFront VPC Origin + Internal ALB.
+- **검토한 대안:**
+  - API Gateway + VPC Link + Internal ALB(v1): 거치는 단계와 설정이 가장 많다.
+  - CloudFront + Public ALB(ECS는 프라이빗): 흔한 구성이고 ECS는 노출되지 않는다. 그러나 ALB가 인터넷에 열려 있어 CloudFront(WAF · 캐시)를 거치지 않고 ALB로 바로 들어오는 길이 남는다. 막으려면 CloudFront가 비밀 헤더를 붙이고 ALB가 그 헤더가 있는 요청만 넘기도록 따로 설정해야 한다([ALB 접근 제한](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/restrict-access-to-load-balancer.html)). CloudFront는 화면 캐시([ADR-013](#adr-013)), WAF, 리전 전환([ADR-012](#adr-012)) 때문에 어차피 앞에 둔다.
+  - CloudFront VPC Origin + Internal ALB.
 - **결정:** CloudFront VPC Origin.
-- **근거:** 백엔드는 프라이빗으로 유지하면서 거치는 단계와 설정이 줄어든다. API Gateway의 역할은 CloudFront·ACM(TLS), WAF(요청 제한), 앱 JWT(인증)가 나눠 맡는다.
+- **근거:** 백엔드는 프라이빗으로 유지하면서 거치는 단계와 설정이 줄어든다. ALB까지 프라이빗 서브넷에 두고 CloudFront를 유일한 입구로 만들어(*"making CloudFront the single point of entry"*, [VPC Origin](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-vpc-origins.html)) 우회 경로가 구조적으로 없다(2026-11-13 근거 보강). API Gateway의 역할은 CloudFront·ACM(TLS), WAF(요청 제한), 앱 JWT(인증)가 나눠 맡는다.
 - **결과:** API 키별 사용량 계획 같은 API Gateway 고유 기능은 없다(현재 요구 없음). 비용 절감보다는 단순화 효과가 크다.
 
 <a name="adr-007"></a>
@@ -138,7 +164,7 @@
 
 - **결정:** AZ 장애는 Multi-AZ, 리전 장애는 Backup & Restore.
 - **근거:** 소규모 회사이고 리전 장애 시 수 시간 내 복구를 받아들일 수 있다고 가정했다. 평소 비용이 가장 적다.
-- **결과:** RTO가 Pilot Light보다 길다. 실측값으로 제시하고, 요구가 강해지면 도쿄 읽기 복제본(Pilot Light)으로 확장한다. 리전 간 백업은 국외 보관이므로 개인정보 국외 이전 고지가 필요하다는 가정을 둔다.
+- **결과:** RTO가 Pilot Light보다 길다. 실측값으로 제시하고, 요구가 강해지면 도쿄 읽기 복제본(Pilot Light)으로 확장한다. 목표 수치(리전 RTO 1시간)와 확장 조건은 [ADR-036](#adr-036). 리전 간 백업은 국외 보관이므로 개인정보 국외 이전 고지가 필요하다는 가정을 둔다.
 
 <a name="adr-010"></a>
 ## ADR-010 CI/CD: GitHub Actions + ECS 롤링 + 자동 롤백
@@ -167,7 +193,14 @@
 - **검토한 대안:** 리전별 CloudFront를 두고 Route 53 레코드 전환, 하나의 CloudFront에서 원본만 전환.
 - **결정:** 원본 전환(`active_region` 변수).
 - **근거:** CloudFront는 글로벌 서비스라 서울 장애의 영향을 받지 않는다. DNS 캐시 지연이 없고, 같은 도메인을 CloudFront 배포 두 개에 동시에 붙일 수 없는 제약도 피한다.
-- **결과:** CloudFront 설정 반영 시간에 의존하므로 실측한다. 다른 리전 VPC Origin으로 전환이 가능한지는 구현 전에 확인한다. 글로벌 서비스 자체의 장애는 범위 밖이다.
+- **결과:** CloudFront 설정 반영 시간에 의존하므로 실측한다. 다른 리전 VPC Origin으로 전환이 가능한지는 global 루트를 만들 때 PoC로 확인한다([ADR-035](#adr-035)). 글로벌 서비스 자체의 장애는 범위 밖이다.
+- **자동이 아니라 사람이 전환하는 이유 (2026-11-13 보강):**
+  1. 도쿄는 평소 비어 있어(Backup & Restore) 복원이 끝나기 전에는 넘어갈 곳이 없다.
+  2. 복원된 예약 데이터를 검증한 뒤에 손님을 보내야 한다.
+  3. 잠깐 흔들린 것을 장애로 오인해 자동으로 넘어가면 서울과 도쿄가 동시에 예약을 받는 데이터 분기가 생겨 같은 객실이 두 번 팔릴 수 있다.
+  4. 짧은 장애는 기다리는 편이 빠르다. 서울 리전의 공개된 대형 장애는 84분이었다([08 6절](08-real-cases.md)). 그래서 "몇 분 지나도 회복되지 않으면 도쿄 복원을 시작한다"는 장애 선언 기준을 5단계에서 정한다.
+
+  사진은 읽기만 해서 2·3번 문제가 없으므로 CloudFront 원본 장애 조치로 자동 전환한다([ADR-035](#adr-035)).
 
 <a name="adr-013"></a>
 ## ADR-013 정적 프론트를 앱 컨테이너에 포함
@@ -513,13 +546,162 @@
 <a name="adr-033"></a>
 ## ADR-033 VPC 주소 대역은 리전마다 겹치지 않게 /16으로 (서울 10.0, 도쿄 10.1)
 
-- **상황:** 2-2(2026-11-12)에서 서울 VPC를 `modules/regional`로 만든다. 도쿄도 같은 모듈을 쓰므로 VPC CIDR을 모듈에 하나로 고정할지, 루트마다 다르게 줄지 정해야 한다.
+- **상황:** 서울·도쿄가 같은 `modules/regional`을 쓴다. VPC CIDR을 모듈에 하나로 고정할지, 루트마다 다르게 줄지 정해야 한다(2-2, 2026-11-12).
 - **검토한 대안:**
-  - 서울·도쿄 같은 CIDR을 모듈에 고정: 입력이 없어 단순하고, 도쿄는 백업에서 새로 복원할 뿐 서울과 연결하지 않아 지금 설계에서는 동작한다. 그러나 겹치는 CIDR끼리는 VPC 피어링을 만들 수 없고([피어링 기본](https://docs.aws.amazon.com/vpc/latest/peering/vpc-peering-basics.html)), 처음 만든 CIDR(primary)은 떼어 낼 수 없어([VPC CIDR 블록](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-cidr-blocks.html)) 나중에 두 VPC를 이어야 하면 VPC를 다시 만들어야 한다.
-  - /16보다 작은 VPC: VPC 자체는 요금이 없어([VPC 요금](https://docs.aws.amazon.com/vpc/latest/userguide/what-is-amazon-vpc.html#pricing)) 주소를 아껴 얻는 것이 없다. 반대로 작게 잡았다가 모자라면 primary CIDR은 넓힐 수 없다. ALB는 서브넷마다 /27 이상과 빈 IP 8개가 필요하다([ALB 서브넷](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/application-load-balancers.html)).
-- **결정:** VPC CIDR은 모듈 입력 변수로 두고 루트 파일에 고정한다(옵션으로 바꾸지 않음, [ADR-011](#adr-011)). seoul `10.0.0.0/16`, tokyo `10.1.0.0/16`. 크기는 VPC 최대치인 /16.
-- **근거:** 비용은 변수 1개다. 대역이 겹치지 않으면 나중에 피어링 같은 연결이 필요해져도 VPC를 다시 만들지 않는다. 실무에서도 리전·계정마다 겹치지 않는 대역을 미리 나눠 둔다.
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | 서울·도쿄 같은 CIDR | 나중에 두 VPC를 이으려면 VPC를 다시 만들어야 한다 |
+  | /16보다 작게 | VPC는 무료라 아낄 이유가 없고, 모자라면 넓힐 수 없다 |
+
+- **결정:** CIDR은 모듈 입력 변수, 값은 루트에 고정. seoul `10.0.0.0/16`, tokyo `10.1.0.0/16`.
+- **근거:** 비용은 변수 1개. 대역이 안 겹치면 피어링이 필요해져도 VPC를 다시 만들지 않는다.
+- **결과:** 사설 대역(10.0.0.0/8)을 빨리 쓰지만 VPC 2개라 문제없다. 대역이 넓다고 더 열리지는 않는다.
+
+<details>
+<summary>확인한 근거와 메모</summary>
+
+- 겹치는 CIDR끼리는 VPC 피어링을 만들 수 없다([피어링 기본](https://docs.aws.amazon.com/vpc/latest/peering/vpc-peering-basics.html)).
+- 처음 만든 CIDR(primary)은 떼어 내거나 넓힐 수 없다([VPC CIDR 블록](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-cidr-blocks.html)).
+- VPC 자체는 요금이 없다([VPC 요금](https://docs.aws.amazon.com/vpc/latest/userguide/what-is-amazon-vpc.html#pricing)).
+- ALB는 서브넷마다 /27 이상과 빈 IP 8개가 필요하다([ALB 서브넷](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/application-load-balancers.html)).
+- 같은 CIDR도 지금 설계에서는 동작한다. 도쿄는 백업에서 새로 복원할 뿐 서울과 연결하지 않는다.
+- 값은 옵션으로 바꾸지 않고 루트에 적는다([ADR-011](#adr-011)). 크기는 VPC 최대치인 /16.
+- 10.0.0.0/8은 /16 256개. 실무에서도 리전·계정마다 겹치지 않는 대역을 미리 나눠 둔다.
+- 무엇이 통하는지는 라우트 테이블과 보안 그룹이 정한다. 보안 그룹은 CIDR이 아니라 앞 단계 보안 그룹을 참조해 연다([02 네트워크](02-architecture.md)).
+- 실제로 쓰는 양은 서브넷 크기가 정한다(2-2 네트워크에서 결정).
+
+</details>
+
+<a name="adr-034"></a>
+## ADR-034 출구는 NAT Gateway 1개 + S3 게이트웨이 엔드포인트
+
+- **상황:** 앱 서브넷의 ECS 태스크는 ECR 이미지 받기, CloudWatch 로그 전송, (RDS·비밀값 덩어리부터) Secrets Manager 조회로 밖에 나가야 한다. 02 설계는 NAT Gateway 1개였지만 비교 기록이 없어 2-2 네트워크에서 다시 검토했다(2026-11-13).
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | NAT 인스턴스 (1단계 방식) | 가장 싸지만 패치·장애 대응을 직접 한다. v1과 같은 방식이라 목표 구조를 보여 주지 못한다 |
+  | VPC 엔드포인트만 (NAT 없음) | 출구를 지정한 AWS 서비스로만 제한하고 AZ 장애에도 출구가 남는다. 그러나 고객사 서비스에는 결제·알림톡·소셜 로그인 같은 외부 연동이 거의 확실히 있고, 업체가 고정 출발 IP 등록을 요구하면 대응할 수 없다 |
+  | NAT 앞 Network Firewall (도메인 허용 목록) | 출구 통제가 규제 요구일 때의 방식. 요금이 크고 지금 요구가 없다 |
+  | AZ마다 NAT | 실운영 기준. 시간당 요금이 2배 |
+
+- **결정:** 퍼블릭 서브넷 첫 AZ에 NAT Gateway 1개 + EIP. S3 게이트웨이 엔드포인트를 앱 라우트 테이블에 연결한다.
+- **근거:** 외부 연동을 받아들일 수 있는 출구를 두면서, S3에 저장된 ECR 이미지 레이어는 무료 게이트웨이로 받아 NAT 처리 요금을 줄인다.
+- **결과:** NAT의 AZ가 장애 나면 다른 AZ의 태스크도 출구를 잃어, 대체 태스크가 ECR 매니페스트를 받지 못해 뜨지 못할 수 있다. 장악된 컨테이너가 인터넷 어디로든 나갈 수 있다는 점과 함께 알고 받아들이는 한계다. 실운영이면 AZ마다 NAT를 두고, 외부 연동이 없고 보안 규제가 강한 고객이면 엔드포인트만 쓰는 안을 다시 본다.
+
+<details>
+<summary>확인한 근거와 메모</summary>
+
+- NAT의 AZ가 내려가면 다른 AZ 리소스도 인터넷을 잃는다(*"resources in the other Availability Zones lose internet access"*, [NAT gateway](https://docs.aws.amazon.com/vpc/latest/userguide/nat-gateway-basics.html)).
+- 컨테이너는 ECR에서 매니페스트를, S3에서 레이어를 받는다([ECR 엔드포인트](https://docs.aws.amazon.com/AmazonECR/latest/userguide/vpc-endpoints.html)). 게이트웨이 엔드포인트는 요금이 없다([게이트웨이 엔드포인트](https://docs.aws.amazon.com/vpc/latest/privatelink/gateway-endpoints.html)).
+- 엔드포인트만 쓰려면 Fargate 기준 ECR api·dkr, 로그, 비밀값 인터페이스 엔드포인트 4개가 AZ마다 필요하다([ECS 엔드포인트](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/vpc-endpoints.html)). 서울 단가 $0.013/엔드포인트·AZ·시간, $0.01/GB(Price List API, 2026-11-13) → 시간당 $0.104. NAT 1개는 $0.064, 2개는 $0.128([09 비용](09-cost-estimate.md)).
+- NAT를 거쳐도 AWS 서비스로 가는 트래픽은 AWS 네트워크 안에 머문다([VPC FAQ](https://aws.amazon.com/vpc/faqs/)). 보안상 차이는 경로가 아니라 "어디로 나갈 수 있나"(출구 통제)다. 엔드포인트만 쓸 때도 S3 게이트웨이 정책을 ECR 레이어 버킷(`prod-<리전>-starport-layer-bucket`)으로 좁혀야 남의 버킷으로 빼내는 길이 막힌다.
+- 2026-11-13 앱 코드의 외부 호출은 ECS 태스크 메타데이터(`served-by.ts`)뿐이다. 외부 연동은 고객사 서비스 기준의 판단이다.
+- 도메인 허용 목록: [Network Firewall](https://docs.aws.amazon.com/network-firewall/latest/developerguide/stateful-rule-groups-domain-names.html).
+
+</details>
+
+<a name="adr-035"></a>
+## ADR-035 CloudFront는 유지하고 숙소 사진은 전용 도메인 CDN으로 (진입점 재검토)
+
+- **상황:** 2-2 네트워크를 만들며(2026-11-13) 국내 서비스에 CloudFront가 필요한지 다시 검토했다. 리전 RTO 목표가 1시간([ADR-036](#adr-036))이면 DNS 캐시 지연은 작아서, 한때 CloudFront를 빼고 Public ALB + Route 53 전환으로 바꾸려 했다. 그 뒤 실제 숙박 서비스 구조와 숙소 사진을 근거로 되돌렸다.
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | CloudFront 제거, Public ALB + ALB의 WAF + Route 53 전환 | 단순하고 VPC Origin 불확실성이 없다. 그러나 국내 플랫폼도 해외 숙소와 외국인 손님을 받고, 숙소 사진이 전송량 대부분이다. 실제 숙박 서비스 5곳 모두 앱 앞에 CDN을 두고 사진은 전용 도메인으로 낸다([08 5절](08-real-cases.md)) |
+  | 사진만 CDN, 앱은 Public ALB로 직접 | 해외 손님의 앱 요청이 엣지를 거치지 않고, 실서비스 구조와 다르다 |
+  | 한 배포에 경로 규칙(`/images/*` → S3) | 가능하지만 업로드 파일을 앱과 다른 호스트로 격리하기 어렵고(OWASP), 사진 CDN만 따로 바꾸거나 장애 전환을 따로 하기 어렵다 |
+  | ALB 잠금을 Public ALB + CloudFront 접두사 목록 + 비밀 헤더로 | VPC Origin 이전(2024-11)의 표준이다. 남이 만든 CloudFront로도 들어올 수 있어 비밀 헤더를 계속 관리해야 하고, AWS가 VPC Origin으로 옮기는 방법을 안내한다 |
+
+- **결정:**
+  - 앱: `hotel.vundle34.cloud` → CloudFront(+WAF) → VPC Origin → Internal ALB. [ADR-006](#adr-006)을 유지한다.
+  - 사진: `img.hotel.vundle34.cloud` → 별도 CloudFront → S3(미리 여러 크기로 줄인 사진, OAC). 서울 S3를 도쿄 S3로 복제하고 원본 그룹 장애 조치를 건다.
+  - 리전 전환은 CloudFront 앱 원본을 도쿄 VPC Origin으로 바꾼다([ADR-012](#adr-012) 유지). global 루트를 만들 때 다른 리전 VPC Origin 전환을 작은 PoC로 먼저 확인하고, 안 되면 Public ALB + 비밀 헤더로 바꾼다.
+- **근거:** 실제 서비스 구조와 같고 ALB가 인터넷에 없다. 사진은 GET만 쓰므로 CloudFront가 도쿄 S3로 자동 전환하고, 쓰기가 있는 앱은 검증 뒤 사람이 전환한다(데이터 성격에 따라 전환 방식을 나눔). 사진 주소가 우리 도메인이라 CDN 업체를 DNS 레코드 하나로 바꿀 수 있다.
 - **결과:**
-  - 넓은 대역의 대가는 조직 전체의 사설 대역(10.0.0.0/8 = /16 256개)을 빨리 쓰는 것뿐이고, VPC가 2개인 이 프로젝트에서는 문제가 되지 않는다.
-  - 대역이 넓다고 더 열리지는 않는다. 무엇이 통하는지는 라우트 테이블과 보안 그룹이 정하고, 보안 그룹은 CIDR이 아니라 앞 단계 보안 그룹을 참조해 연다([02 네트워크](02-architecture.md)).
-  - 실제로 쓰는 양은 서브넷 크기가 정한다(2-2 네트워크에서 결정).
+  - CloudFront 인증서는 us-east-1에서 받는다(global 루트). Route 53은 늘 CloudFront를 가리켜 리전 전환 때 DNS를 바꾸지 않는다.
+  - 사진 준비(리사이징) 스크립트와 앱의 사진 주소 설정이 필요하다. 사진 업로드와 자동 리사이징은 범위 밖이다([01 범위](01-scenario.md)). 지금 시드의 Unsplash 사진을 복사해 쓸 수 있는지는 구현할 때 원문으로 확인한다.
+  - VPC Origin 자체는 추가 요금이 없다. 도쿄 리소스는 켜 둔 시간만큼 요금이 나간다.
+  - 사진 CloudFront에도 WAF를 붙인다. 사진 요청 폭주는 요청·전송량 요금으로 이어진다. 웹 ACL 하나를 두 배포에 함께 붙일 수 있어 월 요금은 한 번이고([WAF 연결](https://docs.aws.amazon.com/waf/latest/developerguide/web-acl-associating-aws-resource.html)), 한 페이지에 사진이 수십 장이라 요청 수 한도는 앱과 따로 둔다. 쿼리 문자열은 캐시 키에서 빼 캐시를 우회해 S3로 몰리는 요청을 막는다. 네트워크 계층 DDoS는 Shield Standard가 추가 요금 없이 막는다.
+  - 해외 손님 체감: 사진은 CloudFront가 손님 가까운 엣지에 복사본을 두어 그 엣지의 첫 요청만 서울 S3까지 간다. 예약(쓰기)은 서울 DB까지 가야 해서 CDN은 엣지의 HTTPS 처리와 AWS 백본 전송까지만 돕고 거리는 못 줄인다. 숙소가 한국에 있고 예약은 몇백 ms 늦어도 체감이 작아 받아들인다. 해외 비중이 커지면 쓰기를 여러 리전에서 받는 리전 확장이 필요하지만, 같은 객실 중복 예약을 막기가 매우 어려워지는 별도의 큰 결정이다.
+
+<details>
+<summary>확인한 근거와 메모</summary>
+
+- 실제 서비스 관찰(응답 헤더): NOL · 여기어때는 앱 앞 Cloudflare, 사진 CloudFront + S3. Booking.com은 둘 다 CloudFront. Airbnb · Agoda는 Akamai([08 5절](08-real-cases.md)).
+- 국내 플랫폼의 해외 손님: 놀유니버스 외국인 전용 '놀 월드' 국내 숙소 약 1만5천 곳([머니투데이](https://www.mt.co.kr/culture/2026/08/04/2026080409140062519)), 여기어때 해외 숙소 거래액 증가([바이라인네트워크](https://byline.network/2025/04/15-438/)). 회사 발표 수치다.
+- 이미지 CDN: [web.dev](https://web.dev/learn/images/cdn). 업로드 파일은 다른 호스트에: [OWASP](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html).
+- 원본 장애 조치는 GET · HEAD · OPTIONS에서만 동작한다([origin failover](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/high_availability_origin_failover.html)). CloudFront용 ACM 인증서는 us-east-1([요구 사항](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cnames-and-https-requirements.html)).
+- VPC Origin: 2024-11 출시, 추가 요금 없음([발표](https://aws.amazon.com/about-aws/whats-new/2024/11/amazon-cloudfront-vpc-origins/)). CloudFront가 서브넷에 서비스 관리형 ENI를 만들어 들어온다([VPC Origin](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-vpc-origins.html)). 공개 원본에서 옮기는 방법: [AWS 블로그](https://aws.amazon.com/blogs/networking-and-content-delivery/migrate-amazon-cloudfront-public-origins-to-private-vpc-origins/).
+- 비밀 헤더 방식: [ALB 접근 제한](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/restrict-access-to-load-balancer.html). 접두사 목록은 CloudFront 전체의 원본 접속 IP다([접두사 목록](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/LocationsOfEdgeServers.html)).
+
+</details>
+
+<a name="adr-036"></a>
+## ADR-036 장애 종류별 복구 목표 (잠정: AZ 10분, 리전 1시간)
+
+- **상황:** 02 9절은 목표 없이 드릴 3회 뒤 확정하기로 했다. 리전 RTO를 10분으로 하자는 의견이 나와 장애 종류별로 나눠 검토했다(2026-11-13).
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | 리전 RTO 10분 (Warm Standby) | 도쿄에 ALB·ECS·RDS 복제본·출구를 상시로 켜야 한다. v1의 Azure 상시 대기와 비용 구조가 같고, [ADR-001](#adr-001) · [ADR-009](#adr-009)가 같은 이유로 Pilot Light 이상을 버렸다 |
+  | 목표 없이 드릴 뒤 확정 | 드릴 결과가 충분한지 판단할 기준이 없다 |
+
+- **결정:**
+
+  | 장애 | 잠정 RTO | 방식 |
+  |---|---|---|
+  | 태스크·서버 | 1분 안팎 | ECS 자동 교체 |
+  | AZ 하나 | 10분 이내 | AZ 2개 분산, RDS Multi-AZ |
+  | 리전 전체 | 1시간 | Backup & Restore ([ADR-009](#adr-009) 유지) |
+
+  RPO는 드릴로 잰 뒤 정한다. 리전 RTO가 1시간을 넘으면 가장 느린 단계를 Pilot Light(도쿄 DB 복제본)로 바꾼다.
+- **근거:** 실제 사고(4시간 중단)의 원인은 과부하라 R1(오토스케일링)이 막는다. 사용자가 자주 겪을 장애는 서버·AZ 쪽이고 추가 비용 없이 분 단위로 복구된다. 리전 장애는 드물어 상시 대기 비용이 맞지 않는다. 재 보고 필요한 단계만 올리는 것이 실무 방식이다.
+- **결과:** 4·5단계 실측을 이 표와 비교해 확정하고 "목표 → 실측 → 판단"으로 보여 준다. 복제본은 실수도 복제하므로 Pilot Light로 올려도 R3용 백업은 유지한다. 리전 장애는 짧게 끝날 수도 있어(서울 84분, [08 6절](08-real-cases.md)) 도쿄 복원을 시작하는 장애 선언 기준을 5단계에서 정하고, RTO의 "판단" 구간에 넣는다.
+
+<details>
+<summary>확인한 근거와 메모</summary>
+
+- RTO는 서비스 중단부터 복구까지 허용하는 최대 지연, RPO는 마지막 복구 지점부터 허용하는 최대 시간([AWS DR 백서](https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/business-continuity-plan-bcp.html)).
+- 백서 그림의 방식별 RPO/RTO: Backup & Restore = Hours, Pilot Light = 10s of minutes, Warm Standby = Minutes, Multi-site active/active = Real-time([DR 방식](https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html)). Pilot Light는 요청을 받기 전에 추가 조치가 필요하고, Warm Standby는 줄인 용량으로 바로 받는다.
+- RDS MySQL은 다른 리전 읽기 복제본을 지원하고([문서](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.XRgn.html)), 리전 전환 때 승격한다(같은 백서).
+- 1단계 측정: 같은 단일 서버 구조가 1,000명에서 실패율 59~69%([03 결과](03-plan.md#결과-기록)). 사건은 가정이지만 과부하로 장시간 중단될 수 있음을 측정으로 뒷받침한다.
+
+</details>
+
+<a name="adr-037"></a>
+## ADR-037 예약 알림은 이메일(SES) + 카카오톡("나에게 보내기") 두 채널
+
+- **상황:** 실제 서비스는 예약 확정을 여러 채널로 알린다(대한항공은 앱 푸시·알림톡·문자·이메일). v1은 알림을 SQS로 만들었고 v2는 범위에서 뺐다. 2026-11-13 해외 손님까지 고려해 예약 알림과 외부 로그인(SSO)을 v2에 넣기로 했다.
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | 알림톡 (국내 실서비스 방식) | 카카오 비즈니스 채널과 사업자 서류, 공식 딜러사 계약, 템플릿 검수가 필요하다고 안내된다(딜러사 자료, 카카오 공식 문서는 못 찾음). 개인 포트폴리오로는 준비가 어렵다 |
+  | 카카오 친구에게 보내기 | 별도 권한 심사가 있고 자동 발송은 반려될 수 있다 |
+  | 한 채널만 | 이메일만이면 국내 손님의 즉시성이 떨어지고, 카톡만이면 카카오가 없는 해외 손님이 못 받는다 |
+  | 문자·앱 푸시 추가 | 채널이 늘 뿐 검증할 인프라가 새로 생기지 않는다 |
+
+- **결정:**
+  - **이메일(Amazon SES):** 모든 손님에게 보낸다. 전 세계 공통이고 예약 증빙으로 남는다. 보내는 도메인은 `hotel.vundle34.cloud`로 인증한다.
+  - **카카오톡 "나에게 보내기":** 카카오 로그인하고 메시지에 동의한 손님에게 추가로 보낸다. 손님 본인의 "나와의 채팅방"에 온다.
+  - 발송은 알림 모듈 한 곳에 모으고 채널을 갈아 끼우는 구조로 만든다.
+- **근거:** 이메일은 해외 손님까지 받는 기본 채널이고 AWS 서비스(SES · Route 53 도메인 인증)로 이어진다. 카톡은 국내 즉시성과 SSO(카카오 로그인)를 함께 보여 주고, 외부 연동이라 NAT([ADR-034](#adr-034))를 실제로 쓴다.
+- **결과:**
+  - 발송이 실패하거나 느려도 예약은 성공해야 한다. 예약을 저장할 때 보낼 알림을 같은 트랜잭션에 기록하고 따로 보내며, 실패하면 다시 시도한다(아웃박스).
+  - SES는 처음에 샌드박스라 인증한 주소로만, 하루 200통, 초당 1통 보낸다. 데모는 내 주소를 인증해 쓰고, 실서비스면 해제를 신청한다.
+  - 실서비스라면 카톡은 알림톡으로 바꾼다. 카카오 로그인 뒤에도 앱은 자체 JWT를 발급하고([ADR-007](#adr-007)), 카카오 키와 손님의 카카오 토큰은 안전하게 보관한다(키는 Secrets Manager).
+  - 앱 기능이라 2단계 인프라 뒤에 구현한다. 구현과 확인이 끝나면 README · 포트폴리오 대문에 "v2에서 추가한 기능"으로 올린다.
+
+<details>
+<summary>확인한 근거와 메모</summary>
+
+- 대한항공 안내 채널: [notification services](https://www.koreanair.com/contents/footer/others/notification-services). Airbnb · Booking.com은 업체 자료만 찾음(문자·앱 알림·이메일, 확인 이메일). 야놀자 · 여기어때 채널은 확인 못 함.
+- SES 샌드박스: [production access](https://docs.aws.amazon.com/ses/latest/dg/request-production-access.html). 요금은 Essentials 기준 1,000통에 $0.16([SES 요금](https://aws.amazon.com/ses/pricing/), 2026-11-13). 앱 라이브러리로 손님 메일 서버에 직접 보내는 방식은 EC2 기반에서 25번 포트가 공인 주소로 막히고([EC2 제한](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-resource-limits.html)) 스팸으로 분류되기 쉬워 발송 서비스에 넘긴다. SES SMTP 자격 증명은 IAM 사용자로 만들어지는 장기 자격 증명이라, 구현할 때 API + 태스크 역할을 우선 검토한다.
+- "나에게 보내기"와 나와의 채팅방: [메시지 튜토리얼](https://developers.kakao.com/docs/ko/tutorial/message), [메시지 공통](https://developers.kakao.com/docs/latest/ko/kakaotalk-message/common). 친구에게 보내기 심사: [devtalk](https://devtalk.kakao.com/t/api-api/116052).
+- 알림톡 조건(비즈니스 채널, 사업자 서류, 딜러사, 템플릿 검수 1~3 영업일): [비즈고 가이드](https://blog.bizgo.io/howto/alim-talk-basic). 딜러사 자료다.
+
+</details>

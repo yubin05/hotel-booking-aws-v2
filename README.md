@@ -12,7 +12,7 @@
 
 - v1 회고 — 실제 문제(트래픽 폭증)와 맞지 않던 멀티클라우드 DR을 Multi-AZ + 오토스케일링 + 리전 간 백업으로 단순화
 - 고객 규모에 맞춘 구조 — 마이크로서비스 5개를 모듈러 모놀리스 1개로, API Gateway 없이 CloudFront VPC Origin으로 비공개 ALB에 연결, 최대 태스크 수를 비용 상한으로
-- 월 고정 비용 추정 $679 → $155 (−77%) — v1에서 늘 켜 둬야 했던 Azure VPN Gateway · Aurora · DMS 대기 비용을 없앰 (AWS · Azure 공식 단가 기준, 실제 청구 금액은 단계별로 비교 예정)
+- 월 고정 비용 추정 $679 → $157 (−77%) — v1에서 늘 켜 둬야 했던 Azure VPN Gateway · Aurora · DMS 대기 비용을 없앰 (실서비스처럼 상시 운영한다고 보고 AWS · Azure 공식 단가로 계산. 포트폴리오 검증은 작업 시간에만 켜므로 실제 청구서는 이 단가를 검증하는 데 씀)
 - 단계적 검증 — 로컬(0원)에서 앱 결함을 먼저 없애고, AWS에서는 로컬에서 재현할 수 없는 인프라 동작만 측정. 같은 k6 시나리오를 환경만 바꿔 다시 돌려 단계마다 비교
 - 이관 전 기준선 — 옛날 구조(EC2 t3.micro 3대)는 동시 접속 500명(초당 약 85건)까지 버티고 1,000명에서 무너짐. DB가 먼저 한계(CPU 93%), 3회 모두 같은 결과. 3단계에서 같은 부하로 이관 후와 비교
 - 병목을 재고 고치기 — 옛날 구조가 500명에서 무너진 원인을 측정(DB 시간의 60%가 추천 숙소 조회, 1,000명 이후는 서버의 연결 추적 표가 가득 참)하고, 앱만 고쳐 같은 서버에서 1,000명 실패율 64% → 1.5%, 500명 응답 약 6배 빠르게
@@ -36,17 +36,22 @@ v2는 같은 시나리오를 **요구사항 → 설계 → 실측** 순서로 �
 flowchart LR
     user["사용자"] --> r53["Route 53"]
     r53 --> cf["CloudFront + WAF"]
+    r53 --> cfimg["CloudFront (사진)"]
     subgraph seoul["서울 리전 (운영)"]
         alb["Internal ALB<br/>AZ 2개"]
         ecs["ECS Fargate<br/>모듈러 모놀리스<br/>오토스케일링"]
         rds[("RDS MySQL<br/>Multi-AZ")]
         alb --> ecs --> rds
+        s3img[("S3 사진<br/>여러 크기")]
     end
     cf -- "VPC Origin" --> alb
+    cfimg --> s3img
     subgraph tokyo["도쿄 리전 (평소에는 백업만)"]
         bak[("복제된 백업")]
+        s3tk[("사진 복제본")]
     end
     rds -. "리전 간 백업 복제" .-> bak
+    s3img -. "복제 · 자동 전환" .-> s3tk
 ```
 
 | 대비하는 상황 | 방법 |
@@ -54,7 +59,7 @@ flowchart LR
 | 트래픽 폭증 | CloudFront 캐시, ECS 오토스케일링 (최대 태스크 수로 비용 상한) |
 | 서버·AZ 장애 | ALB·ECS를 AZ 2개에 분산, RDS Multi-AZ 자동 장애 조치 |
 | 데이터 사고 | RDS 시점 복구(PITR) |
-| 리전 장애 | 다른 리전에 복제한 백업으로, 같은 Terraform을 써서 복원 (Backup & Restore) |
+| 리전 장애 | 다른 리전에 복제한 백업으로, 같은 Terraform을 써서 복원 (Backup & Restore, 잠정 목표 RTO 1시간). 사진은 CDN이 도쿄 복제본으로 자동 전환 |
 
 → [아키텍처 상세](docs/02-architecture.md)
 
@@ -73,7 +78,7 @@ flowchart LR
 | 로그 | Firehose + OpenSearch | CloudWatch |
 | 이벤트 대응 | 없음 | 선착순 쿠폰(초과 발급 0건) + 예약 스케일링 |
 | 검증 | DNS 전환 테스트 위주 | 부하·장애·복원 실측 |
-| 월 고정 비용 (추정, 상시) | 약 $679 | 약 $155 ([09 비용 추정](docs/09-cost-estimate.md)) |
+| 월 고정 비용 (추정, 상시) | 약 $679 | 약 $157 ([09 비용 추정](docs/09-cost-estimate.md)) |
 
 ## 설계 결정
 
@@ -84,8 +89,10 @@ flowchart LR
 - [AWS로 이관한 이유 (vs SaaS · PaaS 조합)](docs/04-decisions.md#adr-002)
 - [ECS Fargate 선택 이유 (vs EKS · EC2)](docs/04-decisions.md#adr-003)
 - [모듈러 모놀리스 선택 이유 (vs 마이크로서비스)](docs/04-decisions.md#adr-004)
-- [RDS for MySQL 선택 이유 (vs Aurora)](docs/04-decisions.md#adr-005)
+- [RDS for MySQL Multi-AZ 선택 이유 (vs Aurora)](docs/04-decisions.md#adr-005)
 - [CloudFront VPC Origin + Internal ALB 선택 이유 (vs API Gateway)](docs/04-decisions.md#adr-006)
+- [숙소 사진을 전용 도메인 CDN으로 분리한 이유 (vs CloudFront 제거 · 한 배포에 경로 규칙)](docs/04-decisions.md#adr-035)
+- [출구를 NAT 1개 + S3 게이트웨이로 둔 이유 (vs VPC 엔드포인트만 · NAT 인스턴스)](docs/04-decisions.md#adr-034)
 - [앱 자체 JWT 선택 이유 (vs Cognito)](docs/04-decisions.md#adr-007)
 - [프론트를 앱 컨테이너에 포함한 이유 (vs S3 + OAC)](docs/04-decisions.md#adr-013)
 - [선착순 쿠폰을 DB 조건부 갱신으로 처리한 이유 (vs Redis · 대기열)](docs/04-decisions.md#adr-014)
@@ -94,7 +101,8 @@ flowchart LR
 
 - [멀티클라우드 DR을 쓰지 않는 이유 (vs Azure 대기 · GCP Cold DR)](docs/04-decisions.md#adr-001)
 - [Backup & Restore 선택 이유 (vs Pilot Light · Warm Standby)](docs/04-decisions.md#adr-009)
-- [리전 전환을 CloudFront 원본 전환으로 하는 이유 (vs DNS 전환)](docs/04-decisions.md#adr-012)
+- [리전 전환을 CloudFront 원본 전환으로, 사람이 판단해 하는 이유 (vs DNS 전환 · 자동 전환)](docs/04-decisions.md#adr-012)
+- [장애 종류별 복구 목표를 나눈 이유 (AZ 10분 · 리전 1시간, vs Warm Standby)](docs/04-decisions.md#adr-036)
 - [덤프로 이관하는 이유 (vs DMS CDC)](docs/04-decisions.md#adr-008)
 
 **배포 · 운영**
@@ -151,7 +159,7 @@ cd app && npm ci && npm test   # 테스트는 같은 MySQL의 테스트 전용 D
 
 설계는 실운영 기준(RDS Multi-AZ 상시 등)으로 합니다. 포트폴리오 검증은 테스트할 때만 `terraform apply`하고 끝나면 `destroy`합니다. 실제 청구 금액은 단계별로 기록합니다.
 
-월 고정 비용 추정: 상시 운영 기준 v1 약 $679 → v2 약 $155, 작업 시간(평일 9~18시) 기준 v2 약 $42. AWS Budgets 알림은 월 $50으로 1단계 전에 켭니다. → [09 비용 추정](docs/09-cost-estimate.md)
+월 고정 비용 추정: 상시 운영 기준 v1 약 $679 → v2 약 $157, 작업 시간(평일 9~18시) 기준 v2 약 $42. AWS Budgets 알림은 월 $50으로 1단계 전에 켭니다. → [09 비용 추정](docs/09-cost-estimate.md)
 
 ## 문서
 

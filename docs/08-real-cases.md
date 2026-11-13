@@ -82,6 +82,37 @@
 - 연 약 $320만이던 클라우드 비용 가운데 컴퓨팅을 자체 서버(약 $70만)로 옮겨 연 약 $200만을 줄였고, 5년간 $1,000만 이상 절감을 예상한다고 밝혔습니다. (CTO 본인 발표, 신뢰도 보통)
 - 규모가 크고 트래픽이 안정적이면 자체 서버가 쌀 수 있습니다. 이 프로젝트처럼 작고 트래픽 변동이 큰 회사는 반대 판단이 맞을 수 있습니다. 규모와 트래픽 모양에 따라 답이 바뀐다는 근거로 씁니다.
 
+## 5. 숙박 서비스의 CDN 배치 (직접 관찰, 2026-11-13)
+
+CloudFront를 앱 전체 앞에 둘지, 사진에만 둘지 정하려고 실제 서비스의 응답 헤더를 봤습니다. 서울에서 `curl -I`로 메인 페이지와, 메인 HTML에서 가장 많이 나온 사진 도메인에 요청했습니다(헤더의 `Server`, `Via`, `X-Cache`, `CF-RAY`, `Akamai-*`).
+
+| 서비스 | 메인 페이지 앞 | 사진 도메인 | 사진 앞 |
+|---|---|---|---|
+| NOL (야놀자) | Cloudflare | `yaimg.yanolja.com`, `*.cloudfront.net` | CloudFront + S3 |
+| 여기어때 | Cloudflare | `image.withstatic.com`, `image.goodchoice.kr` | CloudFront (+ S3) |
+| Booking.com | CloudFront | `cf.bstatic.com` | CloudFront + S3 |
+| Airbnb | Akamai | `a0.muscache.com` | Akamai |
+| Agoda | Akamai | `cdn6.agoda.net` | 자체 캐시 서버로 보임 (`nginx`, `X-Cache-Status: HIT`) |
+
+- 다섯 곳 모두 **앱 전체 앞에 CDN**이 있고, 사진은 **앱과 다른 전용 도메인**으로 내보냅니다. 국내 두 곳과 Booking.com은 사진에 S3 + CloudFront를 씁니다.
+- `www.yanolja.com`은 ALB(`awselb/2.0`)가 `nol.yanolja.com`으로 넘기는 응답만 직접 줍니다.
+- 신뢰도: 맨 앞 계층이 무엇인지는 **높음**(직접 관찰). 그 뒤 구조(원본이 ALB인지, VPC Origin인지, CDN을 보안·DDoS 방어 목적으로 쓰는지)는 헤더로 알 수 없어 **판단하지 않습니다**. 시점에 따라 바뀔 수 있습니다.
+
+## 6. AWS 리전 대형 장애 기록 ([ADR-036](04-decisions.md#adr-036) 근거, 2026-11-13 확인)
+
+AWS가 공개하는 대형 장애 요약([Post-Event Summaries](https://aws.amazon.com/premiumsupport/technology/pes/))은 2011년부터 18건이고, 대부분 미국 동부(us-east-1)입니다.
+
+| 리전 | 날짜 | 내용 |
+|---|---|---|
+| 서울 | 2018-11-22 | 08:19~09:43 KST(84분), EC2 인스턴스의 DNS 해석 장애([요약](https://aws.amazon.com/message/74876-2/)) |
+| 도쿄 | 2019-08-23 | EC2 · EBS 장애 |
+| 도쿄 | 2021-09-02 | Direct Connect 장애 |
+| 미국 동부 | 2025-10-19 | DynamoDB 장애와 연쇄 영향(가장 최근) |
+
+- 서울은 이 목록에서 약 8년간 1건입니다. 그래서 리전 장애는 드물다고 보고 가장 싼 Backup & Restore를 고릅니다.
+- 한계: AWS가 요약을 공개한 큰 사건만 있습니다. 일부 서비스의 작은 장애는 빠져 있습니다.
+- 드릴에 넣을 것: 서울 장애는 84분이었는데 우리 리전 RTO 목표는 1시간이라, 짧은 장애에는 기다리는 쪽이 전환보다 빠를 수 있습니다. 그래서 "몇 분 지나도 회복되지 않으면 도쿄 복원을 시작한다"는 **장애 선언 기준**이 필요합니다.
+
 ## 찾지 못한 것
 
 - 국내 중소기업의 IDC → AWS 독립 후기 (업체 자료가 아닌 것)
