@@ -5,4 +5,7 @@ module "regional" {
 
   # 평소 1개(비용). AZ 장애 테스트 때 2로 바꿔 apply (ADR-034, RDS Multi-AZ와 같은 방식)
   nat_count = 1
+
+  # 처음 서비스를 만들 때의 이미지(서울 ECR에 있는 것). 이후 배포는 CD가 바꿈 (ADR-039)
+  image_tag = "76645fc"
 }

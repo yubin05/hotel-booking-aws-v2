@@ -22,3 +22,8 @@ variable "nat_count" {
     error_message = "NAT 개수는 1 이상, AZ 개수 이하여야 합니다."
   }
 }
+
+variable "image_tag" {
+  description = "처음 서비스를 만들 때 쓸 이미지 태그(짧은 커밋 SHA, ADR-022). 이후 배포는 CD가 바꿈 (ADR-039)"
+  type        = string
+}
