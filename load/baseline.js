@@ -1,6 +1,6 @@
 // 부하 기준선 (1단계 이전 환경 · 3단계 목표 구조 공용): 손님 수를 500명씩 계단처럼 올려 에러율 1%를 처음 넘는 층을 찾는다
 // 손님 행동은 E-01(e01-normal-traffic.js)과 같고 바뀐 것은 options뿐이다 (ADR-023). 1·3단계 비교를 위해 행동 부분은 고치지 않는다
-// 데이터: scripts/seed-volume.sql (숙소 1,000 · 회원 2만 · 지난 예약 10만). 주소는 BASE_URL로 받는다
+// 데이터: 고객사 저장소 db/seed-volume.sql (숙소 1,000 · 회원 2만 · 지난 예약 10만). 주소는 BASE_URL로 받는다
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Counter } from 'k6/metrics';

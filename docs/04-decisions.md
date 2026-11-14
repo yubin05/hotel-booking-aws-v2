@@ -47,6 +47,7 @@
 | [041](#adr-041) | 비밀값은 쓰기 전용으로 넣어 state에 남기지 않고(금고는 bootstrap · 도쿄 복제), DB 관리자 비밀번호는 RDS가 관리 |
 | [042](#adr-042) | RDS는 apply마다 새로 만들고 시드를 다시 넣음, 백업 7일은 켜되 destroy 때 같이 삭제 |
 | [043](#adr-043) | 앱 · 이전 환경은 고객사 저장소(hotel-booking-app, Public)로 분리, 이 저장소는 To-Be 인프라와 이관 전후 부하 시험 |
+| [044](#adr-044) | 스키마 태스크는 RDS 관리자로 적용하고 앱 계정은 읽기 · 쓰기만, 배포마다 실행해도 같은 결과(IF NOT EXISTS), 시드 · 운영 규모 데이터는 빈 DB에만 |
 
 ---
 
@@ -312,7 +313,7 @@
   - SSM Parameter Store + 인스턴스 역할: 관리형 서비스라 IDC 재현([ADR-016](#adr-016))과 맞지 않는다. 평소 사용자에게 역할 생성·`iam:PassRole` 권한을 줘야 해서 최소 권한([ADR-018](#adr-018))과도 부딪힌다. 역할을 만들어 정책을 붙이고 EC2에 넘길 수 있으면 관리자 권한도 얻을 수 있다.
   - HTTPS: 도메인은 있지만 apply할 때마다 공인 IP가 바뀌어 DNS 레코드와 인증서를 매번 다시 맞춰야 한다. 탄력적 IP로 고정하면 꺼 둔 시간에도 요금이 든다.
 - **결정:**
-  - DB는 EC2에 Docker로 `mysql:8.4`를 띄우고, 스키마·시드는 로컬 docker-compose와 같은 initdb로 넣는다. 부하 측정용 데이터(`scripts/seed-volume.sql`: 숙소 1,000 · 회원 2만 · 예약 10만 · 리뷰 5만)도 initdb 세 번째 파일로 매일 넣어, 1단계 기준선과 3단계 비교·덤프 이관이 같은 데이터 양에서 이뤄지게 한다.
+  - DB는 EC2에 Docker로 `mysql:8.4`를 띄우고, 스키마·시드는 로컬 docker-compose와 같은 initdb로 넣는다. 부하 측정용 데이터(고객사 저장소 `db/seed-volume.sql`: 숙소 1,000 · 회원 2만 · 예약 10만 · 리뷰 5만)도 initdb 세 번째 파일로 매일 넣어, 1단계 기준선과 3단계 비교·덤프 이관이 같은 데이터 양에서 이뤄지게 한다.
   - user_data에는 설치처럼 비밀값이 없는 단계만 넣는다. 비밀값은 PC의 저장소 밖 파일에 두고 SSH로 서버에 보내(권한 600) `docker run --env-file`로 넘긴다. 매일 destroy하므로 서버에서 직접 입력하지 않는다. Terraform 변수·state에도 넣지 않는다.
   - 웹은 HTTP 80으로 받아 `docker run -p 80:3000`으로 앱에 넘긴다. 프론트가 앱 컨테이너 안에 있어([ADR-013](#adr-013)) 별도 웹 서버(nginx)는 두지 않는다.
   - 앱·DB EC2는 NAT와 같은 t3.micro(2 vCPU · 1GB)로 하고, 세 대가 타입 변수 하나를 같이 쓴다. 3단계 비교 대상(RDS db.t4g.micro 1GB, Fargate 태스크 1GB 가정)과 같은 메모리 급이고, v1의 IDC 역할 DB도 t3.micro였다([ADR-008](#adr-008)). 비용도 t3.small의 절반이다.
@@ -533,6 +534,7 @@
   - 배포마다 태스크 정의 두 개(앱, 스키마)의 새 버전을 등록한다.
   - 앱에 스키마 적용 스크립트가 필요하다. DB 계정 2개와 비밀값 2개가 생기고, 실행 역할에는 두 비밀값을 읽는 권한이 필요하다.
   - v1 덤프 이관([ADR-008](#adr-008))은 한 번뿐인 작업이라 따로 정한다.
+  - 2026-11-14 변경 메모: 스키마 계정은 따로 만들지 않고 RDS 관리자로 정했다. 비밀값은 RDS 관리 금고와 `db-app-password` 2개다([ADR-044](#adr-044)).
 
 <a name="adr-032"></a>
 ## ADR-032 서비스 연결 역할은 필요한 것 전부를 bootstrap에서 관리한다
@@ -908,5 +910,51 @@
 - 계정 ID는 비밀로 보지 않는다(*"not considered secret, sensitive, or confidential information"*, [계정 식별자](https://docs.aws.amazon.com/accounts/latest/reference/manage-acct-identifiers.html)). 역할 ARN도 신뢰 조건이 지킨다.
 - 공개 저장소의 표준 러너는 무료, 비공개 저장소는 Free 계정에 월 $12어치가 포함되고, 결제 수단이 없으면 넘을 때 과금되지 않고 막힌다(*"usage is blocked once you use up your quota"*). 2,000분은 문서의 Linux 2코어 단가 $0.006/분으로 계산한 값.
 - 실측(11-03 ~ 11-13): Actions 97회, CI 평균 1.2분, 합계 약 188분.
+
+</details>
+
+<a name="adr-044"></a>
+## ADR-044 스키마 태스크는 RDS 관리자로 적용하고 앱 계정은 읽기 · 쓰기만, 배포마다 실행해도 같은 결과, 시드 · 운영 규모 데이터는 빈 DB에만
+
+- **상황:** 2-2 ③-b(2026-11-14). [ADR-031](#adr-031)은 스키마 계정과 앱 계정을 나누기로 했지만, 스키마 계정을 무엇으로 할지와 배포마다 실행해도 안전한 방식은 정하지 않았다. `schema.sql`은 `CREATE TABLE`만 있어 두 번째 실행에서 멈추고, 운영 규모 데이터(`db/seed-volume.sql`: 고객사 운영 DB에 쌓여 있다고 가정한 숙소 1,000 · 회원 2만 · 예약 10만 · 리뷰 5만)는 두 번 넣으면 중복 키로 멈춘다. RDS는 apply마다 빈 DB로 새로 생기고([ADR-042](#adr-042)), 스키마는 고객사 개발팀 영역이다([ADR-043](#adr-043)).
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | 스키마 전용 계정(`migrator`)을 따로 | DB가 매번 새로 생겨 `migrator`를 만드는 관리자 단계가 매번 남는다. 같은 태스크에 관리자 비밀번호가 들어가 권한을 나눈 효과가 거의 없고, 금고(+ 도쿄 복제본)만 는다 |
+  | 버전 파일 + 적용 기록 테이블을 직접 | 잠금 · 중간 실패 처리를 직접 짜야 한다. 지금은 기존 테이블을 바꿀 계획이 없다 |
+  | 마이그레이션 도구(dbmate · Flyway 등) | 의존성과 이미지가 늘고, 도구 선택은 개발팀 몫이다 |
+  | 운영 규모 데이터는 부하 시험 날만 손으로 | 시나리오상 고객사 운영 DB의 데이터라 평소 트래픽 · 비용 · 크기 판단도 이 양이 기준이다. 빠뜨리면 숙소 10개짜리 DB로 판단하게 된다. 1단계 legacy도 매일 넣었다([ADR-021](#adr-021)) |
+  | 스키마 태스크는 apply 직후 1번만(CD에서 빼기) | 개발팀이 테이블을 추가한 배포에서 사람이 실행을 빠뜨리면 새 앱이 실패한다. 알림 아웃박스([ADR-037](#adr-037))처럼 테이블 추가가 예정돼 있다 |
+
+- **결정:**
+  - 스키마 태스크(`hotel-booking-aws-v2-migrate`)는 RDS 관리자 계정(`admin`, 비밀번호는 RDS 관리 금고)으로 접속해 스키마 → 시드 → 운영 규모 데이터 → 앱 계정 순서로 맞추고 끝난다. 앱 계정 `app`에는 `SELECT · INSERT · UPDATE · DELETE`만 준다.
+  - 몇 번 실행해도 결과가 같게 한다. 테이블은 `CREATE TABLE IF NOT EXISTS`, 시드와 운영 규모 데이터는 숙소가 0개인 빈 DB일 때만 트랜잭션 하나로 넣는다(중간에 실패하면 통째로 취소돼 다음 실행이 다시 넣는다). 시드 파일은 두 번 넣을 수 있게 짜여 있지 않다(아래 결과). 앱 계정은 `CREATE USER IF NOT EXISTS` 뒤 `ALTER USER`로 비밀번호를 금고 값에 맞춘다.
+  - CD는 배포마다 스키마 태스크를 실행한다([ADR-031](#adr-031) 유지).
+  - 인프라와 개발팀 사이의 약속은 "이미지 안의 `node dist/src/migrate.js`가 스키마를 맞추고 성공 0 · 실패 1로 끝난다" 하나다. 안의 방식(SQL 파일, 도구)은 개발팀이 바꿀 수 있고 태스크 정의 · CD는 그대로다.
+  - 운영 규모 데이터는 운영 환경(legacy · v2)에 항상 넣고 트래픽 · 성능 · 비용 판단의 기준으로 쓴다. 개발 PC · CI 테스트는 시드만 쓴다(속도, 운영 데이터를 개발 환경에 두지 않는 관례). 두 파일을 나눈 기준은 "운영 환경이냐 개발 환경이냐"다.
+  - `seed-volume.sql`은 고객사 저장소 `scripts/`에서 `db/`로 옮겨 스키마 · 시드와 한곳에 두고, 이미지에는 `db/*.sql`을 복사한다.
+- **근거:**
+  - 앱이 뚫려도(SQL 인젝션 등) 테이블 변경 · 삭제 · 계정 생성은 못 한다. AWS도 마스터 계정을 애플리케이션에서 직접 쓰지 말라고 권한다.
+  - "이번 배포에 스키마 변경이 있나"를 사람이 고르지 않는다. 변경이 없으면 확인만 하고 끝난다.
+  - 1단계와 같은 데이터 양이 apply마다 자동으로 들어가 3단계 비교 · 비용 판단 기준이 같다.
+- **결과:**
+  - 실행 역할에 `rds!db-*` 금고 읽기(서울 · 도쿄)를 추가했다. 이름 뒷부분을 RDS가 무작위로 붙여 더 좁힐 수 없으므로, 이 계정의 다른 RDS 관리 금고도 읽을 수 있다. 실행 역할은 태스크 정의에 적힌 비밀값만 넣고, 앱 태스크 정의에는 이 금고가 없다.
+  - 서울 apply 리소스가 37개에서 38개가 된다(태스크 정의 1).
+  - 고객사 CI가 빈 DB에 스키마 태스크를 두 번 돌리고, 앱 계정의 `DROP TABLE`이 거부되는지 확인한다.
+  - 로컬 확인 2026-11-14(빈 MySQL 8.4 컨테이너, 실제 이미지): 1회차 시드 · 운영 규모 데이터 6.0초(숙소 1,010 · 객실 5,030 · 회원 20,003 · 예약 100,013 · 리뷰 50,013), 2회차는 건너뛰고 행 수 같음, 둘 다 종료 코드 0. 앱 계정은 `DROP TABLE`이 `ERROR 1142`로 거부되고 `FOR UPDATE`는 된다. 같은 이미지의 앱이 앱 계정으로 `/api/health/deep` = ok. 관리자 비밀번호가 틀리면 메시지 한 줄과 종료 코드 1.
+  - 처음에는 시드를 "`INSERT IGNORE`라 두 번 넣어도 된다"고 보고 매번 넣었는데, 2회차가 중복 키(시드 회원)로 멈췄고 그 전에 객실이 30개 늘었다(5,030 → 5,060). 시드 객실 id가 `UUID()`라 `INSERT IGNORE`가 거르지 못한다. 그래서 시드도 빈 DB에만 넣게 바꿨다. 또 실패할 때 에러 객체 전체를 찍으면 실행한 SQL이 로그에 남아, 앱 계정 문장에서 실패하면 비밀번호가 CloudWatch에 평문으로 남을 수 있어 메시지만 찍게 했다.
+  - 재검토 조건: 기존 테이블의 구조 변경(컬럼 추가 · 이름 변경)이 처음 필요해지면 개발팀이 버전 기록 방식이나 도구로 바꾼다. 롤링 교체 중에는 옛 앱과 새 앱이 같은 DB를 쓰므로 변경은 두 번에 나눈다(expand-contract, [ADR-031](#adr-031)).
+  - 3단계 덤프 이관 날에는 이미 들어간 시드 · 운영 규모 데이터가 덤프와 키가 겹칠 수 있다. 그날 "스키마만" 실행할지는 3단계에서 정한다.
+  - 옮기면서 고객사 legacy DB 서버의 user_data가 저장소 분리 전 경로(이 저장소의 `app/db` · `scripts`)에서 SQL을 받던 것을 함께 고쳤다. 그대로였다면 다음 legacy apply에서 404로 DB 준비가 실패했다.
+
+<details>
+<summary>확인한 근거와 메모</summary>
+
+- RDS 관리 금고는 *"rotates the secret every seven days by default"*([RDS 비밀번호 관리](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-secrets-manager.html)). ECS는 비밀값을 *"when the container is initially started"* 한 번 넣고 이후 교체는 반영하지 않는다([ECS 비밀값](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/secrets-envvar-secrets-manager.html)). 스키마 태스크는 매번 새로 떠서 교체 영향이 없다.
+- JSON 키 하나 꺼내기: `arn:aws:secretsmanager:<리전>:<계정>:secret:<이름>:<json-key>:<version-stage>:<version-id>`(같은 문서). `kms:Decrypt`는 고객 관리 키일 때만 필요하다(*"Required only if your secret uses a customer managed key"*, [실행 역할](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_execution_IAM_role.html)). 실행 역할은 ECS · Fargate 에이전트가 쓰고, 컨테이너가 AWS를 부를 때 쓰는 건 태스크 역할이다([태스크 역할](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-iam-roles.html)). 이 서비스에는 태스크 역할이 없다.
+- MySQL 8.4: `CREATE TABLE IF NOT EXISTS`는 *"no verification that the existing table has a structure identical"*([CREATE TABLE](https://dev.mysql.com/doc/refman/8.4/en/create-table.html)). `CREATE USER IF NOT EXISTS`는 있으면 오류 대신 경고([CREATE USER](https://dev.mysql.com/doc/refman/8.4/en/create-user.html)). `SELECT ... FOR UPDATE`는 *"the SELECT privilege and at least one of the DELETE, LOCK TABLES, or UPDATE privileges"*([잠금 읽기](https://dev.mysql.com/doc/refman/8.4/en/innodb-locking-reads.html)).
+- RDS for MySQL 8.0.36 이상의 마스터는 `CREATE USER` 권한을 가진다. *"We strongly recommend that you do not use the master user directly in your applications."*([마스터 계정](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.MasterAccounts.html))
+- 가설(첫 실행으로 확인): RDS 관리 금고의 JSON 키 이름이 `password`인지(문서에 키 목록 없음), 마스터가 다른 계정에 `GRANT`할 수 있는지(문서에 GRANT OPTION 언급 없음), MySQL 8.4의 `require_secure_transport` 기본값(문서는 버전 없이 *"set to OFF"*, [SSL 필수](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/mysql-ssl-connections.require-ssl.html)).
 
 </details>
