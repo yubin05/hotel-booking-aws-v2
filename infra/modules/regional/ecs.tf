@@ -4,10 +4,18 @@ locals {
   app_port   = 3000
   account_id = data.aws_caller_identity.current.account_id
   region     = data.aws_region.current.region # network.tf의 data
-  # 이 리전의 ECR (서울은 원본, 도쿄는 복제본, ADR-040)
-  image = "${local.account_id}.dkr.ecr.${local.region}.amazonaws.com/${local.name}:${var.image_tag}"
+  # 이 리전 ECR(서울은 원본, 도쿄는 복제본, ADR-040)에서 가장 최근 이미지를 태그로 가리킴.
+  # 태그 없는 이미지가 가장 최근이면 image_tags[0]에서 plan이 멈춤 (지문만 있는 엉뚱한 이미지로 조용히 뜨지 않게)
+  image = "${local.account_id}.dkr.ecr.${local.region}.amazonaws.com/${local.name}:${data.aws_ecr_image.latest.image_tags[0]}"
   # 실행 역할은 bootstrap이 만듦(ADR-029). 이름으로 주소를 조립해 IAM 조회 권한 없이 씀
   execution_role_arn = "arn:aws:iam::${local.account_id}:role/${local.name}-ecs-execution"
+}
+
+# 처음 서비스를 만들 때 쓸 이미지: 가장 마지막에 push된 것 (ADR-039 변경 메모). 매일 apply할 때 번호를 손으로 바꾸지 않게
+# 이후 배포는 CD가 레시피를 새로 등록해 바꿈. 인프라가 떠 있는 동안 새 이미지가 올라온 뒤 apply하면 레시피 새 리비전이 생기지만 서비스는 무시함
+data "aws_ecr_image" "latest" {
+  repository_name = local.name
+  most_recent     = true
 }
 
 # 금고 주소(ARN) 조회: ECS는 이름이 아니라 전체 ARN만 받음. 도쿄에서는 같은 이름의 복제본이 잡힘 (ADR-041)
