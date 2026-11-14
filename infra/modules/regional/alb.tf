@@ -68,10 +68,11 @@ resource "aws_lb_target_group" "app" {
 }
 
 # CloudFront → ALB도 HTTPS (ADR-049). CloudFront는 "원본 도메인 이름"으로 ALB 인증서를 확인하므로 우리 이름의 인증서를 ALB에 둔다
-# 서울 · 도쿄가 같은 이름을 써서, 리전을 바꿔도 CloudFront의 원본 이름은 그대로 (ADR-035)
+# 이름은 리전마다 다르게(예: ap-northeast-2.origin.hotel.vundle34.cloud). 같은 이름이면 확인 레코드 하나를 두 리전이 같이 써서
+# 한쪽 destroy가 다른 쪽 인증서의 갱신용 레코드까지 지웠다(2026-11-15 도쿄 destroy). 리전마다 따로 소유하면 서로 영향이 없다
 locals {
   zone_name     = "vundle34.cloud" # bootstrap의 Route 53 영역 (ADR-048)
-  origin_domain = "origin.hotel.${local.zone_name}"
+  origin_domain = "${local.region}.origin.hotel.${local.zone_name}"
 }
 
 data "aws_route53_zone" "main" {
@@ -92,8 +93,6 @@ resource "aws_route53_record" "origin_validation" {
   type    = each.value.resource_record_type
   records = [each.value.resource_record_value]
   ttl     = 60
-  # 서울 · 도쿄가 같은 이름의 인증서라 확인용 레코드가 같을 수 있음(가설). 겹치면 덮어씀
-  allow_overwrite = true
 }
 
 # 발급이 끝날 때까지 기다림. 리스너는 이것의 ARN을 써서 발급 뒤에 만들어짐
