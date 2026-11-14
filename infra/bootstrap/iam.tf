@@ -123,6 +123,28 @@ resource "aws_iam_role_policy" "github_deploy" {
         ]
       },
       {
+        # 최신 레시피를 읽어 이미지 번호만 바꾼 개정판을 만들기 (ADR-039). 리소스를 지정할 수 없는 권한이라(서비스 권한 목록 기준) 리전으로 좁힘
+        Sid      = "ecsDescribeTaskDefinition"
+        Effect   = "Allow"
+        Action   = ["ecs:DescribeTaskDefinition"]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "aws:RequestedRegion" = [local.main_region, local.backup_region]
+          }
+        }
+      },
+      {
+        # 스키마 태스크 로그를 CD 화면에 남기기 (ADR-046). 고객사 개발팀이 실패 원인을 직접 봄. migrate 스트림만
+        Sid    = "logsReadMigrate"
+        Effect = "Allow"
+        Action = ["logs:GetLogEvents"]
+        Resource = [
+          "arn:aws:logs:${local.main_region}:${local.account_id}:log-group:/ecs/${local.project_name}:log-stream:migrate/*",
+          "arn:aws:logs:${local.backup_region}:${local.account_id}:log-group:/ecs/${local.project_name}:log-stream:migrate/*",
+        ]
+      },
+      {
         # 태스크 정의에 적힌 실행 역할을 ECS에 건네기 (ADR-029). 이 역할만, ECS 태스크에게만
         Sid    = "iamPassExecutionRole"
         Effect = "Allow"
