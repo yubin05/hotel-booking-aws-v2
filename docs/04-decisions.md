@@ -48,6 +48,7 @@
 | [042](#adr-042) | RDS는 apply마다 새로 만들고 시드를 다시 넣음, 백업 7일은 켜되 destroy 때 같이 삭제 |
 | [043](#adr-043) | 앱 · 이전 환경은 고객사 저장소(hotel-booking-app, Public)로 분리, 이 저장소는 To-Be 인프라와 이관 전후 부하 시험 |
 | [044](#adr-044) | 스키마 태스크는 RDS 관리자로 적용하고 앱 계정은 읽기 · 쓰기만, 배포마다 실행해도 같은 결과(IF NOT EXISTS), 시드 · 운영 규모 데이터는 빈 DB에만 |
+| [045](#adr-045) | DB 접속은 TLS로 하고 앱이 RDS 인증서 · 주소까지 확인, RDS는 암호화하지 않은 접속을 거부 |
 
 ---
 
@@ -957,5 +958,39 @@
 - MySQL 8.4: `CREATE TABLE IF NOT EXISTS`는 *"no verification that the existing table has a structure identical"*([CREATE TABLE](https://dev.mysql.com/doc/refman/8.4/en/create-table.html)). `CREATE USER IF NOT EXISTS`는 있으면 오류 대신 경고([CREATE USER](https://dev.mysql.com/doc/refman/8.4/en/create-user.html)). `SELECT ... FOR UPDATE`는 *"the SELECT privilege and at least one of the DELETE, LOCK TABLES, or UPDATE privileges"*([잠금 읽기](https://dev.mysql.com/doc/refman/8.4/en/innodb-locking-reads.html)).
 - RDS for MySQL 8.0.36 이상의 마스터는 `CREATE USER` 권한을 가진다. *"We strongly recommend that you do not use the master user directly in your applications."*([마스터 계정](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.MasterAccounts.html))
 - 가설(첫 실행으로 확인): RDS 관리 금고의 JSON 키 이름이 `password`인지(문서에 키 목록 없음), 마스터가 다른 계정에 `GRANT`할 수 있는지(문서에 GRANT OPTION 언급 없음), MySQL 8.4의 `require_secure_transport` 기본값(문서는 버전 없이 *"set to OFF"*, [SSL 필수](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/mysql-ssl-connections.require-ssl.html)).
+
+</details>
+
+<a name="adr-045"></a>
+## ADR-045 DB 접속은 TLS로 하고 앱이 RDS 인증서 · 주소까지 확인, RDS는 암호화하지 않은 접속을 거부
+
+- **상황:** 2-2 ③-b(2026-11-14). 앱과 스키마 태스크는 지금 암호화 없이 DB에 붙는다. DB로 오가는 데이터에는 회원 이메일 · 전화번호 · 예약 같은 개인정보가 있다. RDS MySQL 8.4의 AWS 기본 설정표(`default.mysql8.4`)를 조회하니 `require_secure_transport` 값이 비어 있어(`None`) MySQL 기본값 OFF가 적용된다. 즉 지금 그대로 두면 평문 접속이 된다.
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | 기본값 그대로(평문) | "같은 VPC 안이라 안전하다"에 기댄다. VPC 안의 다른 자원 하나가 뚫리면 평문을 엿볼 수 있고, 보안 점검에서 자주 지적받는다 |
+  | 앱만 TLS(서버 강제 없음) | 설정을 빠뜨린 클라이언트가 조용히 평문으로 붙어도 막지 못한다 |
+  | 서버만 강제(앱은 인증서 확인 없이 TLS) | 암호화는 되지만 가짜 서버(중간자)를 걸러 내지 못한다 |
+  | 계정마다 `REQUIRE SSL` | 계정을 만들 때마다 챙겨야 한다. 서버 설정 하나가 모든 계정에 적용돼 빠뜨릴 일이 없다 |
+
+- **결정:**
+  - 서버: 모듈에 우리 설정표(`aws_db_parameter_group`, `hotel-booking-aws-v2`)를 두고 `require_secure_transport = 1`. 동적 파라미터라 재부팅 없이 적용된다.
+  - 클라이언트: 앱과 스키마 태스크는 `DB_TLS=rds`일 때 RDS 인증서 묶음(`aws-ssl-profiles`)으로 서버 인증서를 확인하고, `verifyIdentity: true`로 인증서의 주소가 접속한 RDS 주소와 같은지도 확인한다. 태스크 정의 두 개에 `DB_TLS=rds`를 넣는다.
+  - 로컬 · CI MySQL은 RDS 인증서가 없어 `DB_TLS`를 넣지 않는다(평문).
+- **근거:**
+  - 서버 강제와 클라이언트 확인을 둘 다 해야 "암호화"와 "상대가 진짜 우리 DB"를 함께 보장한다.
+  - mysql2는 `verifyIdentity`를 주지 않으면 호스트 이름을 확인하지 않는다(아래 소스). 인증서 묶음만 주면 "어느 RDS든 RDS 인증서면 통과"가 된다.
+- **결과:**
+  - 평소 사용자 정책에 파라미터 그룹 권한 5개(`Create` · `Modify` · `Delete` · `DescribeDBParameterGroups` · `DescribeDBParameters`)를 더했다. 서울 apply 리소스가 1개 늘어난다(파라미터 그룹).
+  - 앱 저장소에 `aws-ssl-profiles`(mysql2가 이미 쓰던 1.1.2)를 직접 의존성으로 올렸다.
+  - 로컬 확인 2026-11-14(MySQL 8.4 컨테이너, `--require-secure-transport=ON`): 평문 접속은 서버가 `Connections using insecure transport are prohibited while --require_secure_transport=ON.`로 거부, RDS가 아닌 서버에 `DB_TLS=rds`로 붙으면 앱이 `self-signed certificate in certificate chain`으로 거부했다. RDS에서 실제로 통과하는지는 첫 apply의 스키마 태스크로 확인한다.
+  - 인증서 묶음에는 서울 루트 인증서 RSA2048 G1(2061년까지) · RSA4096 G1 · ECC384 G1이 들어 있다. RDS가 인증서(CA)를 바꾸면 묶음 패키지를 올려야 한다.
+
+<details>
+<summary>확인한 근거와 메모</summary>
+
+- RDS 문서: *"By default, the `require_secure_transport` parameter is set to `OFF`."*([SSL/TLS 필수](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/mysql-ssl-connections.require-ssl.html)). 버전이 적혀 있지 않아 `aws rds describe-engine-default-parameters --db-parameter-group-family mysql8.4`로 직접 조회했다: `require_secure_transport  None  dynamic  True  0,1`(값 없음, 동적, 수정 가능).
+- mysql2 3.x 소스 `lib/base/connection.js`: `checkServerIdentity: verifyIdentity ? Tls.checkServerIdentity : function () { return undefined; }`. `rejectUnauthorized`는 `false`로 주지 않으면 켜진다(`lib/connection_config.js`). 문자열 프로필 `'Amazon RDS'`는 deprecated이고 `aws-ssl-profiles`를 쓰라고 한다(`lib/constants/ssl_profiles.js`).
 
 </details>
