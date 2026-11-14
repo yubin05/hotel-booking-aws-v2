@@ -67,6 +67,46 @@ resource "aws_ecs_task_definition" "app" {
   }])
 }
 
+# 스키마 태스크 레시피 (ADR-031 · ADR-044): 같은 이미지로 스키마 · 시드 · 앱 계정만 맞추고 끝남. CD가 앱 교체 전에 RunTask로 1번 실행
+# 비밀값은 RunTask 덮어쓰기로 바꿀 수 없어 패밀리를 따로 둠 (ADR-031)
+resource "aws_ecs_task_definition" "migrate" {
+  family                   = "${local.name}-migrate" # ADR-030
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = 256 # Fargate 최소 크기. SQL을 보내기만 하고 일은 DB가 함
+  memory                   = 512
+  execution_role_arn       = local.execution_role_arn
+
+  container_definitions = jsonencode([{
+    name      = "migrate"
+    image     = local.image
+    essential = true
+    command   = ["node", "dist/src/migrate.js"] # 앱과 같은 이미지, 명령만 다름
+
+    environment = [
+      { name = "DB_HOST", value = aws_db_instance.this.address },
+      { name = "DB_NAME", value = aws_db_instance.this.db_name },
+      { name = "DB_ADMIN_USER", value = aws_db_instance.this.username },
+    ]
+
+    secrets = [
+      # RDS가 관리하는 관리자 금고는 JSON이라 password 키 하나만 꺼냄 (형식: 금고ARN:키::)
+      { name = "DB_ADMIN_PASSWORD", valueFrom = "${aws_db_instance.this.master_user_secret[0].secret_arn}:password::" },
+      # 앱 계정을 만들 때 넣을 비밀번호. 앱 태스크가 쓰는 금고와 같은 값
+      { name = "DB_APP_PASSWORD", valueFrom = data.aws_secretsmanager_secret.db_app.arn },
+    ]
+
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        "awslogs-group"         = aws_cloudwatch_log_group.app.name
+        "awslogs-region"        = local.region
+        "awslogs-stream-prefix" = "migrate"
+      }
+    }
+  }])
+}
+
 # "항상 2개 유지" 규칙. 실제 태스크는 ECS가 띄움(Terraform 리소스가 아님)
 resource "aws_ecs_service" "app" {
   name            = "app" # ADR-030
