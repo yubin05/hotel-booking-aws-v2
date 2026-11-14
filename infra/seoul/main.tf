@@ -8,5 +8,5 @@ module "regional" {
   db_multi_az = false # AZ 장애 테스트 때 true
 
   # 처음 서비스를 만들 때의 이미지(서울 ECR에 있는 것). 이후 배포는 CD가 바꿈 (ADR-039)
-  image_tag = "76645fc"
+  image_tag = "9563b21"
 }
