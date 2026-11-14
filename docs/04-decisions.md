@@ -51,6 +51,7 @@
 | [045](#adr-045) | DB 접속은 TLS로 하고 앱이 RDS 인증서 · 주소까지 확인, RDS는 암호화하지 않은 접속을 거부 |
 | [046](#adr-046) | CD 2부: CI가 테스트 통과 뒤 CD를 불러내고(재사용 워크플로), 배포 단계는 AWS CLI, 스키마 태스크 로그는 CD 화면에 |
 | [047](#adr-047) | 워크플로의 외부 액션은 커밋 해시로 고정하고 Dependabot이 갱신 PR을 만든다 |
+| [048](#adr-048) | 도메인 주소록(Route 53 퍼블릭 호스팅 영역)은 bootstrap에 상시로, 레코드는 global에서 CloudFront와 함께 |
 
 ---
 
@@ -1078,5 +1079,35 @@
 
 - GitHub 보안 가이드: *"Pin actions to a full-length commit SHA"*, *"they would need to generate a SHA-1 collision for a valid Git object payload"*, 태그는 *"Pin actions to a tag only if you trust the creator"*([보안 가이드](https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions)). 가이드는 이보다 앞서 워크플로 의존성 lockfile을 권하는데, 그 기능의 세부는 확인하지 못했다.
 - `tj-actions/changed-files`: *"Attackers retroactively modified multiple version tags to reference a malicious commit, exposing CI/CD secrets in workflow logs."* 2025-03-14 ~ 15, 2만 3천 개 넘는 저장소([GHSA-mrrh-fwg8-r2c3](https://github.com/advisories/GHSA-mrrh-fwg8-r2c3)).
+
+</details>
+
+<a name="adr-048"></a>
+## ADR-048 도메인 주소록(Route 53 퍼블릭 호스팅 영역)은 bootstrap에 상시로, 레코드는 global에서 CloudFront와 함께
+
+- **상황:** 2-2 global 준비(2026-11-15). 앱은 `hotel.vundle34.cloud`, 사진은 `img.hotel.vundle34.cloud`로 연다([ADR-035](#adr-035)). 도메인은 가비아에 등록돼 있다. CloudFront 인증서(ACM) DNS 검증과 CloudFront 별칭 레코드를 Terraform으로 처리하려면 주소록이 Route 53에 있어야 한다. 조회해 보니 `vundle34.cloud`는 `.cloud` 등록소에서 이미 Route 53 네임서버 4개(`ns-124.awsdns-15.com` 등)로 위임돼 있었는데, 그 영역은 계정에 없었다. Route 53은 "Query refused", 공용 DNS(8.8.8.8 · 1.1.1.1)는 "Server failed"였다. 예전에 영역만 지우고 위임은 남긴 주인 없는 위임(dangling delegation)이다.
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | 영역을 global에 두고 매일 만들고 지움 | 영역을 새로 만들 때마다 네임서버 4개가 새로 배정돼 매번 가비아 위임을 다시 해야 하고, 반영에 최대 48시간이 걸린다 |
+  | 가비아 DNS를 그대로 쓰고 `hotel`에 CNAME | CloudFront 주소가 apply마다 바뀌어 매번 손으로 고쳐야 하고, 인증서 검증 레코드도 손으로 넣어야 한다 |
+  | `hotel` 하위 도메인만 Route 53에 위임 | 가비아에서 하위 도메인 NS 레코드를 지원하는지 확인하지 못했다. 도메인 전체가 이미 Route 53으로 위임돼 있었고 응답하는 곳이 없어 나눌 이점도 없다 |
+
+- **결정:**
+  - bootstrap에 퍼블릭 호스팅 영역 `vundle34.cloud`를 두고(상시), 가비아 네임서버를 새로 배정된 4개로 바꾼다.
+  - 레코드(`hotel` · `img` → CloudFront, 인증서 검증)는 global 루트에 둔다. CloudFront와 같이 생기고 같이 지워져, 지워진 자원을 가리키는 레코드가 남지 않는다.
+- **근거:** 주소록은 상시, 레코드는 자원과 같은 수명. 위임을 한 번만 하면 되고, 레코드가 남아 남이 그 자리를 차지하는 일(남은 DNS 탈취)도 막는다. 이번 작업으로 주인 없던 위임도 고쳐진다.
+- **결과:**
+  - 2026-11-15 01:40:27 → 01:41:11 관리자 apply(1 · 0 · 0). 새 네임서버 `ns-1268.awsdns-30.org` · `ns-1890.awsdns-44.co.uk` · `ns-242.awsdns-30.com` · `ns-933.awsdns-52.net`. 새 영역은 바로 SOA로 응답했다. 가비아에서 바꾼 뒤 `.cloud` 등록소에는 01:52:30에 반영됐고, 공용 DNS(8.8.8.8 · 1.1.1.1)도 새 네임서버로 조회됐다. 주인 없던 위임이 이것으로 정리됐다.
+  - 요금은 영역 하나에 월 $0.50. 2026-05 Route 53 사용료가 크레딧으로 전액 차감된 기록(비용 탐색기 `RECORD_TYPE`)이 있어 크레딧이 적용되는 것으로 본다. 크레딧 만료는 2027-04-11.
+  - 영역은 `force_destroy`를 켜지 않아, 레코드가 남아 있으면 bootstrap destroy가 멈춘다(실수로 레코드째 지우지 않게).
+
+<details>
+<summary>확인한 근거와 메모</summary>
+
+- 영역을 만들면 Route 53이 네임서버 4개를 배정한다([호스팅 영역 문서](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/hosted-zones-working-with.html)). 요금은 [Route 53 요금](https://aws.amazon.com/route53/pricing/).
+- 가비아 네임서버 변경: My가비아 → 서비스 관리 → 도메인 관리툴 → 도메인 정보 변경 → 네임서버, 호스트 이름만 입력, 소유자 인증, 반영 최대 48시간([가비아 라이브러리](https://library.gabia.com/contents/domain/13641/) · [가비아 FAQ](https://webtraffic.gabia.com/faq/view.php?category1=&category2=&category3=&keyword=&seqno=3287)). 글이 오래돼 메뉴 이름이 다를 수 있다.
+- 확인 방법: `.cloud` 등록소 네임서버(`ns01.trs-dns.net`)에 직접 `nslookup -type=NS`, 새 Route 53 네임서버에 직접 `-type=SOA`.
 
 </details>
