@@ -49,6 +49,7 @@
 | [043](#adr-043) | 앱 · 이전 환경은 고객사 저장소(hotel-booking-app, Public)로 분리, 이 저장소는 To-Be 인프라와 이관 전후 부하 시험 |
 | [044](#adr-044) | 스키마 태스크는 RDS 관리자로 적용하고 앱 계정은 읽기 · 쓰기만, 배포마다 실행해도 같은 결과(IF NOT EXISTS), 시드 · 운영 규모 데이터는 빈 DB에만 |
 | [045](#adr-045) | DB 접속은 TLS로 하고 앱이 RDS 인증서 · 주소까지 확인, RDS는 암호화하지 않은 접속을 거부 |
+| [046](#adr-046) | CD 2부: CI가 테스트 통과 뒤 CD를 불러내고(재사용 워크플로), 배포 단계는 AWS CLI, 스키마 태스크 로그는 CD 화면에 |
 
 ---
 
@@ -771,7 +772,7 @@
 - **근거:** 배포 역할은 "새 리비전 등록 + 서비스 교체"만 할 수 있고 인프라를 못 건드린다(ADR-026에서 이미 그렇게 좁힘). 설정은 Terraform 한 곳, 이미지는 CD만 바꿔서 원본이 한 벌이다. Terraform에서 설정을 바꾸면 새 리비전이 생기고, 다음 배포가 그 최신 리비전을 읽어 이미지만 바꾸므로 설정이 이어진다. `ignore_changes`는 밖에서 바뀌는 값을 Terraform이 되돌리지 않게 하는 공식 방법이다.
 - **결과:**
   - destroy 뒤 다시 apply하면 서비스는 Terraform의 첫 리비전으로 뜬다. 최신 이미지는 CD를 한 번 돌려 맞춘다(재현성 확인 때 절차로 정리).
-  - 배포 역할에 읽기 권한 `ecs:DescribeTaskDefinition`을 더해야 한다(CD 덩어리 때 bootstrap에 반영).
+  - 배포 역할에 읽기 권한 `ecs:DescribeTaskDefinition`을 더해야 한다(CD 덩어리 때 bootstrap에 반영). → 2026-11-14 CD 2부에서 더했다([ADR-046](#adr-046)).
   - 리전마다 다른 값(이미지 주소의 ECR, 로그 리전, 비밀값 ARN)은 모듈이 리전을 읽어 채운다. 도쿄 복원 때 tokyo 루트가 같은 모듈로 도쿄에 태스크 정의를 등록하고, CD는 그것을 읽는다.
   - 2026-11-14 변경 메모: 처음 apply할 이미지를 루트 변수(`image_tag`)로 적지 않고, 모듈이 그 리전 ECR에서 가장 최근에 push된 이미지(`aws_ecr_image`, `most_recent = true`)의 태그를 읽는다. 매일 destroy · apply하는 동안 번호를 손으로 바꾸지 않아도 되고, 옛 번호가 ECR 보관 한도(최근 10개)에서 밀려나 apply가 실패할 일도 없다. 버린 대안: 번호를 손으로 교체(이번 ③-b에서 스키마 태스크 때문에 바로 필요해졌고, 잊으면 옛 이미지로 뜬다). 데이터 소스는 `DescribeImages` · `DescribeRepositories`를 불러 평소 정책에 이 저장소 조회 권한을 더했다. `image_uri`는 지문(digest) 형식이라 쓰지 않고 태그로 주소를 만든다. 태그 없는 이미지가 가장 최근이면 plan이 멈춘다([provider 소스 v6.73.0](https://github.com/hashicorp/terraform-provider-aws/blob/v6.73.0/internal/service/ecr/image_data_source.go)).
 
@@ -993,5 +994,41 @@
 
 - RDS 문서: *"By default, the `require_secure_transport` parameter is set to `OFF`."*([SSL/TLS 필수](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/mysql-ssl-connections.require-ssl.html)). 버전이 적혀 있지 않아 `aws rds describe-engine-default-parameters --db-parameter-group-family mysql8.4`로 직접 조회했다: `require_secure_transport  None  dynamic  True  0,1`(값 없음, 동적, 수정 가능).
 - mysql2 3.x 소스 `lib/base/connection.js`: `checkServerIdentity: verifyIdentity ? Tls.checkServerIdentity : function () { return undefined; }`. `rejectUnauthorized`는 `false`로 주지 않으면 켜진다(`lib/connection_config.js`). 문자열 프로필 `'Amazon RDS'`는 deprecated이고 `aws-ssl-profiles`를 쓰라고 한다(`lib/constants/ssl_profiles.js`).
+
+</details>
+
+<a name="adr-046"></a>
+## ADR-046 CD 2부: CI가 테스트 통과 뒤 CD를 불러내고(재사용 워크플로), 배포 단계는 AWS CLI, 스키마 태스크 로그는 CD 화면에
+
+- **상황:** 2-2 CD 2부(2026-11-14). CD는 "빌드 → 서울 ECR push"까지만 있고 손으로 실행했다. 스키마 태스크([ADR-031](#adr-031) · [ADR-044](#adr-044))와 앱 교체([ADR-039](#adr-039))를 붙여 main push만으로 배포되게 해야 한다. 서울은 비용 때문에 평소 내려 두고, CD 워크플로는 고객사 저장소에 있지만 인프라팀이 작성한다([ADR-043](#adr-043)).
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | CI가 끝나면 CD가 따로 시작(`workflow_run`) | CD가 별개 실행이라 앞 CI가 "누구의 어떤 커밋"이었는지 직접 확인해야 하고, GitHub 문서대로 이 이벤트로 시작한 실행은 앞 실행에 없던 비밀값 · 쓰기 권한을 받는다. 공개 저장소라 외부 PR의 CI 뒤에도 시작될 수 있어 조건을 잘못 쓰면 PR 코드가 배포 권한으로 돈다. 배포할 커밋도 직접 지정해야 한다(기본은 main 최신) |
+  | 손으로 실행 유지 | 자동 배포가 아니다(2단계 완료 기준 "main 병합 → 자동 배포") |
+  | AWS 공식 액션(`amazon-ecs-render-task-definition` · `amazon-ecs-deploy-task-definition`) | 앱 교체는 짧아지지만 "다른 패밀리(스키마 태스크)를 먼저 돌리고 종료 코드 확인"은 어차피 직접 짜야 한다. 손으로 한 순서와 같은 명령이 그대로 보이는 쪽이 읽기 쉽다 |
+  | 스키마 태스크 로그는 콘솔에서만 | 실패 원인은 대부분 개발팀 SQL인데 개발팀은 AWS 콘솔 권한이 없어, 매번 인프라팀이 로그를 찾아 줘야 한다 |
+
+- **결정:**
+  - 고객사 `ci.yml`에 `deploy` job을 둔다: `needs: test`, `if: push && main`, `uses: ./.github/workflows/cd.yml`, `permissions: id-token: write`. `cd.yml`은 `workflow_call`(+ 손으로 실행용 `workflow_dispatch`)로 받는다. 같은 실행 안에서 이어져 같은 커밋 · 같은 이벤트를 쓰고, PR은 배포되지 않는다. 파일은 그대로 따로 둔다(인프라팀 소유).
+  - 배포 단계는 AWS CLI로 적는다: ① 이미지(있으면 건너뜀) → ② `describe-services`로 서울 서비스 확인. 클러스터가 없으면(`ClusterNotFoundException`) "이미지만 올림"으로 성공 종료하고, 권한 오류 같은 다른 실패는 숨기지 않는다 → ③ 앱 · 스키마 패밀리의 최신 레시피를 읽어 이미지만 바꾼 개정판 등록 → ④ 스키마 태스크 실행 · 종료 대기 · 종료 코드 확인(0이 아니면 멈춤) → ⑤ `update-service` · `wait services-stable` 뒤 서비스 레시피가 새 개정판인지 다시 확인(서킷 브레이커가 되돌린 것도 "안정"이라서) → ⑥ 커밋부터 반영까지 초를 요약에 남긴다.
+  - 스키마 태스크 로그(성공 때 행 수, 실패 때 메시지)를 CD 요약 화면에 남긴다. 배포 한 번에 하나씩(job `concurrency`).
+- **근거:**
+  - 검사한 실행이 그대로 배포까지 이어져 "무엇을 배포하나"를 따로 확인할 필요가 없다.
+  - 스키마 내용은 개발팀 몫, 파이프라인은 인프라팀 몫이다. 개발팀이 GitHub에서 원인을 바로 보면 서로 일이 준다(셀프서비스).
+- **결과:**
+  - 배포 역할에 `ecs:DescribeTaskDefinition`(리소스 지정 불가라 `*` + 리전 조건)과 `logs:GetLogEvents`(로그 그룹 `/ecs/hotel-booking-aws-v2`의 `migrate/*` 스트림만)를 더했다. 리소스 지정 가능 여부는 AWS 서비스 권한 목록(기계 판독용 JSON)으로 확인했다.
+  - 앱 저장소가 공개라 Actions 로그도 공개다. 스키마 태스크는 비밀번호 · SQL을 찍지 않고([ADR-044](#adr-044)), 에러에 나올 테이블 이름은 이미 공개된 `schema.sql`에 있다.
+  - 배포마다 이미지를 CI에서 한 번(확인용), CD에서 한 번 빌드한다. 다른 job이라 빌드 캐시를 나누지 않는다.
+  - CD가 등록한 개정판은 Terraform state에 없어 destroy해도 ACTIVE로 남는다(태스크 정의는 무료). 다음 apply에서 Terraform이 더 높은 번호로 새로 등록하므로 CD가 읽는 "최신"은 Terraform 설정이다.
+
+<details>
+<summary>확인한 근거와 메모</summary>
+
+- 재사용 워크플로의 OIDC 토큰: *"the token will include the standard claims that contain information about the calling workflow, and will also include a custom claim called `job_workflow_ref`"*([GitHub 문서](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-with-reusable-workflows)). 신뢰 조건의 `sub`(main)가 그대로 통하는지는 첫 실행으로 확인한다.
+- `workflow_run`으로 시작한 워크플로는 앞 워크플로가 못 가진 비밀값 · 쓰기 토큰에 접근할 수 있다([이벤트 문서](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run), 요약으로 읽음).
+- ECS 권한의 리소스 타입: [서비스 권한 목록 JSON](https://servicereference.us-east-1.amazonaws.com/v1/ecs/ecs.json)에서 `DescribeTaskDefinition`은 리소스 없음, `RegisterTaskDefinition` · `RunTask`는 `task-definition`, `DescribeTasks`는 `task`, `UpdateService` · `DescribeServices`는 `service`. 로그 `GetLogEvents`는 `log-stream`([logs JSON](https://servicereference.us-east-1.amazonaws.com/v1/logs/logs.json)).
+- 워크플로 문법 · 셸은 actionlint 1.7.7(shellcheck 포함)로 검사해 문제 없음.
 
 </details>
