@@ -52,6 +52,11 @@
 | [046](#adr-046) | CD 2부: CI가 테스트 통과 뒤 CD를 불러내고(재사용 워크플로), 배포 단계는 AWS CLI, 스키마 태스크 로그는 CD 화면에 |
 | [047](#adr-047) | 워크플로의 외부 액션은 커밋 해시로 고정하고 Dependabot이 갱신 PR을 만든다 |
 | [048](#adr-048) | 도메인 주소록(Route 53 퍼블릭 호스팅 영역)은 bootstrap에 상시로, 레코드는 global에서 CloudFront와 함께 |
+| [049](#adr-049) | CloudFront → ALB 구간도 HTTPS로, ALB 입구는 VPC Origin 전용 보안 그룹만 |
+| [050](#adr-050) | WAF는 앱의 약점에서 골라 요청 수 제한 2개 + 관리형 4개로, global에서 CloudFront와 함께 만들고 지움 |
+| [051](#adr-051) | CloudFront 캐시는 앱이 붙인 Cache-Control을 따르고, `/api/*`는 보관하지 않음 |
+| [052](#adr-052) | global 루트는 서울과 함께 매일 만들고 지움 (올릴 때 seoul → global, 내릴 때 global → seoul) |
+| [053](#adr-053) | global용 평소 권한은 세 번째 고객 관리형 정책 `operator-edge`로 나눔 |
 
 ---
 
@@ -659,10 +664,28 @@
   - VPC Origin 자체는 추가 요금이 없다. 도쿄 리소스는 켜 둔 시간만큼 요금이 나간다.
   - 사진 CloudFront에도 WAF를 붙인다. 사진 요청 폭주는 요청·전송량 요금으로 이어진다. 웹 ACL 하나를 두 배포에 함께 붙일 수 있어 월 요금은 한 번이고([WAF 연결](https://docs.aws.amazon.com/waf/latest/developerguide/web-acl-associating-aws-resource.html)), 한 페이지에 사진이 수십 장이라 요청 수 한도는 앱과 따로 둔다. 쿼리 문자열은 캐시 키에서 빼 캐시를 우회해 S3로 몰리는 요청을 막는다. 네트워크 계층 DDoS는 Shield Standard가 추가 요금 없이 막는다.
   - 해외 손님 체감: 사진은 CloudFront가 손님 가까운 엣지에 복사본을 두어 그 엣지의 첫 요청만 서울 S3까지 간다. 예약(쓰기)은 서울 DB까지 가야 해서 CDN은 엣지의 HTTPS 처리와 AWS 백본 전송까지만 돕고 거리는 못 줄인다. 숙소가 한국에 있고 예약은 몇백 ms 늦어도 체감이 작아 받아들인다. 해외 비중이 커지면 쓰기를 여러 리전에서 받는 리전 확장이 필요하지만, 같은 객실 중복 예약을 막기가 매우 어려워지는 별도의 큰 결정이다.
+- **재검토(2026-11-15): "국내 서비스인데 앱에도 CDN이 필요한가"** global을 만들기 전 사용자가 "사진만 CloudFront, 앱은 Public ALB면 되지 않나"라고 다시 물었다. 같은 질문이 면접에서 나올 수 있어 비용까지 비교했고, 결정은 유지한다.
+
+  | 상시 기준 월 | 지금 설계 (앱 · 사진 CloudFront, Internal ALB) | 앱은 Public ALB, 사진만 CloudFront |
+  |---|---|---|
+  | CloudFront | $0 (월 1TB · 1,000만 요청 무료 한도 안) | $0 |
+  | WAF | 웹 ACL 1개를 앱 · 사진이 같이 씀, 약 $12 | CloudFront용 웹 ACL은 ALB에 못 붙여 **2개**, 약 $17 |
+  | ALB 공인 IPv4 | $0 | 약 $7.3 (2개 × $0.005/시간) |
+  | 합계 | **약 $12** | **약 $24** |
+  | 대가 | VPC Origin 배포 최대 15분, 보안 그룹 · destroy 순서, HTTPS 원본 이름 · 도쿄 전환 확인 필요 | 더 단순하고 apply가 빠름. 리전 전환은 Route 53 레코드 교체 |
+
+  - 정리: 사진 때문에 CloudFront는 어차피 둔다. 그렇다면 앱도 같은 CloudFront 뒤에 두는 편이 ALB를 인터넷에 두지 않고(공격 표면 축소), WAF 하나로 둘 다 지키고, DNS 없이 리전을 바꿀 수 있으며, 돈도 덜 든다. 대신 설정 순서와 배포 시간이라는 복잡도를 받아들였다. Public ALB + WAF도 실무에서 흔한 정상 구성이라, HTTPS 원본 이름이나 도쿄 전환 PoC가 실패하면 그쪽으로 바꾼다(위 결정과 같음).
+  - 사진 CloudFront의 WAF 규칙 수(+1)는 사진 작업 때 정할 값이라 추정이다.
+  - **규모가 커지면 달라진다(다시 볼 조건).** 위 비교는 무료 한도 안의 이 프로젝트 규모에서만 맞다. CloudFront는 GB당 전송료가 서울에서 직접 내보내는 것보다 조금 싸지만(첫 10TB $0.120 vs $0.126) 요청 1만 건당 $0.012가 붙는다. 원본(ALB)에서 CloudFront로 가는 전송은 무료다. 그래서 응답이 작고 요청이 많은 API는 규모가 커지면 Public ALB가 더 싸다.
+    - 손익분기: 응답 평균 약 200KB(첫 10TB 구간, 10~50TB 구간은 약 55KB). API 응답(수 KB)은 훨씬 작고, 사진(수백 KB)은 크다.
+    - 예: 앱 트래픽 월 요청 3억 건 · 2TB면 CloudFront 약 $471(요청 $348 + 전송 $123), Public ALB는 직접 전송 약 $245 + 공인 IP $7. WAF 요청 요금은 어느 쪽이든 같다.
+    - 실서비스라면 트래픽을 잰 뒤 ① CloudFront 정액 요금제(Business 월 $200: 요청 1억 2,500만 · 전송 50TB, WAF 포함, VPC Origin 지원, 초과 요금 없음) ② 약정 할인(Security Savings Bundle 1년 약정 최대 30%, 월 10TB 이상 12개월 약정 시 맞춤 가격) ③ API는 Public ALB, 사진과 정적 파일만 CDN 중에서 고른다.
 
 <details>
 <summary>확인한 근거와 메모</summary>
 
+- 재검토 비용 근거: 공인 IPv4 $0.005/시간과 로드 밸런서 포함([VPC 요금](https://aws.amazon.com/vpc/pricing/), [공인 IPv4 사용 최적화 블로그](https://aws.amazon.com/blogs/networking-and-content-delivery/identify-and-optimize-public-ipv4-address-usage-on-aws/), 검색 결과로 확인), CloudFront에 연결한 웹 ACL은 ALB에 연결할 수 없음([WAF 연결](https://docs.aws.amazon.com/waf/latest/developerguide/classic-web-acl-associating-cloudfront-distribution.html)), CloudFront 무료 한도([요금](https://aws.amazon.com/cloudfront/pricing/pay-as-you-go/)), WAF 요금은 [ADR-050](#adr-050).
+- 규모별 단가는 AWS 공개 가격표 파일로 확인(2026-11-15): 서울 → 인터넷 $0.126 · $0.122 · $0.117 · $0.108/GB(10TB · 40TB · 100TB 구간, [AWSDataTransfer ap-northeast-2](https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSDataTransfer/current/ap-northeast-2/index.json), 2026-11-11 게시), CloudFront 아시아(한국 포함) $0.120 · $0.100 · $0.095/GB, HTTPS 1만 건당 $0.012([AmazonCloudFront](https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonCloudFront/current/index.json), 2026-10-19 게시), 서울 ALB 시간당 $0.0225 · LCU $0.008. 원본 → CloudFront 무료, 정액 요금제 한도와 초과 정책, Security Savings Bundle은 [요금](https://aws.amazon.com/cloudfront/pricing/) · [정액 요금제](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/flat-rate-pricing-plan.html).
 - 실제 서비스 관찰(응답 헤더): NOL · 여기어때는 앱 앞 Cloudflare, 사진 CloudFront + S3. Booking.com은 둘 다 CloudFront. Airbnb · Agoda는 Akamai([08 5절](08-real-cases.md)).
 - 국내 플랫폼의 해외 손님: 놀유니버스 외국인 전용 '놀 월드' 국내 숙소 약 1만5천 곳([머니투데이](https://www.mt.co.kr/culture/2026/08/04/2026080409140062519)), 여기어때 해외 숙소 거래액 증가([바이라인네트워크](https://byline.network/2025/04/15-438/)). 회사 발표 수치다.
 - 이미지 CDN: [web.dev](https://web.dev/learn/images/cdn). 업로드 파일은 다른 호스트에: [OWASP](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html).
@@ -1109,5 +1132,151 @@
 - 영역을 만들면 Route 53이 네임서버 4개를 배정한다([호스팅 영역 문서](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/hosted-zones-working-with.html)). 요금은 [Route 53 요금](https://aws.amazon.com/route53/pricing/).
 - 가비아 네임서버 변경: My가비아 → 서비스 관리 → 도메인 관리툴 → 도메인 정보 변경 → 네임서버, 호스트 이름만 입력, 소유자 인증, 반영 최대 48시간([가비아 라이브러리](https://library.gabia.com/contents/domain/13641/) · [가비아 FAQ](https://webtraffic.gabia.com/faq/view.php?category1=&category2=&category3=&keyword=&seqno=3287)). 글이 오래돼 메뉴 이름이 다를 수 있다.
 - 확인 방법: `.cloud` 등록소 네임서버(`ns01.trs-dns.net`)에 직접 `nslookup -type=NS`, 새 Route 53 네임서버에 직접 `-type=SOA`.
+
+</details>
+
+<a name="adr-049"></a>
+## ADR-049 CloudFront → ALB 구간도 HTTPS로, ALB 입구는 VPC Origin 전용 보안 그룹만
+
+- **상황:** global 준비(2026-11-15). [02 6절](02-architecture.md#6-보안)에서 CloudFront와 ALB 사이 구간의 HTTP · HTTPS를 미뤄 두었고, ALB 보안 그룹의 인바운드는 비어 있다(global에서 연다). 지금 앱에 결제는 없지만 실제 숙박 앱은 예약할 때 결제하는 것이 기본이라, 데모 결제를 v2 이후 후보로 적었다([03](03-plan.md#v2-이후-후보)). 결제가 없어도 이 구간으로 비밀번호, 로그인 토큰(JWT), 이름 · 전화번호가 지나간다.
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | CloudFront → ALB를 HTTP로 | 가장 단순하다. 이 경로는 공용 인터넷이 아니라 AWS 백본으로 가고(AWS 블로그), AWS는 VPC 안의 ALB ↔ 대상 트래픽이 패킷 수준에서 인증된다고 설명한다. 그러나 엣지에서 우리 VPC로 들어오는 구간은 우리가 보거나 통제할 수 없고, 민감 정보가 평문으로 지나간다. 경로를 믿기보다 암호화하는 편이 맞고, DB 구간은 이미 TLS([ADR-045](#adr-045))라 이 구간만 비게 된다 |
+  | ALB → 태스크까지 끝까지 HTTPS | 앱 컨테이너에도 TLS가 필요하다(ALB는 대상 인증서를 검증하지 않아 자체 서명도 된다). 범위가 커지고, 이 구간은 위의 패킷 수준 인증 설명이 그대로 해당된다 |
+  | ALB 입구를 CloudFront 관리형 접두사 목록(`com.amazonaws.global.cloudfront.origin-facing`)으로 | VPC Origin 전에 미리 열 수 있어 순서가 단순하다. 그러나 CloudFront 전체의 원본 접속 IP를 허용해 범위가 넓다 |
+
+- **결정:**
+  - 손님 → CloudFront: HTTPS, **CloudFront → ALB: HTTPS**, ALB → 태스크: HTTP.
+  - ALB에 리전별 ACM 인증서 `origin.hotel.vundle34.cloud`(같은 Route 53 영역에서 DNS 검증)와 443 리스너를 둔다(regional 모듈, 도쿄도 같은 코드). CloudFront 원본 도메인 이름을 이 이름으로 하고 VPC Origin은 HTTPS만 쓴다.
+  - ALB 입구는 VPC Origin을 만들면 CloudFront가 우리 VPC에 만드는 `CloudFront-VPCOrigins-Service-SG`에서 오는 443만 허용한다(global 루트).
+- **근거:** 처음 추천은 HTTP(AWS 백본 · VPC 안이라 충분)였고, 사용자가 비밀번호 · 토큰 · 개인정보와 이후 결제를 이유로 HTTPS를 골랐다. AWS Well-Architected(SEC09-BP02)는 VPC 밖과 주고받는 민감 데이터는 암호화하고 VPC 안은 보안 요구에 따라 정하라고 한다. 엣지 → 우리 VPC는 경계를 넘는 구간이라 HTTPS, ALB → 태스크는 VPC 안이라 HTTP로 그 선에 맞췄다(우리 해석). 비용은 인증서 · 리스너 몇 개다. 문서는 서비스 보안 그룹 방식이 우리 배포의 트래픽만 받아 더 엄격하다고 하고, 지금의 보안 그룹 사슬(ALB → 앱 → DB 모두 보안 그룹 참조)과 같은 방식이다.
+- **결과:**
+  - 서울 apply에 인증서 검증 대기가 더해진다(시간은 실측).
+  - CloudFront는 원본 인증서의 이름이 원본 도메인 이름과 맞아야 연결한다(안 맞으면 502). VPC Origin에서 원본 도메인 이름을 ALB 주소 대신 우리 도메인으로 쓸 수 있는지는 **가설**이다(AWS 블로그를 검색 결과로만 확인, 원문은 읽지 못함). apply 때 확인하고, 안 되면 HTTP로 되돌리고 이 ADR을 고친다.
+  - 서비스 보안 그룹은 VPC Origin을 만든 뒤에만 생겨 규칙은 global 루트에 둔다. 올릴 때 seoul → global, 내릴 때 global → seoul. 이 보안 그룹이 destroy 뒤 남아 서울 VPC 삭제를 막는지는 destroy 때 확인한다.
+  - 다시 볼 조건: 실제 결제 연동이나 규정 때문에 ALB → 태스크 구간 암호화가 필요해지면 앱 컨테이너에 TLS를 넣는다.
+
+<details>
+<summary>확인한 근거와 메모</summary>
+
+- 서비스 보안 그룹과 접두사 목록 두 방식, "can be done only after the VPC origin is created", VPC Origin 상태가 Deployed가 되기까지 최대 15분, 서울 · 도쿄(`apne1-az3` 제외) 지원: [VPC Origin](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-vpc-origins.html).
+- 원본 인증서 이름은 원본 도메인 이름과 맞아야 하고, 아니면 502: [원본 설정](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/DownloadDistValuesOrigin.html).
+- ALB는 대상 인증서를 검증하지 않고, VPC 안의 ALB ↔ 대상 트래픽은 *"authenticated at the packet level"*: [ALB 대상 그룹](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-target-groups.html).
+- 전송 중 암호화 기준: [SEC09-BP02](https://docs.aws.amazon.com/wellarchitected/latest/security-pillar/sec_protect_data_transit_encrypt.html)(검색 결과로 확인). 국내 개인정보 안전성 확보조치 기준의 전송 암호화(비밀번호 등)가 VPC 안 구간에도 걸리는지는 고시 원문으로 확인하지 못했다.
+- CloudFront → VPC Origin 트래픽은 AWS 백본으로 감: [VPC Origin 소개 블로그](https://aws.amazon.com/blogs/networking-and-content-delivery/introducing-cloudfront-virtual-private-cloud-vpc-origins-shield-your-web-applications-from-public-internet/)(검색 결과로 확인). 문서는 "private, secure connection"으로만 표현한다.
+- 사용자 지정 도메인을 VPC Origin 원본으로 쓰는 예: [교차 계정 VPC Origin 블로그](https://aws.amazon.com/blogs/networking-and-content-delivery/introducing-cross-account-support-for-amazon-cloudfront-virtual-private-cloud-vpc-origins/)(검색 결과 요약으로만 확인).
+- 결제가 있어도 카드 번호는 PG 결제창에 입력되고, 우리 서버는 `paymentKey` · 주문번호 · 금액을 받아 승인 API를 부른다: [토스페이먼츠 결제 흐름](https://docs.tosspayments.com/guides/v2/get-started/payment-flow).
+
+</details>
+
+<a name="adr-050"></a>
+## ADR-050 WAF는 앱의 약점에서 골라 요청 수 제한 2개 + 관리형 4개로, global에서 CloudFront와 함께 만들고 지움
+
+- **상황:** global 준비(2026-11-15). 처음에는 "요청 수 제한 + AWS 관리형 기본 3종"을 추천했는데, 사용자가 "앱이 실제로 어디가 약한지부터 봐야 하지 않나"라고 물어 앱 API를 점검했다([10 보안 점검](10-security.md)). 권한 · SQL 인젝션 · 쿠폰 중복은 코드로 막혀 있었고, 남은 약점은 로그인 시도 제한 없음, 가입 제한 없음, 긁어 가기 같은 "횟수 · 자동화" 문제였다.
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | 요청 수 제한만 | XSS · Log4j · SQL 인젝션 같은 흔한 공격 모양을 2차로 막지 못한다 |
+  | 요청 수 제한 + 기본 3종(처음 추천) | 핵심 규칙 세트에 SQL 인젝션 규칙이 없다(별도 그룹). SQL DB를 쓰는 앱인데 2차 방어가 빠진다. 전체 한도 하나로는 비싼 로그인 API를 따로 지키지 못한다 |
+  | + Bot Control · ATP | 웹 ACL당 월 $10 이상 추가. IP를 여러 개 쓰는 봇 대책이지만 지금 요구는 없다 |
+  | CloudFront 정액 요금제(Free는 WAF 포함 $0) | Free · Pro는 VPC Origin을 지원하지 않고, 지원하는 Business는 월 $200 |
+  | 관리형 규칙을 Count(기록만)로 먼저 | 실무의 일반적인 순서지만, 실제 손님이 없어 지켜볼 기간이 의미가 없다 |
+  | WAF를 bootstrap에 상시로 | 월 $11가 상시로 나간다. 지킬 CloudFront가 없는 시간에도 요금이 나간다 |
+
+- **결정:**
+  - 웹 ACL 하나를 앱 CloudFront에 붙인다. 규칙 6개: ① `POST /api/auth/login` · `register` IP당 5분 100건 ② 전체 IP당 5분 2,000건 ③ 핵심 규칙 세트 ④ 알려진 나쁜 입력 ⑤ Amazon IP 평판 목록 ⑥ SQL 데이터베이스. 모두 Block.
+  - global 루트에 두어 CloudFront와 함께 매일 만들고 지운다.
+- **근거:** 규칙마다 막는 위험이 [10 보안 점검 2절](10-security.md#2-위험별-점검)에 있다. 권한 · 업무 규칙은 WAF가 못 막아 코드가 1차 방어이고, WAF는 횟수 · 자동화 제한과 알려진 공격 모양의 2차 방어를 맡는다(심층 방어).
+- **결과:**
+  - 요금은 상시 기준 월 $11(웹 ACL $5 + 규칙 6개 × $1, 관리형 그룹도 하나에 1개)과 요청 100만 건당 $0.60이고, 시간 단위로 일할돼 켠 시간만 낸다. 크레딧 적용 여부는 처음 쓴 다음 날 비용 탐색기로 확인한다.
+  - WCU 약 1,140으로 기본 1,500 안이다(plan에서 실제 값 확인).
+  - 한도 값(100 · 2,000)은 가설이다. apply 뒤 [10 5절](10-security.md#5-apply-뒤-확인할-것)의 정상 흐름(한글 리뷰 포함)과 차단 시험으로 확인한다.
+  - 3단계 k6 부하 시험은 EC2 IP 하나에서 보내 ②에 걸린다. 그때 시험 IP 예외를 정한다.
+  - 사진 CloudFront에도 같은 웹 ACL을 붙이되 요청 수 한도는 따로 둔다([ADR-035](#adr-035), 사진 작업 때).
+
+<details>
+<summary>확인한 근거와 메모</summary>
+
+- 요금과 일할 계산, 1,500 WCU 초과분 요금: [WAF 요금](https://aws.amazon.com/waf/pricing/). 그룹별 WCU와 규칙 내용: [기본 규칙 그룹](https://docs.aws.amazon.com/waf/latest/developerguide/aws-managed-rule-groups-baseline.html) · [용도별 규칙 그룹](https://docs.aws.amazon.com/waf/latest/developerguide/aws-managed-rule-groups-use-case.html) · [IP 평판](https://docs.aws.amazon.com/waf/latest/developerguide/aws-managed-rule-groups-ip-rep.html).
+- 요청 수 제한 최소 10, 평가 기간 1 · 2 · 5 · 10분: [요청 수 규칙](https://docs.aws.amazon.com/waf/latest/developerguide/waf-rule-statement-type-rate-based-high-level-settings.html).
+- 정액 요금제의 VPC Origin 지원 범위: [정액 요금제](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/flat-rate-pricing-plan.html).
+
+</details>
+
+<a name="adr-051"></a>
+## ADR-051 CloudFront 캐시는 앱이 붙인 Cache-Control을 따르고, `/api/*`는 보관하지 않음
+
+- **상황:** global 준비(2026-11-15). 앱은 이미 응답마다 보관 규칙(`Cache-Control`)을 붙인다: 이름에 해시가 붙은 JS · CSS는 1년(`immutable`), JS · CSS의 새 이름이 적힌 `index.html`과 화면 주소는 쓸 때마다 확인(`no-cache`)([ADR-013](#adr-013)). CloudFront가 이 규칙을 따를지, 자기 규칙을 쓸지 정해야 한다.
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | 기본 경로에 `CachingOptimized`(흔한 기본값) | 최소 TTL이 1초라 `no-cache`를 무시하고 1초 보관한다. 배포 직후 옛 `index.html`이 나갈 수 있어 앱의 의도와 다르다 |
+  | 모든 경로 `CachingDisabled` | 바뀌지 않는 JS · CSS까지 매번 서버로 가서 캐시 이득이 없다 |
+  | 캐시 정책을 직접 만들기 | 관리형 정책으로 충분하고 관리할 것만 늘어난다 |
+
+- **결정:**
+  - 기본 경로(화면 파일): 관리형 `UseOriginCacheControlHeaders`(최소 0초 · 기본 0초 · 최대 1년). 앱이 붙인 규칙을 그대로 따른다.
+  - `/api/*`: `CachingDisabled` + 원본 요청 정책 `AllViewerExceptHostHeader`(손님의 헤더 · 쿼리를 Host만 빼고 전달). 보관하지 않고 통로로만 쓴다.
+  - 배포 때 캐시 무효화(invalidation)는 하지 않는다.
+- **근거:** 무엇을 얼마나 보관할지는 파일 이름의 해시를 아는 앱이 정하고, CDN은 따른다. API 응답은 사람마다 다르다(내 예약, 남은 객실). 보관하면 남의 정보가 다른 손님에게 나가거나 이미 팔린 객실이 남은 것처럼 보인다. 앱은 Host 헤더를 쓰지 않는다.
+- **결과:**
+  - JS · CSS는 새 이름으로 배포되므로 무효화 없이도 새 버전이 나간다. `index.html`은 매번 원본에 확인하고, 바뀌지 않았으면 304로 짧게 끝난다.
+  - 앱이 규칙을 잘못 붙이면 CloudFront도 그대로 잘못 보관한다. 앱 테스트([static.test.ts](https://github.com/yubin05/hotel-booking-app/blob/7e498d5/test/static.test.ts))가 세 가지 규칙을 검사한다.
+  - **가설:** 문서 표에는 "GET · HEAD 요청은 `Authorization` 헤더를 지우고 원본에 보낸다"고 적혀 있다. 모든 손님 헤더를 전달하는 정책이 이 동작을 덮는지는 확인하지 못했다. apply 뒤 토큰을 넣은 `GET /api/auth/profile`이 200인지 확인하고, 안 되면 `/api/*` 정책을 바꾼다.
+
+<details>
+<summary>확인한 근거와 메모</summary>
+
+- 관리형 캐시 정책의 TTL · 캐시 키: [관리형 캐시 정책](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-cache-policies.html). 최소 TTL이 0보다 크면 `no-cache`가 있어도 최소 TTL만큼 보관: [만료](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Expiration.html).
+- 원본 요청 정책: [관리형 원본 요청 정책](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-origin-request-policies.html). GET · HEAD의 `Authorization`: [요청 · 응답 동작](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/RequestAndResponseBehaviorCustomOrigin.html).
+- `no-cache`는 보관 금지가 아니라 "쓰기 전에 원본에 확인": [MDN Cache-Control](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control).
+
+</details>
+
+<a name="adr-052"></a>
+## ADR-052 global 루트는 서울과 함께 매일 만들고 지움 (올릴 때 seoul → global, 내릴 때 global → seoul)
+
+- **상황:** global 준비(2026-11-15). 서울은 쓸 때만 올리고 끝나면 지운다([03 비용 운영](03-plan.md#비용-운영)). global에는 앱 CloudFront, VPC Origin, WAF, 인증서(us-east-1), Route 53 레코드가 들어간다.
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | 인증서 · WAF · 캐시 정책은 bootstrap에 상시, 통로 · CloudFront · 레코드만 매일 | 인증서 검증 몇 분을 아끼지만, 지킬 대상이 없는 시간에도 WAF 월 $11가 나가고 us-east-1을 다루는 루트가 둘이 된다 |
+  | global 전체를 상시 | VPC Origin이 서울 ALB를 가리키므로 서울 없이 혼자 있을 수 없다 |
+
+- **결정:** global 전체를 서울과 함께 매일 만들고 지운다. 올릴 때는 seoul → global, 내릴 때는 global → seoul.
+- **근거:** WAF는 시간 단위로 일할되어 켠 시간만 낸다([ADR-050](#adr-050)). 레코드가 자원과 같은 수명을 가져야 남은 레코드를 남이 차지하는 일이 없다([ADR-048](#adr-048)). VPC Origin은 서울 서브넷에 통로(ENI)와 보안 그룹을 만들므로 서울보다 먼저 지워야 한다(서울을 먼저 지우면 VPC 삭제가 막힌다는 것은 가설, 첫 destroy 때 확인).
+- **결과:** 매일 apply가 길어진다. VPC Origin은 문서상 Deployed까지 최대 15분이고, 여기에 CloudFront 배포와 인증서 검증이 더해진다. 실제 시간은 apply 때 VPC Origin · CloudFront · 인증서별로 나눠 잰다.
+
+<details>
+<summary>확인한 근거와 메모</summary>
+
+- VPC Origin 최대 15분: [VPC Origin](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-vpc-origins.html). WAF 일할 계산: [WAF 요금](https://aws.amazon.com/waf/pricing/).
+
+</details>
+
+<a name="adr-053"></a>
+## ADR-053 global용 평소 권한은 세 번째 고객 관리형 정책 `operator-edge`로 나눔
+
+- **상황:** global 준비(2026-11-15). 평소 사용자는 고객 관리형 정책 `operator-v2`로 apply한다([ADR-038](#adr-038)). global에는 CloudFront · WAF · 인증서(ACM) · Route 53 레코드 권한이 새로 필요한데, `operator-v2`는 이미 5,062자로 한도 6,144자에 가깝다.
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | `operator-v2`에 넣고 `cloudfront:*`처럼 와일드카드로 줄이기 | 필요 없는 액션까지 열려 최소 권한이 깨지고, 그래도 한도를 넘을 수 있다 |
+  | global만 관리자 역할로 apply | 매일 관리자 권한을 쓰게 되어 실수 하나가 계정 전체에 영향을 준다([ADR-018](#adr-018)) |
+
+- **결정:** 엣지 서비스(손님과 맞닿은 CloudFront · WAF · ACM · Route 53) 권한만 담은 `hotel-booking-aws-v2-operator-edge`를 bootstrap에서 만들고, `attach_operator_edge`로 평소 그룹에 붙인다. 2단계 동안 `operator-v2`와 함께 붙인다.
+- **근거:** ADR-038에서 "v2 정책이 커지면 `-edge`처럼 더 나눈다"고 정해 둔 방식이다. 정책마다 6,144자, 그룹당 10개라 여유가 있고, 단계별로 붙였다 뗄 수 있다.
+- **결과:** 정책을 만들고 붙이는 bootstrap 관리자 apply가 한 번 필요하다. 액션과 리소스 범위는 global 코드를 쓰며 정한다(리소스 이름이 정해진 뒤 ARN으로 제한).
+
+<details>
+<summary>확인한 근거와 메모</summary>
+
+- 정책 크기 · 개수 한도: [IAM 한도](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_iam-quotas.html). 기존 `operator-v2` 길이는 2026-11-15 기준 5,062자.
 
 </details>

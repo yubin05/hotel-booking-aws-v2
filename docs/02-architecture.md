@@ -117,8 +117,8 @@ terraform apply는 사람이 실행 (인프라 변경은 자동 적용하지 않
 
 - 비밀값(DB 비밀번호, JWT 서명 키)은 Secrets Manager에 둡니다. 저장소에는 예시 파일만 둡니다.
 - IAM: ECS 태스크 실행 역할과 태스크 역할을 나누고, GitHub OIDC 역할은 이 저장소와 브랜치로 제한합니다.
-- WAF(CloudFront에 연결): 요청 수 제한 규칙과 AWS 관리형 기본 규칙 세트.
-- CloudFront와 ALB 사이 구간을 HTTP로 둘지 HTTPS로 둘지는 PoC 후 정합니다.
+- WAF(CloudFront에 연결): 로그인 · 가입 전용과 전체, 두 가지 요청 수 제한 + AWS 관리형 규칙 4개. 앱의 약점에서 골랐습니다([10 보안 점검](10-security.md), [ADR-050](04-decisions.md#adr-050)).
+- CloudFront와 ALB 사이 구간도 HTTPS로 둡니다(ALB에 리전별 인증서). ALB는 VPC Origin 전용 보안 그룹에서 오는 443만 받습니다([ADR-049](04-decisions.md#adr-049)).
 
 ## 7. 관측과 비용 통제
 

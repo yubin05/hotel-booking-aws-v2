@@ -168,6 +168,7 @@ flowchart LR
 | [트러블슈팅](docs/troubleshooting/README.md) | 재현 → 원인 → 해결 → 검증 기록 |
 | [08 실제 사례 조사](docs/08-real-cases.md) | 시나리오·결정의 근거가 된 실제 기업 사례와 신뢰도 |
 | [09 비용 추정](docs/09-cost-estimate.md) | v1·v2 월 고정 비용, 단계별 예상, Budgets 금액 |
+| [10 보안 점검과 WAF](docs/10-security.md) | 앱의 약점 점검, 그에 맞춘 WAF 구성, WAF로 못 막는 것 |
 | [1단계 이전 환경 올리기](https://github.com/yubin05/hotel-booking-app/blob/main/legacy/README.md) (고객사 저장소) | 새 PC 준비, legacy 권한 붙이기, 매일 apply → 앱 배포 → destroy 명령 |
 | [부하 시험](load/README.md) | 이관 전 기준선 · 이관 후 비교를 재는 방법 (인프라팀) |
 
