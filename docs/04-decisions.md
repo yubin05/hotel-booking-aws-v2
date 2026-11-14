@@ -50,6 +50,7 @@
 | [044](#adr-044) | 스키마 태스크는 RDS 관리자로 적용하고 앱 계정은 읽기 · 쓰기만, 배포마다 실행해도 같은 결과(IF NOT EXISTS), 시드 · 운영 규모 데이터는 빈 DB에만 |
 | [045](#adr-045) | DB 접속은 TLS로 하고 앱이 RDS 인증서 · 주소까지 확인, RDS는 암호화하지 않은 접속을 거부 |
 | [046](#adr-046) | CD 2부: CI가 테스트 통과 뒤 CD를 불러내고(재사용 워크플로), 배포 단계는 AWS CLI, 스키마 태스크 로그는 CD 화면에 |
+| [047](#adr-047) | 워크플로의 외부 액션은 커밋 해시로 고정하고 Dependabot이 갱신 PR을 만든다 |
 
 ---
 
@@ -178,10 +179,26 @@
 <a name="adr-010"></a>
 ## ADR-010 CI/CD: GitHub Actions + ECS 롤링 + 자동 롤백
 
-- **검토한 대안:** CodePipeline + CodeBuild + CodeDeploy Blue/Green(v1), GitHub Actions.
-- **결정:** GitHub Actions, ECS 롤링 배포, 배포 circuit breaker 자동 롤백.
-- **근거:** 앱이 1개라 롤링으로 충분하다. 실패한 배포는 자동으로 되돌아간다. OIDC로 장기 액세스 키를 저장하지 않는다. 코드와 실행 기록이 한곳에 있다. v1에서 개발 초반에 파이프라인이 없어 배포가 어려웠던 경험을 반영해 처음부터 연결한다.
-- **결과:** 트래픽 일부만 먼저 보내는 카나리나 Blue/Green은 없다.
+- **상황:** 고객사 개발팀은 이미 GitHub에서 코드를 관리하고 GitHub Actions로 CI를 돌린다([ADR-043](#adr-043) 시나리오). 우리(인프라팀)가 맡은 이관 범위는 인프라다.
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | CodePipeline + CodeBuild + CodeDeploy Blue/Green(v1 방식) | 고객사가 쓰던 도구와 일하는 방식을 바꿔야 해서 이관 범위가 개발 프로세스까지 커진다. 파이프라인 · 빌드 시간만큼 추가 과금된다(공개 저장소의 Actions 표준 러너는 무료, [ADR-043](#adr-043)). 아래 "다시 볼 조건"에 해당하지 않는다 |
+  | Blue/Green · 카나리 | 앱이 1개이고 실패하면 자동으로 되돌아가므로 롤링으로 충분하다 |
+
+- **결정:** GitHub Actions(CI · CD 모두 고객사 저장소, 배포 권한은 인프라팀 bootstrap이 OIDC 역할로 관리), ECS 롤링 배포, 배포 circuit breaker 자동 롤백.
+- **근거:**
+  - 고객사가 이미 쓰는 도구를 그대로 둬 이관 범위를 인프라로 한정한다(바꿀 이유가 없으면 고객 프로세스는 바꾸지 않는다).
+  - 비용: 공개 저장소 표준 러너는 무료다.
+  - 코드 · PR · CI · 배포 기록이 한곳(GitHub)에 있다.
+  - v1은 개발 초반에 파이프라인이 없어 배포가 어려웠다. 그래서 처음부터 연결한다.
+  - 자동 롤백(circuit breaker)과 장기 키 없는 인증(OIDC)은 Code 시리즈에서도 되므로, 도구를 고른 이유가 아니라 이 결정에 딸린 설정이다.
+- **다시 볼 조건(Code 시리즈가 맞는 경우):** 소스 · 빌드 산출물이 AWS 밖으로 나가면 안 되는 규정, GitHub에 AWS 권한(OIDC 신뢰)을 열 수 없는 보안 정책, "배포는 AWS 안에서 · 기록은 CloudTrail 한곳"이 사내 표준인 경우, 트래픽을 나눠 옮기는 Blue/Green · 카나리가 필요해질 때.
+- **결과:**
+  - 트래픽 일부만 먼저 보내는 카나리나 Blue/Green은 없다.
+  - 외부 액션은 공급망 위험이 있어 커밋 해시로 고정하고 Dependabot으로 갱신한다([ADR-047](#adr-047)).
+  - 2026-11-14 근거를 고쳐 썼다. 처음에는 "롤백 · OIDC"를 근거로 적었는데 둘 다 도구와 상관없이 되는 것이라, 고객사 기존 도구 유지 · 비용 · 기록 한곳으로 바꿨다.
 
 <a name="adr-011"></a>
 ## ADR-011 Terraform: 작은 범용 모듈 없이, regional만 모듈 + 리전별 루트
@@ -1030,5 +1047,34 @@
 - `workflow_run`으로 시작한 워크플로는 앞 워크플로가 못 가진 비밀값 · 쓰기 토큰에 접근할 수 있다([이벤트 문서](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run), 요약으로 읽음).
 - ECS 권한의 리소스 타입: [서비스 권한 목록 JSON](https://servicereference.us-east-1.amazonaws.com/v1/ecs/ecs.json)에서 `DescribeTaskDefinition`은 리소스 없음, `RegisterTaskDefinition` · `RunTask`는 `task-definition`, `DescribeTasks`는 `task`, `UpdateService` · `DescribeServices`는 `service`. 로그 `GetLogEvents`는 `log-stream`([logs JSON](https://servicereference.us-east-1.amazonaws.com/v1/logs/logs.json)).
 - 워크플로 문법 · 셸은 actionlint 1.7.7(shellcheck 포함)로 검사해 문제 없음.
+
+</details>
+
+<a name="adr-047"></a>
+## ADR-047 워크플로의 외부 액션은 커밋 해시로 고정하고 Dependabot이 갱신 PR을 만든다
+
+- **상황:** 2026-11-14. CD job은 AWS 배포 역할(ECR push, 레시피 등록, 관리자 비밀번호를 받는 스키마 태스크 실행)을 받는다([ADR-046](#adr-046)). 외부 액션을 태그(`@v6`)로 부르면, 액션 저장소가 털렸을 때 태그가 악성 커밋으로 옮겨져 다음 실행에 그대로 들어온다. 앱 저장소가 공개라 Actions 로그도 공개다.
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | 태그 유지 | 2025-03 `tj-actions/changed-files` 사건처럼 기존 버전 태그가 악성 커밋으로 옮겨지면 막을 수 없다 |
+  | 해시 고정만 | 새 버전 · 보안 패치를 따라가려면 사람이 해시를 찾아 바꿔야 해서 결국 오래된 버전에 머문다 |
+  | 외부 액션을 안 쓰고 CLI로만 | checkout · 자격 증명 처리를 다시 구현해야 하고, 그쪽 실수가 더 위험하다 |
+
+- **결정:**
+  - `actions/checkout` · `actions/setup-node` · `aws-actions/configure-aws-credentials` · `aws-actions/amazon-ecr-login`을 그날 쓰던 태그가 가리키던 커밋 해시로 고정하고 버전을 주석으로 단다(`@<해시> # v6.3.0`). 같은 코드라 동작은 바뀌지 않는다.
+  - 고객사 저장소에 `.github/dependabot.yml`(github-actions, 매주)을 두어 새 버전이 나오면 해시를 바꾸는 PR을 받는다. PR은 CI만 돌고, 배포는 병합(main push) 때 된다.
+- **근거:** 해시는 내용의 지문이라 바꿔치기하려면 SHA-1 충돌을 만들어야 한다. GitHub 가이드도 믿을 만한 만든이의 태그라도 *"a tag can be moved or deleted if a bad actor gains access to the repository"* 라고 한다.
+- **결과:**
+  - 고정한 해시: checkout v5.1.0 `fbc6f39…`, setup-node v5.0.0 `a0853c2…`, configure-aws-credentials v6.3.0 `e125382…`, amazon-ecr-login v2.1.7 `03f1aad…` (`git ls-remote --tags`로 태그가 가리키는 커밋을 확인).
+  - OIDC라 훔쳐 갈 수 있는 자격 증명은 그 job 동안만 유효한 임시 자격 증명뿐이지만, 그 시간 안에 배포는 할 수 있으므로 고정이 필요하다.
+  - npm 패키지는 Dependabot에 넣지 않았다(PR이 많아짐). 공급망 대응은 lock 파일(`npm ci`)까지이고, npm 보안 업데이트 PR은 후속 후보다.
+
+<details>
+<summary>확인한 근거와 메모</summary>
+
+- GitHub 보안 가이드: *"Pin actions to a full-length commit SHA"*, *"they would need to generate a SHA-1 collision for a valid Git object payload"*, 태그는 *"Pin actions to a tag only if you trust the creator"*([보안 가이드](https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions)). 가이드는 이보다 앞서 워크플로 의존성 lockfile을 권하는데, 그 기능의 세부는 확인하지 못했다.
+- `tj-actions/changed-files`: *"Attackers retroactively modified multiple version tags to reference a malicious commit, exposing CI/CD secrets in workflow logs."* 2025-03-14 ~ 15, 2만 3천 개 넘는 저장소([GHSA-mrrh-fwg8-r2c3](https://github.com/advisories/GHSA-mrrh-fwg8-r2c3)).
 
 </details>
