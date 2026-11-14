@@ -772,6 +772,7 @@
   - destroy 뒤 다시 apply하면 서비스는 Terraform의 첫 리비전으로 뜬다. 최신 이미지는 CD를 한 번 돌려 맞춘다(재현성 확인 때 절차로 정리).
   - 배포 역할에 읽기 권한 `ecs:DescribeTaskDefinition`을 더해야 한다(CD 덩어리 때 bootstrap에 반영).
   - 리전마다 다른 값(이미지 주소의 ECR, 로그 리전, 비밀값 ARN)은 모듈이 리전을 읽어 채운다. 도쿄 복원 때 tokyo 루트가 같은 모듈로 도쿄에 태스크 정의를 등록하고, CD는 그것을 읽는다.
+  - 2026-11-14 변경 메모: 처음 apply할 이미지를 루트 변수(`image_tag`)로 적지 않고, 모듈이 그 리전 ECR에서 가장 최근에 push된 이미지(`aws_ecr_image`, `most_recent = true`)의 태그를 읽는다. 매일 destroy · apply하는 동안 번호를 손으로 바꾸지 않아도 되고, 옛 번호가 ECR 보관 한도(최근 10개)에서 밀려나 apply가 실패할 일도 없다. 버린 대안: 번호를 손으로 교체(이번 ③-b에서 스키마 태스크 때문에 바로 필요해졌고, 잊으면 옛 이미지로 뜬다). 데이터 소스는 `DescribeImages` · `DescribeRepositories`를 불러 평소 정책에 이 저장소 조회 권한을 더했다. `image_uri`는 지문(digest) 형식이라 쓰지 않고 태그로 주소를 만든다. 태그 없는 이미지가 가장 최근이면 plan이 멈춘다([provider 소스 v6.73.0](https://github.com/hashicorp/terraform-provider-aws/blob/v6.73.0/internal/service/ecr/image_data_source.go)).
 
 <details>
 <summary>확인한 근거와 메모</summary>
