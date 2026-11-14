@@ -54,11 +54,16 @@ resource "aws_lb_target_group" "app" {
   port                 = local.app_port
   protocol             = "HTTP"
   vpc_id               = aws_vpc.this.id
-  deregistration_delay = 30 # 교체 때 빠지는 태스크를 기다리는 시간 (기본 300초는 배포가 느려짐)
+  deregistration_delay = 10 # 빠지는 태스크의 처리 중 요청을 기다리는 시간. API는 길어도 3초(DB 시간 제한)라 10초면 충분 (ADR-046)
 
+  # 10초 간격 × 연속 2번이면 새 태스크는 약 20초 만에 "건강", 죽은 태스크도 약 20초 만에 빠짐 (기본 30초 × 3번은 배포가 느림)
   health_check {
-    path    = "/api/health" # DB를 보지 않는 가벼운 체크라 RDS 없이도 통과
-    matcher = "200"
+    path                = "/api/health" # DB를 보지 않는 가벼운 체크라 RDS 없이도 통과
+    matcher             = "200"
+    interval            = 10
+    timeout             = 5 # 간격보다 짧아야 함
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
   }
 }
 
