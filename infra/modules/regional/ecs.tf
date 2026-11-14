@@ -148,5 +148,5 @@ resource "aws_ecs_service" "app" {
     ignore_changes = [task_definition]
   }
 
-  depends_on = [aws_lb_listener.http] # 대상 그룹이 리스너에 붙은 뒤에 서비스를 만들어야 함
+  depends_on = [aws_lb_listener.https] # 대상 그룹이 리스너에 붙은 뒤에 서비스를 만들어야 함
 }

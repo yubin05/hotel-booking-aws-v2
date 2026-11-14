@@ -1,5 +1,5 @@
 # 내부 ALB: 인터넷 주소 없이 앱 서브넷에 둠. 손님은 CloudFront → VPC Origin으로만 들어옴 (ADR-035)
-# 입구(ALB 보안 그룹의 인바운드)는 global 루트에서 VPC Origin을 만들 때 연다
+# 입구(ALB 보안 그룹의 443 인바운드)는 global 루트에서 VPC Origin을 만든 뒤 연다 (ADR-049)
 
 resource "aws_security_group" "alb" {
   name        = "${local.name}-alb"
@@ -67,11 +67,46 @@ resource "aws_lb_target_group" "app" {
   }
 }
 
-# CloudFront → ALB 구간 HTTPS 여부는 global PoC 때 정함(02 6절). 지금은 VPC 안이라 HTTP
-resource "aws_lb_listener" "http" {
+# CloudFront → ALB도 HTTPS (ADR-049). CloudFront는 "원본 도메인 이름"으로 ALB 인증서를 확인하므로 우리 이름의 인증서를 ALB에 둔다
+# 서울 · 도쿄가 같은 이름을 써서, 리전을 바꿔도 CloudFront의 원본 이름은 그대로 (ADR-035)
+locals {
+  zone_name     = "vundle34.cloud" # bootstrap의 Route 53 영역 (ADR-048)
+  origin_domain = "origin.hotel.${local.zone_name}"
+}
+
+data "aws_route53_zone" "main" {
+  name = local.zone_name
+}
+
+resource "aws_acm_certificate" "origin" {
+  domain_name       = local.origin_domain
+  validation_method = "DNS"
+}
+
+# ACM이 알려 준 확인용 레코드를 영역에 넣으면 발급됨 (이 도메인의 주인인지 확인)
+resource "aws_route53_record" "origin_validation" {
+  for_each = { for o in aws_acm_certificate.origin.domain_validation_options : o.domain_name => o }
+
+  zone_id = data.aws_route53_zone.main.zone_id
+  name    = each.value.resource_record_name
+  type    = each.value.resource_record_type
+  records = [each.value.resource_record_value]
+  ttl     = 60
+}
+
+# 발급이 끝날 때까지 기다림. 리스너는 이것의 ARN을 써서 발급 뒤에 만들어짐
+resource "aws_acm_certificate_validation" "origin" {
+  certificate_arn         = aws_acm_certificate.origin.arn
+  validation_record_fqdns = [for r in aws_route53_record.origin_validation : r.fqdn]
+}
+
+# 입구(443 인바운드)는 global 루트가 VPC Origin을 만든 뒤 연다
+resource "aws_lb_listener" "https" {
   load_balancer_arn = aws_lb.this.arn
-  port              = 80
-  protocol          = "HTTP"
+  port              = 443
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06" # TLS 1.2 · 1.3만 허용
+  certificate_arn   = aws_acm_certificate_validation.origin.certificate_arn
 
   default_action {
     type             = "forward"

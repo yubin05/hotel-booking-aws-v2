@@ -307,6 +307,20 @@ locals {
 
   # v2 작업을 할 때만 true로 두고 관리자 역할로 apply (붙였다 떼기)
   attach_operator_v2 = true
+  # global 루트(CloudFront · WAF · 인증서 · Route 53 레코드)를 다룰 때. 2단계 동안 v2와 함께 (ADR-053)
+  attach_operator_edge = true
+}
+
+resource "aws_iam_policy" "operator_edge" {
+  name        = "${local.project_name}-operator-edge"
+  description = "Operator: edge services (CloudFront, WAF, ACM, Route 53 records under hotel)"
+  policy      = file("${path.module}/../iam/edge-operator-policy.json")
+}
+
+resource "aws_iam_group_policy_attachment" "operator_edge" {
+  count      = local.attach_operator_edge ? 1 : 0
+  group      = local.operator_group
+  policy_arn = aws_iam_policy.operator_edge.arn
 }
 
 resource "aws_iam_policy" "operator_v2" {
