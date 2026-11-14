@@ -203,6 +203,11 @@
         "rds:ModifyDBSubnetGroup",
         "rds:DescribeDBSubnetGroups",
         "rds:DescribeDBEngineVersions",
+        "rds:CreateDBParameterGroup",
+        "rds:ModifyDBParameterGroup",
+        "rds:DeleteDBParameterGroup",
+        "rds:DescribeDBParameterGroups",
+        "rds:DescribeDBParameters",
         "rds:AddTagsToResource",
         "rds:RemoveTagsFromResource",
         "rds:ListTagsForResource"
