@@ -60,7 +60,8 @@
         "StringEquals": {
           "aws:RequestedRegion": [
             "us-east-1",
-            "ap-northeast-2"
+            "ap-northeast-2",
+            "ap-northeast-1"
           ]
         }
       }

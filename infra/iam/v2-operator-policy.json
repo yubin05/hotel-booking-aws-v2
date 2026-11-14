@@ -50,7 +50,10 @@
       "Resource": "*",
       "Condition": {
         "StringEquals": {
-          "aws:RequestedRegion": "ap-northeast-2"
+          "aws:RequestedRegion": [
+            "ap-northeast-2",
+            "ap-northeast-1"
+          ]
         }
       }
     },
@@ -110,7 +113,10 @@
       "Resource": "*",
       "Condition": {
         "StringEquals": {
-          "aws:RequestedRegion": "ap-northeast-2"
+          "aws:RequestedRegion": [
+            "ap-northeast-2",
+            "ap-northeast-1"
+          ]
         }
       }
     },
@@ -137,7 +143,10 @@
       "Resource": "*",
       "Condition": {
         "StringEquals": {
-          "aws:RequestedRegion": "ap-northeast-2"
+          "aws:RequestedRegion": [
+            "ap-northeast-2",
+            "ap-northeast-1"
+          ]
         }
       }
     },
@@ -157,7 +166,10 @@
       "Resource": "*",
       "Condition": {
         "StringEquals": {
-          "aws:RequestedRegion": "ap-northeast-2"
+          "aws:RequestedRegion": [
+            "ap-northeast-2",
+            "ap-northeast-1"
+          ]
         }
       }
     },
@@ -179,7 +191,10 @@
         "secretsmanager:DescribeSecret",
         "secretsmanager:GetResourcePolicy"
       ],
-      "Resource": "arn:aws:secretsmanager:ap-northeast-2:248563009287:secret:hotel-booking-aws-v2/*"
+      "Resource": [
+        "arn:aws:secretsmanager:ap-northeast-2:248563009287:secret:hotel-booking-aws-v2/*",
+        "arn:aws:secretsmanager:ap-northeast-1:248563009287:secret:hotel-booking-aws-v2/*"
+      ]
     },
     {
       "Sid": "ReadEcrImages",
@@ -188,7 +203,10 @@
         "ecr:DescribeImages",
         "ecr:DescribeRepositories"
       ],
-      "Resource": "arn:aws:ecr:ap-northeast-2:248563009287:repository/hotel-booking-aws-v2"
+      "Resource": [
+        "arn:aws:ecr:ap-northeast-2:248563009287:repository/hotel-booking-aws-v2",
+        "arn:aws:ecr:ap-northeast-1:248563009287:repository/hotel-booking-aws-v2"
+      ]
     },
     {
       "Sid": "Rds",
@@ -215,7 +233,10 @@
       "Resource": "*",
       "Condition": {
         "StringEquals": {
-          "aws:RequestedRegion": "ap-northeast-2"
+          "aws:RequestedRegion": [
+            "ap-northeast-2",
+            "ap-northeast-1"
+          ]
         }
       }
     },
@@ -226,7 +247,10 @@
         "secretsmanager:CreateSecret",
         "secretsmanager:TagResource"
       ],
-      "Resource": "arn:aws:secretsmanager:ap-northeast-2:248563009287:secret:rds!*"
+      "Resource": [
+        "arn:aws:secretsmanager:ap-northeast-2:248563009287:secret:rds!*",
+        "arn:aws:secretsmanager:ap-northeast-1:248563009287:secret:rds!*"
+      ]
     },
     {
       "Sid": "DescribeDefaultKmsKey",
@@ -235,7 +259,10 @@
       "Resource": "*",
       "Condition": {
         "StringEquals": {
-          "aws:RequestedRegion": "ap-northeast-2"
+          "aws:RequestedRegion": [
+            "ap-northeast-2",
+            "ap-northeast-1"
+          ]
         }
       }
     }

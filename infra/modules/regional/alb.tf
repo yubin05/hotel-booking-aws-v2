@@ -92,6 +92,8 @@ resource "aws_route53_record" "origin_validation" {
   type    = each.value.resource_record_type
   records = [each.value.resource_record_value]
   ttl     = 60
+  # 서울 · 도쿄가 같은 이름의 인증서라 확인용 레코드가 같을 수 있음(가설). 겹치면 덮어씀
+  allow_overwrite = true
 }
 
 # 발급이 끝날 때까지 기다림. 리스너는 이것의 ARN을 써서 발급 뒤에 만들어짐
