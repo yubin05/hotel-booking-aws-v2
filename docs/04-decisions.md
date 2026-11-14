@@ -1165,12 +1165,13 @@
 
 - **결정:**
   - 손님 → CloudFront: HTTPS, **CloudFront → ALB: HTTPS**, ALB → 태스크: HTTP.
-  - ALB에 리전별 ACM 인증서 `origin.hotel.vundle34.cloud`(같은 Route 53 영역에서 DNS 검증)와 443 리스너를 둔다(regional 모듈, 도쿄도 같은 코드). CloudFront 원본 도메인 이름을 이 이름으로 하고 VPC Origin은 HTTPS만 쓴다.
+  - ALB에 리전별 ACM 인증서와 443 리스너를 둔다(regional 모듈, 같은 Route 53 영역에서 DNS 검증). 이름은 리전마다 다르게 `<리전>.origin.hotel.vundle34.cloud`(예: `ap-northeast-2.origin...`)이고, CloudFront 원본 도메인 이름은 `active_region`의 이름을 쓴다. VPC Origin은 HTTPS만 쓴다.
   - ALB 입구는 VPC Origin을 만들면 CloudFront가 우리 VPC에 만드는 `CloudFront-VPCOrigins-Service-SG`에서 오는 443만 허용한다(global 루트).
 - **근거:** 처음 추천은 HTTP(AWS 백본 · VPC 안이라 충분)였고, 사용자가 비밀번호 · 토큰 · 개인정보와 이후 결제를 이유로 HTTPS를 골랐다. AWS Well-Architected(SEC09-BP02)는 VPC 밖과 주고받는 민감 데이터는 암호화하고 VPC 안은 보안 요구에 따라 정하라고 한다. 엣지 → 우리 VPC는 경계를 넘는 구간이라 HTTPS, ALB → 태스크는 VPC 안이라 HTTP로 그 선에 맞췄다(우리 해석). 비용은 인증서 · 리스너 몇 개다. 문서는 서비스 보안 그룹 방식이 우리 배포의 트래픽만 받아 더 엄격하다고 하고, 지금의 보안 그룹 사슬(ALB → 앱 → DB 모두 보안 그룹 참조)과 같은 방식이다.
 - **결과:**
   - 서울 apply에 인증서 검증 대기가 더해진다(시간은 실측).
   - CloudFront는 원본 인증서의 이름이 원본 도메인 이름과 맞아야 연결한다(안 맞으면 502). VPC Origin에서 원본 도메인 이름을 ALB 주소 대신 우리 도메인으로 쓸 수 있는지는 가설이었다. 2026-11-15 첫 apply에서 `origin.hotel.vundle34.cloud`(DNS 레코드 없음)로 200 응답을 받아 **확인했다**. CloudFront 보안 그룹 이름 패턴(`CloudFront-VPCOrigins-Service-SG*`)으로 찾는 것도 됐다.
+  - **처음에는 두 리전이 같은 이름(`origin.hotel.vundle34.cloud`)을 썼다가 바꿨다(2026-11-15).** 같은 이름이면 인증서 확인 레코드도 같아서, 도쿄 apply가 그 레코드를 덮어쓰고 도쿄 destroy가 지우면서 서울 인증서의 확인 레코드까지 사라졌다(서울 destroy plan이 43이 아니라 42). 서울을 계속 켜 두고 도쿄만 올렸다 내리면 서울 인증서의 자동 갱신용 레코드가 없어지는 구조라, 레코드를 리전마다 따로 소유하도록 이름에 리전을 넣었다. 레코드를 bootstrap(상시)이 갖는 방법은 상시 인증서나 레코드 값을 미리 알아야 해서 버렸다.
   - 서비스 보안 그룹은 VPC Origin을 만든 뒤에 **따로(비동기로)** 생긴다(전환 PoC에서 65초 · 128초, 통로 "완료" 상태와 무관). 그래서 통로는 리전 루트에서 만들고, 입구 규칙은 나중에 apply하는 global 루트에 둔다([ADR-035](#adr-035) PoC 결과). 올릴 때 seoul → global, 내릴 때 global → seoul. 이 보안 그룹이 destroy 뒤 남아 VPC 삭제를 막는지는 destroy 때 확인한다.
   - 리전 전환 때 이 시간차를 없애려고 입구를 CloudFront IP 목록 방식으로 바꾸는 것을 다시 검토했지만, 가끔 있는 전환 때문에 평소에도 넓게 여는 것은 맞지 않아 그대로 서비스 보안 그룹을 쓴다(2026-11-15).
   - 다시 볼 조건: 실제 결제 연동이나 규정 때문에 ALB → 태스크 구간 암호화가 필요해지면 앱 컨테이너에 TLS를 넣는다.
@@ -1268,7 +1269,7 @@
 
 - **결정:** global 전체를 서울과 함께 매일 만들고 지운다. 올릴 때는 seoul → global, 내릴 때는 global → seoul.
 - **근거:** WAF는 시간 단위로 일할되어 켠 시간만 낸다([ADR-050](#adr-050)). 레코드가 자원과 같은 수명을 가져야 남은 레코드를 남이 차지하는 일이 없다([ADR-048](#adr-048)). global의 CloudFront와 입구 규칙이 서울 루트의 통로 · ALB 보안 그룹을 쓰므로 서울보다 먼저 지워야 한다.
-- **결과:** 매일 apply가 길어진다. VPC Origin은 문서상 Deployed까지 최대 15분이고, 여기에 CloudFront 배포와 인증서 검증이 더해진다. 2026-11-15 첫 global apply는 8개 12분 54초였다(자원별 시간은 기록하지 못함). 서울 apply는 ALB 인증서가 더해져도 9분 12초로 전과 같았다. 통로를 리전 루트로 옮긴 뒤로는 통로 생성 시간이 서울 apply 안으로 들어가고, global apply에서는 빠진다.
+- **결과:** 매일 apply가 길어진다. VPC Origin은 문서상 Deployed까지 최대 15분이고, 여기에 CloudFront 배포와 인증서 검증이 더해진다. 2026-11-15 첫 global apply는 8개 12분 54초였다(자원별 시간은 기록하지 못함). 서울 apply는 ALB 인증서가 더해져도 9분 12초로 전과 같았다. 통로를 리전 루트로 옮긴 뒤로는 통로 생성 시간이 서울 apply 안으로 들어가고, global apply에서는 빠진다. 새 구조의 destroy는 global 4분 26초, 서울 9분 18초(통로 삭제 대기로 3~4분 늘어남)였다(2026-11-15). 새 구조의 서울 · global apply 시간은 다음 apply에서 잰다.
 
 <details>
 <summary>확인한 근거와 메모</summary>
