@@ -947,6 +947,7 @@
   - 로컬 확인 2026-11-14(빈 MySQL 8.4 컨테이너, 실제 이미지): 1회차 시드 · 운영 규모 데이터 6.0초(숙소 1,010 · 객실 5,030 · 회원 20,003 · 예약 100,013 · 리뷰 50,013), 2회차는 건너뛰고 행 수 같음, 둘 다 종료 코드 0. 앱 계정은 `DROP TABLE`이 `ERROR 1142`로 거부되고 `FOR UPDATE`는 된다. 같은 이미지의 앱이 앱 계정으로 `/api/health/deep` = ok. 관리자 비밀번호가 틀리면 메시지 한 줄과 종료 코드 1.
   - 처음에는 시드를 "`INSERT IGNORE`라 두 번 넣어도 된다"고 보고 매번 넣었는데, 2회차가 중복 키(시드 회원)로 멈췄고 그 전에 객실이 30개 늘었다(5,030 → 5,060). 시드 객실 id가 `UUID()`라 `INSERT IGNORE`가 거르지 못한다. 그래서 시드도 빈 DB에만 넣게 바꿨다. 또 실패할 때 에러 객체 전체를 찍으면 실행한 SQL이 로그에 남아, 앱 계정 문장에서 실패하면 비밀번호가 CloudWatch에 평문으로 남을 수 있어 메시지만 찍게 했다.
   - 재검토 조건: 기존 테이블의 구조 변경(컬럼 추가 · 이름 변경)이 처음 필요해지면 개발팀이 버전 기록 방식이나 도구로 바꾼다. 롤링 교체 중에는 옛 앱과 새 앱이 같은 DB를 쓰므로 변경은 두 번에 나눈다(expand-contract, [ADR-031](#adr-031)).
+  - RDS 확인 2026-11-14(db.t4g.micro, 이미지 `33146c2`): 첫 실행 종료 코드 0, 시드 · 운영 규모 데이터 14.9초, 행 수는 로컬과 같다. 같은 날 앱 태스크 정의로 띄운 확인 태스크가 앱 계정으로 `/api/health/deep` = ok, `/api/hotels` 조회에 성공했다([03-plan](03-plan.md)).
   - 3단계 덤프 이관 날에는 이미 들어간 시드 · 운영 규모 데이터가 덤프와 키가 겹칠 수 있다. 그날 "스키마만" 실행할지는 3단계에서 정한다.
   - 옮기면서 고객사 legacy DB 서버의 user_data가 저장소 분리 전 경로(이 저장소의 `app/db` · `scripts`)에서 SQL을 받던 것을 함께 고쳤다. 그대로였다면 다음 legacy apply에서 404로 DB 준비가 실패했다.
 
@@ -957,7 +958,7 @@
 - JSON 키 하나 꺼내기: `arn:aws:secretsmanager:<리전>:<계정>:secret:<이름>:<json-key>:<version-stage>:<version-id>`(같은 문서). `kms:Decrypt`는 고객 관리 키일 때만 필요하다(*"Required only if your secret uses a customer managed key"*, [실행 역할](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_execution_IAM_role.html)). 실행 역할은 ECS · Fargate 에이전트가 쓰고, 컨테이너가 AWS를 부를 때 쓰는 건 태스크 역할이다([태스크 역할](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-iam-roles.html)). 이 서비스에는 태스크 역할이 없다.
 - MySQL 8.4: `CREATE TABLE IF NOT EXISTS`는 *"no verification that the existing table has a structure identical"*([CREATE TABLE](https://dev.mysql.com/doc/refman/8.4/en/create-table.html)). `CREATE USER IF NOT EXISTS`는 있으면 오류 대신 경고([CREATE USER](https://dev.mysql.com/doc/refman/8.4/en/create-user.html)). `SELECT ... FOR UPDATE`는 *"the SELECT privilege and at least one of the DELETE, LOCK TABLES, or UPDATE privileges"*([잠금 읽기](https://dev.mysql.com/doc/refman/8.4/en/innodb-locking-reads.html)).
 - RDS for MySQL 8.0.36 이상의 마스터는 `CREATE USER` 권한을 가진다. *"We strongly recommend that you do not use the master user directly in your applications."*([마스터 계정](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.MasterAccounts.html))
-- 가설(첫 실행으로 확인): RDS 관리 금고의 JSON 키 이름이 `password`인지(문서에 키 목록 없음), 마스터가 다른 계정에 `GRANT`할 수 있는지(문서에 GRANT OPTION 언급 없음), MySQL 8.4의 `require_secure_transport` 기본값(문서는 버전 없이 *"set to OFF"*, [SSL 필수](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/mysql-ssl-connections.require-ssl.html)).
+- 문서로 확인하지 못해 첫 실행으로 확인한 것(2026-11-14 모두 확인): RDS 관리 금고의 JSON 키 이름 `password`(문서에 키 목록 없음, 틀렸다면 컨테이너 시작 전에 비밀값 오류), 마스터가 다른 계정에 `GRANT`할 수 있는지(문서에 GRANT OPTION 언급 없음). `require_secure_transport` 기본값은 [ADR-045](#adr-045)에서 조회했다.
 
 </details>
 
@@ -984,7 +985,7 @@
 - **결과:**
   - 평소 사용자 정책에 파라미터 그룹 권한 5개(`Create` · `Modify` · `Delete` · `DescribeDBParameterGroups` · `DescribeDBParameters`)를 더했다. 서울 apply 리소스가 1개 늘어난다(파라미터 그룹).
   - 앱 저장소에 `aws-ssl-profiles`(mysql2가 이미 쓰던 1.1.2)를 직접 의존성으로 올렸다.
-  - 로컬 확인 2026-11-14(MySQL 8.4 컨테이너, `--require-secure-transport=ON`): 평문 접속은 서버가 `Connections using insecure transport are prohibited while --require_secure_transport=ON.`로 거부, RDS가 아닌 서버에 `DB_TLS=rds`로 붙으면 앱이 `self-signed certificate in certificate chain`으로 거부했다. RDS에서 실제로 통과하는지는 첫 apply의 스키마 태스크로 확인한다.
+  - 로컬 확인 2026-11-14(MySQL 8.4 컨테이너, `--require-secure-transport=ON`): 평문 접속은 서버가 `Connections using insecure transport are prohibited while --require_secure_transport=ON.`로 거부, RDS가 아닌 서버에 `DB_TLS=rds`로 붙으면 앱이 `self-signed certificate in certificate chain`으로 거부했다. RDS에서는 2026-11-14 스키마 태스크(관리자)와 앱 확인 태스크(앱 계정)가 모두 TLS로 붙었다. RDS가 평문을 거부하는 상태에서 접속에 성공했으므로 인증서 · 주소 확인을 통과한 것이다.
   - 인증서 묶음에는 서울 루트 인증서 RSA2048 G1(2061년까지) · RSA4096 G1 · ECC384 G1이 들어 있다. RDS가 인증서(CA)를 바꾸면 묶음 패키지를 올려야 한다.
 
 <details>
