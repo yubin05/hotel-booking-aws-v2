@@ -56,6 +56,7 @@ resource "aws_ecs_task_definition" "app" {
       { name = "DB_HOST", value = aws_db_instance.this.address },
       { name = "DB_NAME", value = aws_db_instance.this.db_name },
       { name = "DB_USER", value = "app" },
+      { name = "DB_TLS", value = "rds" }, # RDS 인증서 · 주소까지 확인하는 TLS 접속 (ADR-045)
     ]
 
     # 값이 아니라 금고 주소. ECS가 태스크를 띄울 때 꺼내 환경 변수로 넣음
@@ -95,6 +96,7 @@ resource "aws_ecs_task_definition" "migrate" {
       { name = "DB_HOST", value = aws_db_instance.this.address },
       { name = "DB_NAME", value = aws_db_instance.this.db_name },
       { name = "DB_ADMIN_USER", value = aws_db_instance.this.username },
+      { name = "DB_TLS", value = "rds" },
     ]
 
     secrets = [

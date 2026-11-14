@@ -22,6 +22,18 @@ resource "aws_db_subnet_group" "this" {
   subnet_ids = aws_subnet.db[*].id
 }
 
+# 우리 설정표: 암호화(TLS)하지 않은 접속은 DB가 거부 (ADR-045)
+# AWS 기본 설정표(default.mysql8.4)는 이 값이 비어 있어 MySQL 기본값 OFF가 적용됨 (2026-11-14 조회)
+resource "aws_db_parameter_group" "this" {
+  name   = local.name
+  family = "mysql8.4"
+
+  parameter {
+    name  = "require_secure_transport"
+    value = "1" # 동적 파라미터라 재부팅 없이 적용
+  }
+}
+
 resource "aws_db_instance" "this" {
   identifier     = local.name
   engine         = "mysql"
@@ -38,6 +50,7 @@ resource "aws_db_instance" "this" {
   manage_master_user_password = true
 
   multi_az               = var.db_multi_az # 설계는 켬, 포트폴리오는 평소 끔 (NAT와 같은 방식)
+  parameter_group_name   = aws_db_parameter_group.this.name
   db_subnet_group_name   = aws_db_subnet_group.this.name
   vpc_security_group_ids = [aws_security_group.db.id]
   publicly_accessible    = false
