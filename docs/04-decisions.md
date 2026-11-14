@@ -57,6 +57,7 @@
 | [051](#adr-051) | CloudFront 캐시는 앱이 붙인 Cache-Control을 따르고, `/api/*`는 보관하지 않음 |
 | [052](#adr-052) | global 루트는 서울과 함께 매일 만들고 지움 (올릴 때 seoul → global, 내릴 때 global → seoul) |
 | [053](#adr-053) | global용 평소 권한은 세 번째 고객 관리형 정책 `operator-edge`로 나눔 |
+| [054](#adr-054) | 로그인 실패는 입력한 이메일마다 DB에 세어, 15분 안에 5번 틀리면 15분 잠금 |
 
 ---
 
@@ -664,6 +665,21 @@
   - VPC Origin 자체는 추가 요금이 없다. 도쿄 리소스는 켜 둔 시간만큼 요금이 나간다.
   - 사진 CloudFront에도 WAF를 붙인다. 사진 요청 폭주는 요청·전송량 요금으로 이어진다. 웹 ACL 하나를 두 배포에 함께 붙일 수 있어 월 요금은 한 번이고([WAF 연결](https://docs.aws.amazon.com/waf/latest/developerguide/web-acl-associating-aws-resource.html)), 한 페이지에 사진이 수십 장이라 요청 수 한도는 앱과 따로 둔다. 쿼리 문자열은 캐시 키에서 빼 캐시를 우회해 S3로 몰리는 요청을 막는다. 네트워크 계층 DDoS는 Shield Standard가 추가 요금 없이 막는다.
   - 해외 손님 체감: 사진은 CloudFront가 손님 가까운 엣지에 복사본을 두어 그 엣지의 첫 요청만 서울 S3까지 간다. 예약(쓰기)은 서울 DB까지 가야 해서 CDN은 엣지의 HTTPS 처리와 AWS 백본 전송까지만 돕고 거리는 못 줄인다. 숙소가 한국에 있고 예약은 몇백 ms 늦어도 체감이 작아 받아들인다. 해외 비중이 커지면 쓰기를 여러 리전에서 받는 리전 확장이 필요하지만, 같은 객실 중복 예약을 막기가 매우 어려워지는 별도의 큰 결정이다.
+- **리전 전환 PoC 결과(2026-11-15): 서울 ↔ 도쿄 VPC Origin 전환이 손님 오류 0으로 되고, 최종 구조에서 손님이 넘어가기까지 약 1분 이하.** 원본 기록: [region-switch](experiments/region-switch/README.md), 시각과 숫자: [03 결과 표](03-plan.md) 2-3.
+
+  | 시도 | 구조 | 전환 apply | 손님이 넘어간 시점 | 오류 |
+  |---|---|---|---|---|
+  | 1차 서울 → 도쿄 | global이 리전을 바꿀 때 통로를 새로 만듦 | 17분 10초 | 시작 후 9분 42초 | 0 / 1,692 |
+  | 1차 도쿄 → 서울 | 같음 | 9분 3초(멈춘 뒤 다시 실행) | - | 0 / 1,133 |
+  | **2차 서울 → 도쿄** | **통로는 리전 루트에, global은 원본 · 입구만** | **1분 27초** | 시작 후 약 1분 | **0 / 103** |
+  | **2차 도쿄 → 서울** | 같음 | **1분 1초** | 시작 후 37초 | **0 / 74** |
+
+  - **처음 plan이 통로를 제자리 수정했다.** 통로의 대상 ALB는 제자리에서 바꿀 수 있어서, 그대로 두면 손님이 먼저 도쿄로 가고 도쿄 입구는 나중에 열려 끊긴다. 도쿄의 CloudFront 보안 그룹은 통로가 도쿄에 생겨야 만들어지기 때문이다. apply 전에 plan을 보고 멈췄고, `terraform_data` + `replace_triggered_by`로 교체를 강제했다. `create_before_destroy` · `depends_on`으로 "새 통로 · 새 입구 → 원본 교체 → 옛 것 삭제" 순서를 만들었다(1차).
+  - **CloudFront 보안 그룹은 통로와 따로(비동기로) 생긴다.** 1차 되돌리기에서 Terraform이 통로 "완료"(2분 6초) 직후 보안 그룹을 찾다 실패했다. CloudTrail상 보안 그룹은 **3초 뒤** 생겼다(도쿄 65초, 서울 128초 뒤). 원본 교체 전 단계에서 멈춰 손님 영향은 없었다. 같은 시간차는 매일 하는 global apply에도 있었다.
+  - 버린 대안: 5초마다 확인하는 스크립트(provisioner), 무조건 3분 대기(RTO +3분), ALB 입구를 CloudFront IP 목록(`com.amazonaws.global.cloudfront.origin-facing`)으로 열기, 보안 그룹이 생기면 Lambda가 입구 추가. IP 목록은 기다림이 없지만, **가끔 있는 전환 때문에 평소에도 모든 CloudFront 서버 IP를 허용하는 것은 맞지 않다**고 사용자가 판단했다(내부 ALB라 실제로 닿는 건 우리 통로뿐이라는 Claude의 해석이 있었지만, 넓은 허용 규칙은 감사 지적 대상이다). API에는 통로에 보안 그룹을 지정하는 칸이 없고, provider 이슈 [#40683](https://github.com/hashicorp/terraform-provider-aws/issues/40683)도 열려 있다.
+  - **최종(2차): 통로를 리전 루트(regional 모듈)에 리전과 같은 수명으로 둔다.** 리전 apply 동안 CloudFront가 보안 그룹을 만들어 두어, global은 plan 단계에서 바로 찾는다. 없으면 아무것도 바뀌기 전 plan에서 멈춘다. global은 `active_region`으로 그 리전 루트의 출력(통로 ID · VPC · ALB 보안 그룹)을 읽어 원본 교체와 입구만 다룬다. 실제 장애 때는 도쿄 통로 준비(이번에 9분 29초)가 도쿄 apply 안에서 RDS 복원과 겹친다(가설).
+  - 2차 서울 → 도쿄에서 응답 리전이 4초 동안 오락가락했다(CloudFront 설정이 엣지 서버마다 차례로 퍼지는 중으로 봄, 가설). 서울 입구를 반영이 끝난 뒤에 닫아 그 사이 요청도 정상이었다.
+  - 한계: 방식마다 왕복 1회, 한 엣지에서 1초 간격이다. 실제 서울 장애에서는 서울 API가 안 될 수 있어 "서울 입구 닫기"가 실패할 수 있다(원본 교체 뒤라 손님 영향은 없음, 가설). 정식 시간과 이 경우는 5단계 리전 복원 드릴에서 확인한다.
 - **재검토(2026-11-15): "국내 서비스인데 앱에도 CDN이 필요한가"** global을 만들기 전 사용자가 "사진만 CloudFront, 앱은 Public ALB면 되지 않나"라고 다시 물었다. 같은 질문이 면접에서 나올 수 있어 비용까지 비교했고, 결정은 유지한다.
 
   | 상시 기준 월 | 지금 설계 (앱 · 사진 CloudFront, Internal ALB) | 앱은 Public ALB, 사진만 CloudFront |
@@ -1154,8 +1170,9 @@
 - **근거:** 처음 추천은 HTTP(AWS 백본 · VPC 안이라 충분)였고, 사용자가 비밀번호 · 토큰 · 개인정보와 이후 결제를 이유로 HTTPS를 골랐다. AWS Well-Architected(SEC09-BP02)는 VPC 밖과 주고받는 민감 데이터는 암호화하고 VPC 안은 보안 요구에 따라 정하라고 한다. 엣지 → 우리 VPC는 경계를 넘는 구간이라 HTTPS, ALB → 태스크는 VPC 안이라 HTTP로 그 선에 맞췄다(우리 해석). 비용은 인증서 · 리스너 몇 개다. 문서는 서비스 보안 그룹 방식이 우리 배포의 트래픽만 받아 더 엄격하다고 하고, 지금의 보안 그룹 사슬(ALB → 앱 → DB 모두 보안 그룹 참조)과 같은 방식이다.
 - **결과:**
   - 서울 apply에 인증서 검증 대기가 더해진다(시간은 실측).
-  - CloudFront는 원본 인증서의 이름이 원본 도메인 이름과 맞아야 연결한다(안 맞으면 502). VPC Origin에서 원본 도메인 이름을 ALB 주소 대신 우리 도메인으로 쓸 수 있는지는 **가설**이다(AWS 블로그를 검색 결과로만 확인, 원문은 읽지 못함). apply 때 확인하고, 안 되면 HTTP로 되돌리고 이 ADR을 고친다.
-  - 서비스 보안 그룹은 VPC Origin을 만든 뒤에만 생겨 규칙은 global 루트에 둔다. 올릴 때 seoul → global, 내릴 때 global → seoul. 이 보안 그룹이 destroy 뒤 남아 서울 VPC 삭제를 막는지는 destroy 때 확인한다.
+  - CloudFront는 원본 인증서의 이름이 원본 도메인 이름과 맞아야 연결한다(안 맞으면 502). VPC Origin에서 원본 도메인 이름을 ALB 주소 대신 우리 도메인으로 쓸 수 있는지는 가설이었다. 2026-11-15 첫 apply에서 `origin.hotel.vundle34.cloud`(DNS 레코드 없음)로 200 응답을 받아 **확인했다**. CloudFront 보안 그룹 이름 패턴(`CloudFront-VPCOrigins-Service-SG*`)으로 찾는 것도 됐다.
+  - 서비스 보안 그룹은 VPC Origin을 만든 뒤에 **따로(비동기로)** 생긴다(전환 PoC에서 65초 · 128초, 통로 "완료" 상태와 무관). 그래서 통로는 리전 루트에서 만들고, 입구 규칙은 나중에 apply하는 global 루트에 둔다([ADR-035](#adr-035) PoC 결과). 올릴 때 seoul → global, 내릴 때 global → seoul. 이 보안 그룹이 destroy 뒤 남아 VPC 삭제를 막는지는 destroy 때 확인한다.
+  - 리전 전환 때 이 시간차를 없애려고 입구를 CloudFront IP 목록 방식으로 바꾸는 것을 다시 검토했지만, 가끔 있는 전환 때문에 평소에도 넓게 여는 것은 맞지 않아 그대로 서비스 보안 그룹을 쓴다(2026-11-15).
   - 다시 볼 조건: 실제 결제 연동이나 규정 때문에 ALB → 태스크 구간 암호화가 필요해지면 앱 컨테이너에 TLS를 넣는다.
 
 <details>
@@ -1193,7 +1210,7 @@
 - **결과:**
   - 요금은 상시 기준 월 $11(웹 ACL $5 + 규칙 6개 × $1, 관리형 그룹도 하나에 1개)과 요청 100만 건당 $0.60이고, 시간 단위로 일할돼 켠 시간만 낸다. 크레딧 적용 여부는 처음 쓴 다음 날 비용 탐색기로 확인한다.
   - WCU 약 1,140으로 기본 1,500 안이다(plan에서 실제 값 확인).
-  - 한도 값(100 · 2,000)은 가설이다. apply 뒤 [10 5절](10-security.md#5-apply-뒤-확인할-것)의 정상 흐름(한글 리뷰 포함)과 차단 시험으로 확인한다.
+  - 한도 값(100 · 2,000)은 가설이다. 2026-11-15 첫 확인 결과는 [10 5절](10-security.md#5-apply-뒤-확인할-것): 공격 모양 4종은 403, 한글 검색 · 리뷰 본문은 통과. 로그인 110건을 10초에 보내면 모두 통과하고 약 41초 뒤부터 403이었다. **요청 수 제한은 즉시 막지 않아** 그 사이 요청은 앱까지 가므로, 계정 단위 로그인 실패 제한(앱)이 여전히 필요하다([10 6절](10-security.md#6-후속-후보-보안-확장)).
   - 3단계 k6 부하 시험은 EC2 IP 하나에서 보내 ②에 걸린다. 그때 시험 IP 예외를 정한다.
   - 사진 CloudFront에도 같은 웹 ACL을 붙이되 요청 수 한도는 따로 둔다([ADR-035](#adr-035), 사진 작업 때).
 
@@ -1226,7 +1243,8 @@
 - **결과:**
   - JS · CSS는 새 이름으로 배포되므로 무효화 없이도 새 버전이 나간다. `index.html`은 매번 원본에 확인하고, 바뀌지 않았으면 304로 짧게 끝난다.
   - 앱이 규칙을 잘못 붙이면 CloudFront도 그대로 잘못 보관한다. 앱 테스트([static.test.ts](https://github.com/yubin05/hotel-booking-app/blob/7e498d5/test/static.test.ts))가 세 가지 규칙을 검사한다.
-  - **가설:** 문서 표에는 "GET · HEAD 요청은 `Authorization` 헤더를 지우고 원본에 보낸다"고 적혀 있다. 모든 손님 헤더를 전달하는 정책이 이 동작을 덮는지는 확인하지 못했다. apply 뒤 토큰을 넣은 `GET /api/auth/profile`이 200인지 확인하고, 안 되면 `/api/*` 정책을 바꾼다.
+  - 문서 표에는 "GET · HEAD 요청은 `Authorization` 헤더를 지우고 원본에 보낸다"고 적혀 있어, `AllViewerExceptHostHeader`가 이를 덮는지는 가설이었다. 2026-11-15 확인: 토큰을 넣은 `GET /api/auth/profile` · `/api/bookings` · `/api/coupons/mine`은 200, 토큰 없이는 401. 원본 요청 정책이 GET의 `Authorization`도 전달한다.
+  - 캐시 확인: `index.html`은 `no-cache`, JS는 1년이고 두 번째 요청이 `Hit from cloudfront`.
 
 <details>
 <summary>확인한 근거와 메모</summary>
@@ -1240,7 +1258,7 @@
 <a name="adr-052"></a>
 ## ADR-052 global 루트는 서울과 함께 매일 만들고 지움 (올릴 때 seoul → global, 내릴 때 global → seoul)
 
-- **상황:** global 준비(2026-11-15). 서울은 쓸 때만 올리고 끝나면 지운다([03 비용 운영](03-plan.md#비용-운영)). global에는 앱 CloudFront, VPC Origin, WAF, 인증서(us-east-1), Route 53 레코드가 들어간다.
+- **상황:** global 준비(2026-11-15). 서울은 쓸 때만 올리고 끝나면 지운다([03 비용 운영](03-plan.md#비용-운영)). global에는 앱 CloudFront, WAF, 인증서(us-east-1), ALB 입구 규칙, Route 53 레코드가 들어간다(VPC Origin은 처음 global에 두었다가 같은 날 리전 루트로 옮김, [ADR-035](#adr-035) PoC 결과).
 - **검토한 대안:**
 
   | 대안 | 버린 이유 |
@@ -1249,8 +1267,8 @@
   | global 전체를 상시 | VPC Origin이 서울 ALB를 가리키므로 서울 없이 혼자 있을 수 없다 |
 
 - **결정:** global 전체를 서울과 함께 매일 만들고 지운다. 올릴 때는 seoul → global, 내릴 때는 global → seoul.
-- **근거:** WAF는 시간 단위로 일할되어 켠 시간만 낸다([ADR-050](#adr-050)). 레코드가 자원과 같은 수명을 가져야 남은 레코드를 남이 차지하는 일이 없다([ADR-048](#adr-048)). VPC Origin은 서울 서브넷에 통로(ENI)와 보안 그룹을 만들므로 서울보다 먼저 지워야 한다(서울을 먼저 지우면 VPC 삭제가 막힌다는 것은 가설, 첫 destroy 때 확인).
-- **결과:** 매일 apply가 길어진다. VPC Origin은 문서상 Deployed까지 최대 15분이고, 여기에 CloudFront 배포와 인증서 검증이 더해진다. 실제 시간은 apply 때 VPC Origin · CloudFront · 인증서별로 나눠 잰다.
+- **근거:** WAF는 시간 단위로 일할되어 켠 시간만 낸다([ADR-050](#adr-050)). 레코드가 자원과 같은 수명을 가져야 남은 레코드를 남이 차지하는 일이 없다([ADR-048](#adr-048)). global의 CloudFront와 입구 규칙이 서울 루트의 통로 · ALB 보안 그룹을 쓰므로 서울보다 먼저 지워야 한다.
+- **결과:** 매일 apply가 길어진다. VPC Origin은 문서상 Deployed까지 최대 15분이고, 여기에 CloudFront 배포와 인증서 검증이 더해진다. 2026-11-15 첫 global apply는 8개 12분 54초였다(자원별 시간은 기록하지 못함). 서울 apply는 ALB 인증서가 더해져도 9분 12초로 전과 같았다. 통로를 리전 루트로 옮긴 뒤로는 통로 생성 시간이 서울 apply 안으로 들어가고, global apply에서는 빠진다.
 
 <details>
 <summary>확인한 근거와 메모</summary>
@@ -1278,5 +1296,38 @@
 <summary>확인한 근거와 메모</summary>
 
 - 정책 크기 · 개수 한도: [IAM 한도](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_iam-quotas.html). 기존 `operator-v2` 길이는 2026-11-15 기준 5,062자.
+
+</details>
+
+<a name="adr-054"></a>
+## ADR-054 로그인 실패는 입력한 이메일마다 DB에 세어, 15분 안에 5번 틀리면 15분 잠금
+
+- **상황:** global 실측(2026-11-15)에서 WAF 로그인 한도(IP당 5분 100번)는 약 41초 늦게 걸려 그 사이 110건이 통과했다. IP 단위라 IP를 바꿔 가며 한 계정을 노리는 공격도 못 막는다([10 보안 점검](10-security.md) 4 · 5). 앱에는 로그인 시도 제한이 없었다.
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | 실패할수록 대기를 2배로(지수 대기) | 정상 손님 영향은 가장 작지만 구현이 더 복잡하고, 막힌 손님이 이유를 알기 어렵다 |
+  | 영구 잠금 후 관리자 해제 | 비밀번호 찾기 기능이 없어 남이 일부러 잠그면 손님이 스스로 풀 방법이 없다 |
+  | 실제 회원 ID로 세기 | 없는 계정은 안 잠겨, "잠겼다"는 응답이 곧 "회원이다"가 된다(회원 여부 노출) |
+  | 잠겨도 401과 같은 문구 | 정보 노출은 가장 적지만 정상 손님이 잠긴 줄 모르고 계속 시도한다 |
+  | 앱 메모리 · Redis | 메모리는 태스크 2개가 따로 세어 한도가 2배이고 배포 때 초기화된다. Redis는 서비스가 늘어나 이 양에는 과하다([ADR-014](#adr-014)와 같은 원칙) |
+
+- **결정:** 입력한 이메일(소문자)마다 새 표 `login_failures`에 실패를 센다(없는 계정 포함). 15분 안에 5번 틀리면 15분 잠그고 429 "로그인 시도가 너무 많습니다. 15분 뒤 다시 시도해주세요."를 준다. 잠긴 동안은 비밀번호 확인(scrypt)을 하지 않고, 로그인에 성공하면 기록을 지운다. 숫자(5번 · 15분 · 15분)는 가설값이다.
+- **근거:** OWASP는 실패 횟수를 IP가 아니라 계정에 묶고, 잠금은 남이 일부러 잠그는 공격에 쓰이지 않게 조심하며, 계정이 없을 때 · 틀렸을 때 · 잠겼을 때 응답으로 회원 여부가 드러나지 않게 하라고 한다. 없는 계정도 똑같이 잠그므로 429를 줘도 회원 여부가 드러나지 않는다. NIST 800-63B-4는 연속 실패를 100번 이하로 제한하고 성공하면 지난 실패를 지우라고 한다. 쿼리는 기본 키 조회 · 갱신 1~2번이라 가볍고, 공격 중에는 scrypt를 건너뛰어 앱 부담이 오히려 준다.
+- **결과:**
+  - 남이 15분마다 5번씩 틀려 특정 계정을 계속 잠그는 공격은 여전히 가능하다. 비밀번호 찾기나 MFA가 생기면 다시 본다.
+  - 여러 계정에 유출 비밀번호를 넣는 공격(크리덴셜 스터핑)에는 계정 잠금이 잘 안 통한다. OWASP가 권하는 대책은 MFA다(범위 밖).
+  - 없는 이메일을 마구 넣으면 기록 행이 늘어난다. WAF 한도가 증가 속도를 막고, 만료된 행은 다시 쓰일 때 덮어쓴다.
+  - 시험 5개(5번 틀리면 6번째 429, 성공하면 초기화, 없는 계정도 잠김, 대소문자 같은 계정, 시간이 지나면 풀림)를 CI가 실제 MySQL로 돌린다.
+  - 회원가입은 "이미 사용 중인 이메일"(409)로 회원 여부를 알려 준다. 흔한 절충이라 이번 범위 밖이다([10 6절](10-security.md#6-후속-후보-보안-확장)).
+
+<details>
+<summary>확인한 근거와 메모</summary>
+
+- [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html): *"The counter of failed logins should be associated with the account itself, rather than the source IP address"*, 잠금 기준 세 가지(lockout threshold · observation window · lockout duration, 숫자는 없음, 고정 잠금 예시 "ten minutes"), DoS 주의, 일반화된 오류 메시지.
+- [NIST SP 800-63B-4](https://pages.nist.gov/800-63-4/sp800-63b.html) 3.2.2: 연속 실패 *"no more than 100"*, 낮춰도 됨, 성공하면 지난 실패를 무시.
+- [OWASP Credential Stuffing Prevention](https://cheatsheetseries.owasp.org/cheatsheets/Credential_Stuffing_Prevention_Cheat_Sheet.html): MFA가 가장 좋은 대책, IP 차단만으로는 부족.
+- 실무 예: Ruby Devise `lockable`(회원 표에 실패 횟수), django-axes(DB에 시도 기록).
 
 </details>
