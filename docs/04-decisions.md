@@ -58,6 +58,7 @@
 | [052](#adr-052) | global 루트는 서울과 함께 매일 만들고 지움 (올릴 때 seoul → global, 내릴 때 global → seoul) |
 | [053](#adr-053) | global용 평소 권한은 세 번째 고객 관리형 정책 `operator-edge`로 나눔 |
 | [054](#adr-054) | 로그인 실패는 입력한 이메일마다 DB에 세어, 15분 안에 5번 틀리면 15분 잠금 |
+| [055](#adr-055) | 숙소 사진은 숙소 · 객실마다 고유 파일을 640 · 1200 WebP로 미리 만들어 S3(상시, 도쿄 복제)에, 사진 CloudFront는 global, DB에는 크기 없는 주소 |
 
 ---
 
@@ -661,7 +662,7 @@
 - **근거:** 실제 서비스 구조와 같고 ALB가 인터넷에 없다. 사진은 GET만 쓰므로 CloudFront가 도쿄 S3로 자동 전환하고, 쓰기가 있는 앱은 검증 뒤 사람이 전환한다(데이터 성격에 따라 전환 방식을 나눔). 사진 주소가 우리 도메인이라 CDN 업체를 DNS 레코드 하나로 바꿀 수 있다.
 - **결과:**
   - CloudFront 인증서는 us-east-1에서 받는다(global 루트). Route 53은 늘 CloudFront를 가리켜 리전 전환 때 DNS를 바꾸지 않는다.
-  - 사진 준비(리사이징) 스크립트와 앱의 사진 주소 설정이 필요하다. 사진 업로드와 자동 리사이징은 범위 밖이다([01 범위](01-scenario.md)). 지금 시드의 Unsplash 사진을 복사해 쓸 수 있는지는 구현할 때 원문으로 확인한다.
+  - 사진 준비(리사이징) 스크립트와 앱의 사진 주소 설정이 필요하다. 사진 업로드와 자동 리사이징은 범위 밖이다([01 범위](01-scenario.md)). 지금 시드의 Unsplash 사진을 복사해 쓸 수 있는지는 구현할 때 원문으로 확인한다(→ [ADR-055](#adr-055): 쓸 수 있음, 사람이 찍힌 4장은 교체).
   - VPC Origin 자체는 추가 요금이 없다. 도쿄 리소스는 켜 둔 시간만큼 요금이 나간다.
   - 사진 CloudFront에도 WAF를 붙인다. 사진 요청 폭주는 요청·전송량 요금으로 이어진다. 웹 ACL 하나를 두 배포에 함께 붙일 수 있어 월 요금은 한 번이고([WAF 연결](https://docs.aws.amazon.com/waf/latest/developerguide/web-acl-associating-aws-resource.html)), 한 페이지에 사진이 수십 장이라 요청 수 한도는 앱과 따로 둔다. 쿼리 문자열은 캐시 키에서 빼 캐시를 우회해 S3로 몰리는 요청을 막는다. 네트워크 계층 DDoS는 Shield Standard가 추가 요금 없이 막는다.
   - 해외 손님 체감: 사진은 CloudFront가 손님 가까운 엣지에 복사본을 두어 그 엣지의 첫 요청만 서울 S3까지 간다. 예약(쓰기)은 서울 DB까지 가야 해서 CDN은 엣지의 HTTPS 처리와 AWS 백본 전송까지만 돕고 거리는 못 줄인다. 숙소가 한국에 있고 예약은 몇백 ms 늦어도 체감이 작아 받아들인다. 해외 비중이 커지면 쓰기를 여러 리전에서 받는 리전 확장이 필요하지만, 같은 객실 중복 예약을 막기가 매우 어려워지는 별도의 큰 결정이다.
@@ -1330,5 +1331,63 @@
 - [NIST SP 800-63B-4](https://pages.nist.gov/800-63-4/sp800-63b.html) 3.2.2: 연속 실패 *"no more than 100"*, 낮춰도 됨, 성공하면 지난 실패를 무시.
 - [OWASP Credential Stuffing Prevention](https://cheatsheetseries.owasp.org/cheatsheets/Credential_Stuffing_Prevention_Cheat_Sheet.html): MFA가 가장 좋은 대책, IP 차단만으로는 부족.
 - 실무 예: Ruby Devise `lockable`(회원 표에 실패 횟수), django-axes(DB에 시도 기록).
+
+</details>
+
+<a name="adr-055"></a>
+## ADR-055 숙소 사진은 숙소 · 객실마다 고유 파일을 640 · 1200 WebP로 미리 만들어 S3(상시, 도쿄 복제)에, 사진 CloudFront는 global, DB에는 크기 없는 주소
+
+- **상황:** [ADR-035](#adr-035)에서 사진 구조를 정했다(`img.hotel.vundle34.cloud` → 사진 CloudFront → 서울 S3(OAC), 도쿄로 복제 + 원본 그룹 장애 조치). 사진 작업(2026-11-16)에서 세부를 정했다. 지금 시드는 Unsplash 사진 11장의 외부 주소를 숙소 1,010곳 · 객실 5,030개가 돌려 쓴다.
+- **결정:**
+
+  | 항목 | 고른 것 |
+  |---|---|
+  | 출처 | 시드의 Unsplash 11장 중 7장은 그대로 쓴다. 사람이 찍힌 4장(01 · 04 · 05 · 06)은 사람 · 상표가 없는 숙소 사진으로 바꾼다. 원본은 사용자가 브라우저로 직접 받고, git에는 넣지 않고 출처 목록만 남긴다 |
+  | 고유 파일 | 11장을 사진 칸 7,050개(숙소 1,010곳 × 2장 + 객실 5,030개)에 복사해 칸마다 자기 주소(`hotels/0001/1`, `rooms/0001/1`)를 준다. 그림은 반복돼도 파일과 주소는 숙소 · 객실마다 다르다 |
+  | 크기 · 형식 | 640 · 1200 두 크기의 WebP를 미리 만들고, 화면이 `srcset` · `sizes`로 브라우저에게 고르게 한다. 원본 대부분과 같은 3:2로 가운데를 잘라 맞춘다(화면 칸은 모두 가로형이라, 세로 · 정사각형 원본을 통째로 보내면 잘릴 부분까지 전송함). 사진이 1장뿐인 시드 숙소 9곳에는 1장씩 더 넣어 2장으로 맞춘다 |
+  | 스크립트 | 이 저장소 `scripts/photos/`(Node + sharp). 사진 이관은 MSP가 하는 To-Be 작업이다([ADR-043](#adr-043)) |
+  | 수명 | S3 버킷(서울 · 도쿄) · 복제 설정은 bootstrap, 사진은 처음 한 번 올리고 상시 보관한다. 버킷 정책(그날 배포 ARN만 허용하는 OAC)과 사진 CloudFront는 global에서 매일 만들고 지운다. `operator-edge`에 버킷 정책 권한을 더한다 |
+  | 사진 CloudFront | global 루트. 앱 웹 ACL을 같이 쓰고, 사진 요청 한도는 따로 둔다([ADR-035](#adr-035)) |
+  | 사진 주소 | DB에는 크기를 뺀 전체 주소(`https://img.hotel.vundle34.cloud/hotels/0001/1`)를 넣고, 화면이 `/640.webp` · `/1200.webp`를 붙인다. 우리 도메인이 아닌 주소는 그대로 쓴다 |
+
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | 주소 11개를 모든 숙소가 공유(지금처럼) | 실서비스는 숙소마다 사진이 다르다. CloudFront가 11장만 기억하면 되어 캐시 적중률이 실제보다 높게 나온다 |
+  | 요청할 때 만들기(동적 변환: 원본 1장 + `?width=` · `format=auto`, AWS Dynamic Image Transformation) | 브라우저에 맞춰 형식을 자동으로 고르는 등 장점이 크지만, 원본 7,050장(받은 2400px 원본 평균 약 0.8MB로 약 5.4GB, 미리 줄인 파일의 약 5배)을 보관해야 하고 Lambda · 함수가 늘며 매일 만드는 global도 커진다. 크기 종류가 많거나 업로드가 있는 큰 서비스의 방식이다 |
+  | 큰 판 1600 | 화면 칸 7종을 계산하면 가장 큰 칸이 1,152px(휴대폰 3배 · 상세 큰 사진)다. 휴대폰은 거의 모든 칸에서 큰 판을 받아, 1600이면 화소가 약 1.8배인 파일을 받는다 |
+  | 한 크기만 / 3크기 × WebP + JPEG | 한 크기는 작은 칸에도 큰 파일이 가고, 3크기 × 2형식은 파일이 3배다 |
+  | 사진도 매일 올리고 지우기 | 상시 보관은 월 약 $0.06인데, 매일 올리면 하루 약 $0.22(올리기 · 도쿄 복제 · 리전 간 전송), 월 약 $6.6에 매일 업로드 시간까지 든다. S3는 보관한 양만큼만 내고, 비싼 것은 옮기는 일이다 |
+  | 버킷 정책을 bootstrap에 두고 "우리 계정의 모든 CloudFront" 허용 | 매일 정책을 바꾸지 않아도 되지만 공식 예시(배포 하나)보다 넓다. ADR-035에서 넓은 허용 규칙을 거부한 기준과 맞지 않는다 |
+  | 사진 CloudFront를 seoul 루트에 | 웹 ACL이 global에 있는데 올리는 순서가 seoul → global이라 seoul apply 때 붙일 ACL이 없다. 서울 장애 때 서울 루트를 다시 만들거나 지우는 일에 휘말려 도쿄 장애 조치의 의미가 줄고, `operator-v2`에 CloudFront 권한이 섞인다([ADR-053](#adr-053)) |
+  | 사진 전용 루트를 상시로 | 앱이 내려가 있으면 사진만 떠 있어도 볼 사람이 없다. 웹 ACL은 매일 지우므로 상시 배포에는 웹 ACL이 하나 더 필요하다(월 약 $5 이상, ADR-035 비교표) |
+  | DB에는 경로만, 서버가 환경 변수로 주소 완성 | 도메인이 바뀌어도 설정만 고치면 되지만, 서버 쿼리 3곳 · 태스크 정의 · 로컬 설정까지 고칠 곳이 많다. 우리 도메인이라 CDN 업체를 바꿀 때는 DNS만 바꾸면 된다(ADR-035) |
+  | 시드는 Unsplash 그대로, 3단계 이관 때 주소 교체 | 3단계 전까지 화면에 S3 사진이 나오지 않아 이번 확인을 할 수 없다 |
+
+- **근거:** Unsplash License는 복사 · 수정 · 배포 · 상업 이용을 허락하고 출처 표시도 요구하지 않는다. 다만 사진 속 사람 · 상표 · 작품의 권리는 라이선스 대상이 아니어서, 사람이 찍힌 사진은 뺐다. 핫링크 의무는 API를 쓰는 앱에만 있다. 크기는 화면의 사진 칸 7종을 Tailwind 기준점과 화면 배율(휴대폰 3배 · 노트북 2배)로 계산해 정했다. 작은 칸은 최대 564px(640으로 충분), 휴대폰과 상세 큰 사진은 최대 1,152px(1200으로 충분)다.
+- **결과:**
+  - WebP를 못 여는 브라우저(Safari 14 미만, macOS 10.15 이하)에는 이미 있는 회색 대체 그림이 나온다.
+  - 디자인이 바뀌어 새 크기가 필요하면 다시 만들어 올린다(처음 올리기와 같은 규모, 약 $0.22).
+  - 용량 실측(2026-11-16, 원본 10장, 아직 안 받은 04는 평균으로 채움): 장당 평균 640 43KB · 1200 122KB. 파일 14,100개, **리전당 약 1.12GB**(2GB 가정보다 작음). 사람이 찍힌 사진을 바꾼 뒤 다시 잰다.
+  - 비용: 보관 GB당 월 $0.025(서울 · 도쿄), PUT 1,000건 $0.0045(서울) · $0.0047(도쿄), 서울 → 도쿄 전송 GB당 $0.080. 보관 월 약 $0.056, 처음 한 번 약 $0.22(서울 올리기 $0.064 + 도쿄 복제 $0.066 + 전송 $0.090).
+  - WebP는 같은 품질값(80)에서 JPEG(mozjpeg)의 92%로, 8%만 작았다. 품질값은 형식마다 뜻이 달라 정확히 같은 화질의 비교는 아니다. 차이가 작아 WebP를 그대로 쓴다.
+  - 복제 규칙을 먼저 만들고 사진을 올린다(규칙 전 객체는 복제되지 않는다). 지운 표시(delete marker)도 복제한다(기본은 안 함). RTC(15분 안 99.9%, 추가 요금)는 쓰지 않고 실제 지연을 잰다. 버전 관리 때문에 남는 옛 버전은 7일 뒤 지운다.
+  - 원본 장애 조치 조건은 403 · 404 · 500 · 502 · 503 · 504다. 시험은 서울 버킷 정책을 잠깐 떼서 403을 만든다. 연결 실패로 넘어가는 경우는 기본값으로 최대 30초(10초 × 3번) 걸린다.
+  - 캐시 키에서 쿼리 문자열을 빼고([ADR-035](#adr-035)), 사진은 1년 동안 캐시한다.
+  - WAF: 사진 요청 한도는 IP당 5분 3,000건(가설값, 한 화면에 사진이 많아 앱의 2,000건보다 높게)이다. 웹 ACL 하나를 두 배포가 같이 쓸 때 요청 수를 배포마다 따로 세는지는 문서에 없다("each instance of a rate-based rule"만 있음). 그래서 어느 쪽이든 결과가 같게 Host 헤더로 나눴다. 앱 한도는 `img.` 요청을 빼고 세고, 사진 한도는 `img.` 요청만 센다.
+  - 인증서는 앱 인증서에 `img` 이름을 추가해 같이 쓴다. 버킷 이름은 global이 bootstrap과 같은 규칙으로 만든다(평소 사용자는 bootstrap state를 읽을 수 없음, [ADR-028](#adr-028)).
+  - 다시 볼 조건: 크기 종류가 늘거나 사진 업로드 기능이 생기면 동적 변환으로 바꾼다.
+
+<details>
+<summary>확인한 근거와 메모</summary>
+
+- 라이선스: [Unsplash License](https://unsplash.com/license)(금지: 크게 손대지 않고 판매, 비슷하거나 경쟁하는 서비스), [약관](https://unsplash.com/terms) 5절(사람 · 상표 · 작품은 라이선스 대상 아님) · 8절(웹사이트를 스크립트로 접근 금지, API 예외, AI 학습 데이터 금지), [핫링크 지침](https://help.unsplash.com/en/articles/2511271-guideline-hotlinking-images)(API 사용 앱 대상). Unsplash+는 [별도 라이선스](https://unsplash.com/plus/license)다.
+- 사진 확인: 사용자가 원본 11장을 보고 01 · 05(여행지, 작은 얼굴) · 04(공부 장면, 얼굴 3개) · 06(뒤통수)을 알려 줬다. 교체 후보는 Unsplash 사진 페이지에서 "Free to use under the Unsplash License" 표시와, 설명 · 태그에 사람 · 상표가 없는지 확인했다(2026-11-16). 최종 확인은 받을 때 눈으로 한다.
+- S3 복제: [요구 사항](https://docs.aws.amazon.com/AmazonS3/latest/userguide/replication-requirements.html)(양쪽 버전 관리), [복제되는 것과 안 되는 것](https://docs.aws.amazon.com/AmazonS3/latest/userguide/replication-what-is-isnot-replicated.html)(규칙 전 객체 제외, delete marker 기본 제외), [RTC](https://docs.aws.amazon.com/AmazonS3/latest/userguide/replication-time-control.html)("99.9 percent of those objects within 15 minutes").
+- CloudFront: [원본 장애 조치](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/high_availability_origin_failover.html)(상태 코드 400 · 403 · 404 · 416 · 429 · 500 · 502 · 503 · 504 중 선택, 기본 10초 × 3번, GET · HEAD · OPTIONS만), [OAC 버킷 정책 예시](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/private-content-restricting-access-to-s3.html)(`AWS:SourceArn`에 배포 하나).
+- 가격(2026-11-16 조회): [S3 서울](https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonS3/current/ap-northeast-2/index.json) · [S3 도쿄](https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonS3/current/ap-northeast-1/index.json)(2026-11-09 게시), [데이터 전송 서울](https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSDataTransfer/current/ap-northeast-2/index.json)(2026-11-11 게시, 서울 → 도쿄 $0.080/GB).
+- 실무 방식: [Dynamic Image Transformation for Amazon CloudFront](https://docs.aws.amazon.com/solutions/dynamic-image-transformation-for-amazon-cloudfront/)(원본 1장을 요청 때 변환), [AWS 블로그(2022)](https://aws.amazon.com/blogs/networking-and-content-delivery/image-optimization-using-amazon-cloudfront-and-aws-lambda/)(`Accept` 헤더로 형식 선택), [web.dev 이미지 CDN](https://web.dev/learn/images/cdn). NOL · 여기어때 메인 화면의 사진 주소는 크기 인자가 없는 파일이었다(NOL은 CloudFront의 `thum/` 폴더). 메인 배너 몇 장만 봐서, 미리 만드는 방식이라는 것은 가설이다.
+- 크기 계산: [Tailwind 기준점](https://tailwindcss.com/docs/responsive-design)(sm 640 · md 768 · lg 1024), [MDN 반응형 이미지](https://developer.mozilla.org/en-US/docs/Web/HTML/Guides/Responsive_images), [MDN 이미지 형식(WebP)](https://developer.mozilla.org/en-US/docs/Web/Media/Guides/Formats/Image_types). 칸 7종은 홈 카드, 검색 목록, 상세 큰 사진 · 작은 사진 · 1장 사진, 객실, 예약 · 내 예약 썸네일이다. 검색 목록 칸의 높이와 실제 화면 배율은 구현한 뒤 브라우저에서 확인한다(`currentSrc`).
 
 </details>
