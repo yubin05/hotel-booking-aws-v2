@@ -121,6 +121,21 @@
       }
     },
     {
+      "Sid": "AppAutoScaling",
+      "Effect": "Allow",
+      "Action": [
+        "application-autoscaling:Describe*",
+        "application-autoscaling:*ScalableTarget",
+        "application-autoscaling:*ScalingPolicy",
+        "application-autoscaling:*ScheduledAction",
+        "application-autoscaling:*Resource",
+        "cloudwatch:DescribeAlarms",
+        "cloudwatch:PutMetricAlarm",
+        "cloudwatch:DeleteAlarms"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "LoadBalancer",
       "Effect": "Allow",
       "Action": [

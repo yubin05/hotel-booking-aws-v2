@@ -117,12 +117,12 @@ resource "aws_ecs_task_definition" "migrate" {
   }])
 }
 
-# "항상 2개 유지" 규칙. 실제 태스크는 ECS가 띄움(Terraform 리소스가 아님)
+# 처음 2개로 시작. 그 뒤 개수는 오토스케일링이 정함(autoscaling.tf). 실제 태스크는 ECS가 띄움(Terraform 리소스가 아님)
 resource "aws_ecs_service" "app" {
   name            = "app" # ADR-030
   cluster         = aws_ecs_cluster.this.id
   task_definition = aws_ecs_task_definition.app.arn
-  desired_count   = 2 # AZ 2개에 1개씩
+  desired_count   = local.app_min_tasks # AZ 2개에 1개씩
   launch_type     = "FARGATE"
 
   network_configuration {
@@ -144,8 +144,9 @@ resource "aws_ecs_service" "app" {
   }
 
   # 이후 리비전은 CD가 바꿈. Terraform이 되돌리지 않게 (ADR-039)
+  # 태스크 수는 오토스케일링이 바꿈. 이벤트 중 apply가 2개로 되돌리지 않게 (ADR-015)
   lifecycle {
-    ignore_changes = [task_definition]
+    ignore_changes = [task_definition, desired_count]
   }
 
   depends_on = [aws_lb_listener.https] # 대상 그룹이 리스너에 붙은 뒤에 서비스를 만들어야 함

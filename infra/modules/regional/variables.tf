@@ -27,3 +27,19 @@ variable "db_multi_az" {
   description = "RDS Multi-AZ. 설계는 켬(true), 포트폴리오는 평소 끄고 AZ 장애 테스트 때 켬 (ADR-042)"
   type        = bool
 }
+
+variable "scale_events" {
+  description = "시각을 아는 급증(쿠폰 오픈 등). start부터 end까지 앱 태스크 최소 수를 min으로 올림 (ADR-015). 시각은 한국 시간 YYYY-MM-DDThh:mm:ss, 끝난 이벤트는 지움"
+  type = list(object({
+    name  = string
+    start = string
+    end   = string
+    min   = number
+  }))
+  default = []
+
+  validation {
+    condition     = alltrue([for e in var.scale_events : e.min >= 2 && e.min <= 4])
+    error_message = "이벤트 최소 태스크 수는 평소 최소(2) 이상, 최대(4) 이하여야 합니다 (autoscaling.tf)."
+  }
+}
