@@ -32,6 +32,9 @@ resource "aws_appautoscaling_policy" "app_cpu" {
 
   target_tracking_scaling_policy_configuration {
     target_value = local.app_cpu_target
+    # 안 적으면 0초로 들어가 1분마다 하나씩 뺐음(2026-11-16 시험). 손님이 잠깐 줄었다 다시 몰릴 때 늘렸다 줄였다 반복하지 않게 (가설값)
+    scale_in_cooldown  = 300
+    scale_out_cooldown = 60
     predefined_metric_specification {
       predefined_metric_type = "ECSServiceAverageCPUUtilization"
     }
