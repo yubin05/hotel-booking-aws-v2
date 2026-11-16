@@ -59,6 +59,7 @@
 | [053](#adr-053) | global용 평소 권한은 세 번째 고객 관리형 정책 `operator-edge`로 나눔 |
 | [054](#adr-054) | 로그인 실패는 입력한 이메일마다 DB에 세어, 15분 안에 5번 틀리면 15분 잠금 |
 | [055](#adr-055) | 숙소 사진은 숙소 · 객실마다 고유 파일을 640 · 1200 WebP로 미리 만들어 S3(상시, 도쿄 복제)에, 사진 CloudFront는 global, DB에는 크기 없는 주소 |
+| [056](#adr-056) | 3단계 다음에 운영 사건 대응 자동화(장애 · 보안)를 3.5단계로 넣고, 4단계의 짧은 장애 실험 3개를 앞당긴다 |
 
 ---
 
@@ -1391,5 +1392,54 @@
 - 가격(2026-11-16 조회): [S3 서울](https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonS3/current/ap-northeast-2/index.json) · [S3 도쿄](https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonS3/current/ap-northeast-1/index.json)(2026-11-09 게시), [데이터 전송 서울](https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSDataTransfer/current/ap-northeast-2/index.json)(2026-11-11 게시, 서울 → 도쿄 $0.080/GB).
 - 실무 방식: [Dynamic Image Transformation for Amazon CloudFront](https://docs.aws.amazon.com/solutions/dynamic-image-transformation-for-amazon-cloudfront/)(원본 1장을 요청 때 변환), [AWS 블로그(2022)](https://aws.amazon.com/blogs/networking-and-content-delivery/image-optimization-using-amazon-cloudfront-and-aws-lambda/)(`Accept` 헤더로 형식 선택), [web.dev 이미지 CDN](https://web.dev/learn/images/cdn). NOL · 여기어때 메인 화면의 사진 주소는 크기 인자가 없는 파일이었다(NOL은 CloudFront의 `thum/` 폴더). 메인 배너 몇 장만 봐서, 미리 만드는 방식이라는 것은 가설이다.
 - 크기 계산: [Tailwind 기준점](https://tailwindcss.com/docs/responsive-design)(sm 640 · md 768 · lg 1024), [MDN 반응형 이미지](https://developer.mozilla.org/en-US/docs/Web/HTML/Guides/Responsive_images), [MDN 이미지 형식(WebP)](https://developer.mozilla.org/en-US/docs/Web/Media/Guides/Formats/Image_types). 칸 7종은 홈 카드, 검색 목록, 상세 큰 사진 · 작은 사진 · 1장 사진, 객실, 예약 · 내 예약 썸네일이다. 검색 목록 칸의 높이와 실제 화면 배율은 구현한 뒤 브라우저에서 확인한다(`currentSrc`).
+
+</details>
+
+<a name="adr-056"></a>
+## ADR-056 3단계 다음에 운영 사건 대응 자동화(장애 · 보안)를 3.5단계로 넣고, 4단계의 짧은 장애 실험 3개를 앞당긴다
+
+- **상황:** 2026-11-17부터 약 10일 동안 집중 작업 기간(SKT ALEPH 캡스톤)이 있다. 2단계 남은 일과 3단계에 더해 무엇을 할지 정해야 했다. 보안 쪽에 남은 틈은 세 가지다. WAF 로그인 한도는 약 41초 늦게 걸리고, IP 단위라 여러 IP로 나눈 공격을 못 막는다([10 보안 점검](10-security.md) 5절). 앱의 계정 잠금([ADR-054](#adr-054))은 여러 계정에 유출 비밀번호를 넣는 공격(크리덴셜 스터핑)에는 잘 안 통한다. 또 v1 회고의 셋째 문제(장애 복구를 정량 검증하지 못함)는 4 · 5단계 몫이라 아직 답이 없다.
+- **결정:**
+
+  | 항목 | 고른 것 |
+  |---|---|
+  | 순서 | 2단계 나머지 → 3단계 → **3.5단계(운영 사건 대응 자동화)**. 4단계 중 ECS 태스크 강제 종료 · RDS 강제 장애 조치 · 깨진 버전 배포는 3.5단계에서 먼저 한다. 4단계 나머지(AZ 하나 장애, 오토스케일링 상한)와 5단계는 그 뒤 |
+  | 흐름 | 경보 · 이벤트 → Lambda 판단 → 조치 → 사건 보고서. 장애는 AWS가 스스로 복구하므로(ECS 태스크 교체, RDS 장애 조치, 배포 자동 롤백 [ADR-010](#adr-010)) 감지 · 기록 · 보고 · 측정만 한다 |
+  | 보안 조치 | 앱 로그의 로그인 실패를 IP와 계정으로 묶어(한 IP가 여러 계정, 한 계정에 여러 IP) WAF IP 세트에 자동으로 넣고 1시간 뒤 자동으로 뺀다. 범위가 넓거나 돈이 드는 조치(IP 대역 차단, 유료 Bot Control 켜기)는 사람이 승인한다. 계정 잠금은 앱이 이미 한다(ADR-054) |
+  | 임계값 | 정상 k6 시나리오의 평소 최댓값 × 배수. 지금 WAF 한도 같은 가설값 대신 잰 값에서 정한다 |
+  | AI | 판정과 조치는 규칙이 하고, AI는 사건 보고서(고객 보고용 초안)만 쓴다. AI가 실패해도 차단은 동작한다 |
+  | 계정 기본 보안 | CloudTrail 기록 보관, GuardDuty, Security Hub(설정 점검)를 서비스 작업 전에 켠다. GuardDuty는 웹 요청 내용을 보지 않으므로 로그인 공격 탐지에 쓰지 않고, 샘플 탐지 결과로 알림 경로만 확인한다 |
+  | 화면 | CloudWatch 대시보드 1개(Terraform): 경보 상태 · 서비스 · 보안 · 대응 기록. 부하 시연과 공격 · 장애 시연을 같은 화면으로 보여 준다 |
+
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | 새 보안관제 프로젝트를 따로 시작 | 이야기가 둘로 갈리고, 10일 안에 v2만큼의 깊이를 만들기 어렵다 |
+  | GuardDuty · Security Hub를 켜기만 | 탐지 도구 도입일 뿐 판단 · 조치 · 측정이 없다 |
+  | 보안 대응만(장애 제외) | MSP 운영은 장애와 보안 사건을 같은 방식으로 감지하고 보고한다. 장애 쪽은 같은 흐름을 다시 쓰고 복구는 AWS가 하므로 더하는 일이 작다 |
+  | 계정 잠금을 사람 승인 조치로 | 앱이 이미 자동으로 잠근다(ADR-054). 같은 일을 두 곳에서 하면 결과가 엇갈린다 |
+  | CloudWatch 이상 탐지 경보 | 과거 데이터로 평소 범위를 머신러닝으로 자동 학습하지만 학습에 최대 2주가 걸린다. 매일 지우는 환경과 k6로 만든 트래픽에는 익힐 평소 패턴이 없다 |
+  | ZTNA(AWS Verified Access) | 직원용 사내 앱이 없는 시나리오다. 앱 하나에 시간당 $0.27로 상시면 월 약 $197이라 월 고정비 추정 $205([09 비용 추정](09-cost-estimate.md))와 맞먹는다. SSH · 배스천 없음(Fargate), 키 없는 배포(OIDC), Secrets Manager로 제로트러스트 원칙은 이미 들어가 있다 |
+  | "XDR"이라는 이름 | 엔드포인트 · 네트워크 · 클라우드 · 계정 신호를 묶는 제품 범주라 이 범위에 붙이면 과장이다. 여러 원천을 묶는 생각만 쓴다 |
+
+- **근거:** AWS Startup Security Baseline은 CloudTrail · GuardDuty · Security Hub를 계정 단위 통제로 두고 처음에 켜라고 한다. GuardDuty가 분석하는 것은 CloudTrail 관리 이벤트 · VPC 흐름 로그 · DNS 로그다. CloudFront에 붙은 WAF 지표는 us-east-1에만 쌓이고, 한 계정 안이면 대시보드 하나에 리전이 다른 지표를 같이 띄울 수 있다.
+- **결과:**
+  - 일정이 밀리면 CD 보안 검사 → AI 보고서 → 깨진 버전 배포 실험 순으로 뺀다. 3단계 이관 전 · 후 비교는 빼지 않는다.
+  - 경보는 다른 리전의 지표를 볼 수 없어 WAF 경보는 us-east-1에 만든다.
+  - GuardDuty · Security Hub는 리전마다 30일 무료 체험이다. 체험이 끝나기 전에 끄거나 비용을 기록한다.
+  - 자동 차단이 WAF 한도(약 41초)보다 빠를지는 가설이다. WAF IP 세트를 바꾼 뒤 실제로 걸리기까지의 시간을 확인하지 않았다.
+  - 여러 IP 공격을 재현하는 방법(발생기 여러 대 등)은 구현할 때 정한다.
+  - 리전 전체 장애의 RTO · RPO는 5단계에 남는다. 3.5단계에서는 서버 · DB 수준의 복구 시간만 나온다.
+
+<details>
+<summary>확인한 근거와 메모</summary>
+
+- [AWS Startup Security Baseline – 계정 통제](https://docs.aws.amazon.com/prescriptive-guidance/latest/aws-startup-security-baseline/controls-acct.html), [ACCT.14 GuardDuty](https://docs.aws.amazon.com/prescriptive-guidance/latest/aws-startup-security-baseline/acct-14.html)(분석 원천, 리전별 30일 무료 체험), [ACCT.15 Security Hub](https://docs.aws.amazon.com/prescriptive-guidance/latest/aws-startup-security-baseline/acct-15.html).
+- [GuardDuty 요금](https://docs.aws.amazon.com/guardduty/latest/ug/guardduty-pricing.html), [Security Hub 요금](https://aws.amazon.com/security-hub/pricing/), [GuardDuty 결과를 EventBridge로](https://docs.aws.amazon.com/guardduty/latest/ug/guardduty_findings_eventbridge.html)(새 결과는 거의 실시간, 반복 결과는 기본 6시간).
+- [CloudWatch 이상 탐지](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch_Anomaly_Detection.html)(머신러닝 모델, 시간 · 일 · 주 패턴), [이상 탐지 경보](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/Create_Anomaly_Detection_Alarm.html)("up to two weeks").
+- [Verified Access 요금](https://aws.amazon.com/verified-access/pricing/)(2026-11-16 조회, HTTP(S) 앱 시간당 $0.27).
+- [WAF 지표(CloudFront용은 us-east-1)](https://docs.aws.amazon.com/waf/latest/developerguide/web-acl-testing-view-metrics.html), [리전 간 대시보드 · 경보 제한](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/Cross-Account-Cross-Region.html), [CloudWatch 요금](https://aws.amazon.com/cloudwatch/pricing/)(사용자 정의 대시보드 3개 · 지표 50개 이하 무료).
+- 판정은 규칙, AI는 설명만이라는 원칙은 SKT ALEPH 수업의 보안 Agent 과제(기존 엔진이 판정 · 집행, AI는 근거 설명과 제안)에서 가져왔다.
 
 </details>
