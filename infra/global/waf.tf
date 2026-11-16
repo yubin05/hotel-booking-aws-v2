@@ -1,5 +1,6 @@
 # 경비원: 앱 CloudFront에 붙이는 WAF (ADR-050). 규칙마다 막는 위험은 docs/10-security.md 2절
-# 사진 CloudFront도 나중에 같은 웹 ACL을 쓰고 요청 수 한도는 따로 둔다 (ADR-035)
+# 사진 CloudFront도 같은 웹 ACL을 쓰고, 요청 수 한도는 Host로 나눠 따로 센다 (ADR-035 · 055)
+# 웹 ACL 하나를 두 배포가 쓸 때 한도를 배포마다 따로 세는지는 문서에 없어서, 어느 쪽이든 같게 Host로 나눔
 
 locals {
   # 코드가 1차 방어인 위험(SQL 인젝션, XSS 등)을 한 번 더 거르는 2차 방어
@@ -69,7 +70,7 @@ resource "aws_wafv2_web_acl" "app" {
     }
   }
 
-  # 전체: 폭주 · 긁어 가기. 통신사 모바일은 여러 손님이 IP 하나를 나눠 써서 여유 있게
+  # 앱 전체: 폭주 · 긁어 가기. 통신사 모바일은 여러 손님이 IP 하나를 나눠 써서 여유 있게. 사진 요청은 빼고 셈
   rule {
     name     = "all-rate-limit"
     priority = 1
@@ -83,12 +84,72 @@ resource "aws_wafv2_web_acl" "app" {
         limit                 = 2000 # IP당 5분 2,000건 (가설값)
         evaluation_window_sec = 300
         aggregate_key_type    = "IP"
+
+        scope_down_statement {
+          not_statement {
+            statement {
+              byte_match_statement {
+                search_string         = local.img_domain
+                positional_constraint = "EXACTLY"
+                field_to_match {
+                  single_header {
+                    name = "host"
+                  }
+                }
+                text_transformation {
+                  priority = 0
+                  type     = "LOWERCASE"
+                }
+              }
+            }
+          }
+        }
       }
     }
 
     visibility_config {
       cloudwatch_metrics_enabled = true
       metric_name                = "all-rate-limit"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  # 사진: 한 화면에 사진이 많아(검색 목록 · 숙소 상세) 앱보다 높게. 폭주는 요청 · 전송 요금으로 이어짐 (ADR-035)
+  rule {
+    name     = "photo-rate-limit"
+    priority = 2
+
+    action {
+      block {}
+    }
+
+    statement {
+      rate_based_statement {
+        limit                 = 3000 # IP당 5분 3,000건 (가설값)
+        evaluation_window_sec = 300
+        aggregate_key_type    = "IP"
+
+        scope_down_statement {
+          byte_match_statement {
+            search_string         = local.img_domain
+            positional_constraint = "EXACTLY"
+            field_to_match {
+              single_header {
+                name = "host"
+              }
+            }
+            text_transformation {
+              priority = 0
+              type     = "LOWERCASE"
+            }
+          }
+        }
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "photo-rate-limit"
       sampled_requests_enabled   = true
     }
   }

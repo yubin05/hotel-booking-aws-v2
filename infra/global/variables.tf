@@ -13,6 +13,7 @@ locals {
   name          = "hotel-booking-aws-v2"
   zone_name     = "vundle34.cloud"
   app_domain    = "hotel.${local.zone_name}"
+  img_domain    = "img.${local.app_domain}"                         # 사진 전용 도메인 (ADR-035 · 055)
   origin_domain = "${var.active_region}.origin.${local.app_domain}" # 그 리전 ALB 인증서의 이름(regional 모듈, 리전마다 다름)
 
   # 리전 → 그 리전 루트의 state 폴더 이름

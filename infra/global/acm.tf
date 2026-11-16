@@ -1,8 +1,9 @@
 # ---- 간판 인증서: 손님 브라우저 ↔ CloudFront ----
 
 resource "aws_acm_certificate" "app" {
-  domain_name       = local.app_domain
-  validation_method = "DNS"
+  domain_name               = local.app_domain
+  subject_alternative_names = [local.img_domain] # 사진 CloudFront도 같은 인증서
+  validation_method         = "DNS"
 }
 
 resource "aws_route53_record" "app_validation" {

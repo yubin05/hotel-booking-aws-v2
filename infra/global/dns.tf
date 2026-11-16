@@ -15,3 +15,15 @@ resource "aws_route53_record" "app" {
     evaluate_target_health = false
   }
 }
+
+resource "aws_route53_record" "img" {
+  zone_id = data.aws_route53_zone.main.zone_id
+  name    = local.img_domain
+  type    = "A"
+
+  alias {
+    name                   = aws_cloudfront_distribution.photos.domain_name
+    zone_id                = aws_cloudfront_distribution.photos.hosted_zone_id
+    evaluate_target_health = false
+  }
+}
