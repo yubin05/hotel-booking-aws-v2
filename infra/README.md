@@ -119,6 +119,28 @@ grep -vc "code=200" ~/switch-*.log                              # 200이 아닌 
 
 2026-11-15 기록은 [docs/experiments/region-switch](../docs/experiments/region-switch/README.md)에 있습니다.
 
+## 5-1. 오토스케일링 예약 시연 (선택)
+
+쿠폰 오픈처럼 시각을 아는 급증에 앱 태스크를 미리 늘립니다([ADR-015](../docs/04-decisions.md#adr-015)). 서울만 떠 있으면 됩니다.
+
+```bash
+# 1) infra/seoul/main.tf의 scale_events에 이벤트를 적음 (한국 시간, apply보다 5분 이상 뒤)
+#    { name = "demo-1120", start = "2026-11-20T15:10:00", end = "2026-11-20T15:25:00", min = 4 },
+cd /c/dev/hotel-booking-aws-v2/infra/seoul
+terraform plan                      # 예약 2개 추가 (시작 · 끝)
+date; terraform apply; date
+
+# 2) 시각 전에 감시 시작 (바뀔 때마다 한 줄, 끝낼 시각을 인자로)
+cd ../.. && bash scripts/watch-scaling.sh 15:35
+
+# 3) 끝난 뒤 이유가 붙은 기록 (AWS가 6주 보관)
+aws application-autoscaling describe-scaling-activities --service-namespace ecs --region ap-northeast-2 \
+  --query 'ScalingActivities[].[StartTime,Description,Cause]' --output text
+```
+
+- 2026-11-16 시험: 예약 실행이 23 ~ 38초 늦고, 새 태스크가 손님을 받기까지 예약 시각부터 약 1분 반. 끝난 뒤에는 목표 추적이 CPU를 보고 줄임(대기 시간 300초를 적기 전에는 1분마다 하나씩).
+- 시연이 끝나면 `scale_events`에서 지난 이벤트를 지우고 apply합니다.
+
 ## 6. 자주 만난 문제
 
 | 증상 | 원인 | 할 일 |
