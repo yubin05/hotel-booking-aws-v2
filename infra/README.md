@@ -27,8 +27,9 @@ terraform plan                      # 43 to add (모듈 42 + 통로 1)
 date; terraform apply; date         # 약 9분. 이 동안 CloudFront가 서울 VPC에 보안 그룹을 만들어 둠
 
 cd ../global
-terraform plan                      # 7 to add (인증서 · 확인 레코드 · 발급 대기 · 입구 · WAF · CloudFront · 레코드)
-date; terraform apply; date
+terraform plan                      # 13 to add (앱 7: 인증서 · 확인 레코드 · 발급 대기 · 입구 · WAF · CloudFront · 레코드
+                                    #  + 사진 6: img 확인 레코드 · OAC · 사진 CloudFront · 버킷 정책 서울/도쿄 · img 레코드, ADR-055)
+date; terraform apply; date         # 약 4분 반 (2026-11-16)
 
 # 새 RDS에 스키마 · app 계정 · 데이터를 넣는 migrate는 CD가 돌림. 안 돌리면 DB API가 500(Access denied for user 'app')
 gh workflow run cd.yml --repo yubin05/hotel-booking-app --ref main
@@ -40,7 +41,11 @@ gh run list --repo yubin05/hotel-booking-app --limit 1
 ```bash
 curl -sI https://hotel.vundle34.cloud/ | grep -iE "^HTTP|x-cache"
 curl -s https://hotel.vundle34.cloud/api/health/deep            # {"status":"ok","db":"ok"}
+# 사진: 200 · image/webp, x-amz-replication-status가 COMPLETED면 서울 S3, REPLICA면 도쿄 S3에서 옴
+curl -sI https://img.hotel.vundle34.cloud/hotels/0001/1/640.webp | grep -iE "^HTTP|x-cache|replication"
 ```
+
+- 사진은 bootstrap 버킷에 상시로 있어 매일 올리지 않습니다. 사진을 바꿀 때만 [scripts/photos](../scripts/photos/README.md)로 올립니다.
 
 ## 2. 매일 내리기: global → seoul
 
@@ -48,7 +53,7 @@ global의 CloudFront와 입구 규칙이 서울의 통로 · ALB를 쓰고 있�
 
 ```bash
 cd /c/dev/hotel-booking-aws-v2/infra/global
-terraform plan -destroy             # 7 to destroy
+terraform plan -destroy             # 13 to destroy (사진 버킷 · 사진은 bootstrap이라 남음)
 date; terraform destroy; date       # 약 4~5분 (CloudFront 끄고 지우기)
 
 cd ../seoul
