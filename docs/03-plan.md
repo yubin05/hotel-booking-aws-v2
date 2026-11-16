@@ -75,6 +75,24 @@
 | 사건 보고서 (AI) | 규칙이 판정 · 조치하고 AI는 고객 보고용 초안만 씀. AI가 실패해도 차단 동작 |
 | 통합 대시보드 (CloudWatch, Terraform) | 경보 상태 · 서비스 · 보안 · 대응 기록이 한 화면. WAF 지표 · 경보는 us-east-1 |
 
+**통합 대시보드 구성** (3.5단계를 시작할 때 확정)
+
+| 줄 | 원천 (리전) | 보이는 것 |
+|---|---|---|
+| 1. 경보 상태 | CloudWatch 경보 (서울 · us-east-1) | 지금 울린 경보: 오류 급증, DB CPU, WAF 차단 급증 |
+| 2. 서비스 | ALB (서울) | 요청 수, 5xx, 응답 시간 p95, 정상 대상 수(살아 있는 태스크 수로 사용) |
+| | ECS (서울) | 서비스 CPU · 메모리 |
+| | RDS (서울) | CPU, DB 연결 수 |
+| | CloudFront (us-east-1) | 요청 수, 오류율. 캐시 적중률은 추가 지표(유료)라 사진 확인할 때만 켬 |
+| 3. 보안 | WAF (us-east-1) | 규칙별 허용 · 차단 수 |
+| | 앱 로그 (서울, Logs Insights) | 로그인 실패를 IP별 · 계정별로 센 표 |
+| | 대응 Lambda가 남기는 사용자 지표 | 자동 차단된 IP 수, 공격 시작부터 차단까지 시간 |
+| 4. 대응 기록 | 대응 Lambda 로그 (서울, Logs Insights) | 최근 자동 조치 목록, AI 사건 보고서 요약 |
+
+- 대시보드 밖: GuardDuty · Security Hub 결과는 각 콘솔에서 본다(필요하면 EventBridge로 로그에 남겨 4번 줄에 띄움). CloudTrail은 사건을 조사할 때 찾아보는 기록이라 넣지 않는다.
+- ECS 태스크 수가 기본 지표에 있는지는 공식 문서가 엇갈려 계정에서 확인한다. 없으면 ALB 정상 대상 수로 대신한다([ECS 지표](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/available_cloudwatch_metrics.html), [Container Insights](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/Container-Insights-metrics-ECS.html)).
+- 로그 표(Logs Insights)는 조회한 데이터 양만큼 요금이 붙고, 대시보드는 사용자 정의 3개 · 지표 50개 이하가 무료다([CloudWatch 요금](https://aws.amazon.com/cloudwatch/pricing/)).
+
 일정이 밀리면 CD 보안 검사(2단계) → AI 보고서 → 깨진 버전 배포 실험 순으로 뺍니다. 3단계 이관 전 · 후 비교는 빼지 않습니다.
 
 ## 4단계: 장애 테스트
