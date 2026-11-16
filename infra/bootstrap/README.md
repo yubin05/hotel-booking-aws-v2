@@ -1,6 +1,6 @@
 # bootstrap
 
-한 번 만들어 두고 계속 쓰는 기반 리소스입니다. state 버킷, GitHub OIDC 역할, ECS 실행 역할, 평소 사용자 정책, ECR, 예산, 비밀값 금고가 여기에 있습니다. destroy하지 않습니다([ADR-025](../../docs/04-decisions.md#adr-025)).
+한 번 만들어 두고 계속 쓰는 기반 리소스입니다. state 버킷, GitHub OIDC 역할, ECS 실행 역할, 평소 사용자 정책, ECR, 예산, 비밀값 금고, 숙소 사진 창고(서울 → 도쿄 복제, [ADR-055](../../docs/04-decisions.md#adr-055))가 여기에 있습니다. destroy하지 않습니다([ADR-025](../../docs/04-decisions.md#adr-025)).
 
 **관리자 역할로만 실행합니다.** 평소 사용자는 bootstrap state를 읽지 못합니다(403, [ADR-028](../../docs/04-decisions.md#adr-028)).
 

@@ -14,6 +14,10 @@
         "cloudfront:UpdateVpcOrigin",
         "cloudfront:DeleteVpcOrigin",
         "cloudfront:GetVpcOrigin",
+        "cloudfront:CreateOriginAccessControl",
+        "cloudfront:UpdateOriginAccessControl",
+        "cloudfront:DeleteOriginAccessControl",
+        "cloudfront:GetOriginAccessControl",
         "cloudfront:ListCachePolicies",
         "cloudfront:GetCachePolicy",
         "cloudfront:ListOriginRequestPolicies",
@@ -65,6 +69,16 @@
           ]
         }
       }
+    },
+    {
+      "Sid": "PhotoBucketPolicyOnly",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetBucketPolicy",
+        "s3:PutBucketPolicy",
+        "s3:DeleteBucketPolicy"
+      ],
+      "Resource": "arn:aws:s3:::hotel-booking-aws-v2-photos-*"
     },
     {
       "Sid": "DnsRead",
