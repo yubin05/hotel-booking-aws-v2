@@ -1,0 +1,4 @@
+# 원본 사진은 git에 넣지 않음 (공개 저장소가 무거워짐). 출처 목록은 README (ADR-055)
+originals/
+out/
+node_modules/

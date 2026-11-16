@@ -1,0 +1,13 @@
+{
+  "name": "hotel-photos",
+  "private": true,
+  "type": "module",
+  "description": "숙소 사진 이관: 원본 11장을 640 · 1200 WebP로 줄이고 사진 칸마다 복사해 S3에 올림 (ADR-055)",
+  "scripts": {
+    "resize": "node resize.mjs",
+    "stage": "node stage.mjs"
+  },
+  "dependencies": {
+    "sharp": "0.35.5"
+  }
+}
