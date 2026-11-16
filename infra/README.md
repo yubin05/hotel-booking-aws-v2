@@ -23,7 +23,7 @@ aws sts get-caller-identity --query Arn --output text   # user/vundle34 (평소 
 
 ```bash
 cd /c/dev/hotel-booking-aws-v2/infra/seoul
-terraform plan                      # 43 to add (모듈 42 + 통로 1)
+terraform plan                      # 45 to add (모듈 44: 오토스케일링 대상 · 목표 추적 포함 + 통로 1, 예약 이벤트가 있으면 이벤트마다 +2)
 date; terraform apply; date         # 약 9분. 이 동안 CloudFront가 서울 VPC에 보안 그룹을 만들어 둠
 
 cd ../global
@@ -57,8 +57,8 @@ terraform plan -destroy             # 13 to destroy (사진 버킷 · 사진은 
 date; terraform destroy; date       # 약 4~5분 (CloudFront 끄고 지우기)
 
 cd ../seoul
-terraform plan -destroy             # 43 to destroy
-date; terraform destroy; date       # 약 9분 (통로 삭제를 기다려 예전보다 3~4분 김)
+terraform plan -destroy             # 45 to destroy
+date; terraform destroy; date       # 약 9분 (통로 삭제를 기다려 예전보다 3~4분 김, 2026-11-16 9분 26초)
 ```
 
 남은 자원 확인(관리자 · 서울):
@@ -76,7 +76,7 @@ CloudFront 원본만 바꾸고 DNS는 그대로 둡니다([ADR-012](../docs/04-d
 ```bash
 # 1) 도쿄 올리기: 통로까지 같이 만들어짐(9분 남짓). 그 사이 CloudFront가 도쿄 VPC에 보안 그룹을 만들어 둠
 cd /c/dev/hotel-booking-aws-v2/infra/tokyo
-terraform plan                      # 43 to add
+terraform plan                      # 45 to add (서울과 같은 모듈, 오토스케일링 포함)
 date; terraform apply; date
 
 # 2) (5단계에서 정함) 도쿄 RDS 복원 · 기능 검증
@@ -103,7 +103,7 @@ date; terraform apply; date         # 2026-11-15: 1분 1초, 손님 오류 0
 
 # 3) 도쿄 내리기 (global이 서울을 가리킨 뒤에만)
 cd ../tokyo
-terraform plan -destroy             # 43 to destroy
+terraform plan -destroy             # 45 to destroy
 date; terraform destroy; date
 ```
 
