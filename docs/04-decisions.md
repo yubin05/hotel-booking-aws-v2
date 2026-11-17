@@ -55,6 +55,7 @@
 | [054](#adr-054) | 로그인 실패는 입력한 이메일마다 DB에 세어, 15분 안에 5번 틀리면 15분 잠금 |
 | [055](#adr-055) | 숙소 사진은 숙소 · 객실마다 고유 파일을 640 · 1200 WebP로 미리 만들어 S3(상시, 도쿄 복제)에, 사진 CloudFront는 global, DB에는 크기 없는 주소 |
 | [057](#adr-057) | 계정 기본 보안: CloudTrail(90일) · GuardDuty(3개 리전)는 상시, Config + Security Hub CSPM은 하루 켜서 잰 뒤 예산 여유 안이면 상시 |
+| [061](#adr-061) | 관제 화면은 CloudWatch 고해상도 사용자 지표(앱이 EMF로 1초) + Grafana, Grafana는 인터넷에 공개하지 않는다 |
 
 ---
 
@@ -1318,4 +1319,32 @@
 - 보호 기능 이름은 로컬 AWS CLI 도움말(`create-detector`)로 확인했다. API로 탐지기를 만들 때 어떤 보호 기능이 기본으로 켜지는지는 문서에 없어 6개를 모두 명시했다.
 
 </details>
+
+<a name="adr-061"></a>
+## ADR-061 관제 화면은 CloudWatch 고해상도 사용자 지표(앱이 EMF로 1초) + Grafana, Grafana는 인터넷에 공개하지 않는다
+
+- **상황:** 3단계 쿠폰 스파이크에서 "요청 급증 → 태스크 증가 → 회복"을 한 화면(데이터센터 관제실 대형 화면처럼)에 보여 주고 싶다. 고객사 · 면접관에게 AWS 계정을 빌려줄 수 없다. ALB · ECS 기본 지표는 60초 간격이다([ALB 지표](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-cloudwatch-metrics.html)). 2026-11-18 사용자와 정함.
+- **결정:**
+
+  | 항목 | 고른 것 |
+  |---|---|
+  | 1초 지표 | 앱이 1초 동안 모은 값(요청 수 · 오류 수 · 응답 시간)을 태스크마다 1초에 한 줄, EMF(로그에 지표를 싣는 형식)로 남기고 `StorageResolution: 1`로 저장([EMF 규격](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch_Embedded_Metric_Format_Specification.html)). 고해상도는 사용자 지표에만 된다. 태스크별로 쪼개지 않고 서비스 하나로 묶어 지표 3개(무료 10개 안) |
+  | 1분 지표 | ECS 태스크 수 · CPU, ALB 정상 대상 · 5xx, RDS CPU · 연결 수 (AWS 기본) |
+  | 화면 | Grafana가 CloudWatch를 데이터 소스로 읽는다([Grafana CloudWatch](https://grafana.com/docs/grafana/latest/datasources/aws-cloudwatch/configure/)). 대시보드는 JSON으로 저장소에 둔다 |
+  | 공개 | 인터넷에 열지 않는다. 노트북 docker로 띄우고 읽기 전용 역할로 CloudWatch를 읽는다(3단계 준비에서 확정). 다른 사람에게는 화면 녹화 · 스크린숏 · 정적 보고 페이지로 |
+  | 고해상도 켜는 시간 | 서울을 시험할 때만 올리므로 켜져 있는 동안 늘 1초. 상시 운영이면 이벤트 때만 1초로 올리는 것을 고객사 권고로 |
+  | 손님 쪽 1초 | k6 요청별 원본으로 3단계 보고서에 함께 쓴다(관제 화면에는 넣지 않음) |
+
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | Prometheus 서버 직접 운영 | 서버가 필요하고, 오토스케일링으로 바뀌는 태스크를 찾는 설정(서비스 디스커버리)까지 만들어야 한다. 서울을 내리면 데이터가 사라진다 |
+  | k6 → Prometheus → Grafana | 실제 운영에는 k6가 없다. 관제 화면은 서버가 낸 지표여야 실무와 같다 |
+  | CloudWatch 대시보드 공유(이메일 지정 · 공개 링크) | 공유받은 사람이 계정의 모든 CloudWatch 지표를 조회할 수 있다([공유 문서](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/cloudwatch-dashboard-sharing.html)) |
+  | 모니터 전용 IAM 사용자 + 직접 만든 실시간 사이트 | 공개 사이트에 오래 쓰는 키가 필요하고, 방문마다 지표 조회 요금이 붙으며, 1분 데이터는 사이트를 만들어도 1분이다 |
+  | 앱 관리자 화면에 트래픽 그래프 | 고객사 앱 안에 MSP 관제 화면이 들어가고(저장소 분리 원칙과 충돌), 앱 역할에 CloudWatch 읽기 권한이 붙어 관리자 계정이 털리면 인프라 정보까지 샌다 |
+  | Grafana를 로그인 걸고 공개 | 로그인 화면이 공격 대상이 된다. 보고서에는 "공개하지 않은 이유"를 적용한 통제로 쓴다 |
+
+- **결과:** 앱에 EMF 지표 한 줄 추가(앱 저장소), 노트북 Grafana 구성과 읽기 전용 역할(인프라 저장소)은 3단계 준비에서 한다. 고해상도 사용자 지표 단가와 Grafana에서 1초 간격으로 그려지는지는 그때 확인한다(가설).
 
