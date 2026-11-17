@@ -246,6 +246,14 @@ resource "aws_iam_role_policy" "ecs_execution" {
           "arn:aws:secretsmanager:${local.main_region}:${local.account_id}:secret:rds!db-*",
           "arn:aws:secretsmanager:${local.backup_region}:${local.account_id}:secret:rds!db-*",
         ]
+      },
+      {
+        # 스키마 태스크가 시연용 호스트 · 관리자 계정 비밀번호를 받기 (ADR-058 · 060). 값은 사용자가 SSM에 직접 넣고 서울에만 있음
+        # 기본 키(aws/ssm)로 암호화한 SecureString이라 kms:Decrypt는 필요 없음 (ECS 실행 역할 문서)
+        Sid      = "ReadDemoAccountPasswords"
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameters"]
+        Resource = "arn:aws:ssm:${local.main_region}:${local.account_id}:parameter/hotel-booking/*"
       }
     ]
   })

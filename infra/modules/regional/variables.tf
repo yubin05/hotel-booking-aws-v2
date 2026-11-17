@@ -43,3 +43,9 @@ variable "scale_events" {
     error_message = "이벤트 최소 태스크 수는 평소 최소(2) 이상, 최대(4) 이하여야 합니다 (autoscaling.tf)."
   }
 }
+
+variable "demo_accounts" {
+  description = "시연용 호스트 · 관리자 계정 비밀번호를 SSM에서 migrate 태스크로 넣을지 (ADR-060). 파라미터는 서울에만 있어 서울만 true. 없는 파라미터를 참조하면 태스크가 못 뜰 수 있어 도쿄 복원은 false"
+  type        = bool
+  default     = false
+}

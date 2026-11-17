@@ -11,4 +11,7 @@ module "regional" {
   # 준비까지 약 1분 반 + 예약 실행 지연(23~38초)이라 오픈 5분 전쯤 시작 (2026-11-16 시험)
   # 예: { name = "coupon-1120", start = "2026-11-20T19:55:00", end = "2026-11-20T20:30:00", min = 4 },
   scale_events = []
+
+  # 시연용 호스트 · 관리자 계정 (ADR-060). SSM 파라미터 3개를 먼저 만들어야 migrate가 뜸 (런북 5-3)
+  demo_accounts = true
 }

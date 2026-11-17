@@ -99,12 +99,17 @@ resource "aws_ecs_task_definition" "migrate" {
       { name = "DB_TLS", value = "rds" },
     ]
 
-    secrets = [
+    secrets = concat([
       # RDS가 관리하는 관리자 금고는 JSON이라 password 키 하나만 꺼냄 (형식: 금고ARN:키::)
       { name = "DB_ADMIN_PASSWORD", valueFrom = "${aws_db_instance.this.master_user_secret[0].secret_arn}:password::" },
       # 앱 계정을 만들 때 넣을 비밀번호. 앱 태스크가 쓰는 금고와 같은 값
       { name = "DB_APP_PASSWORD", valueFrom = data.aws_secretsmanager_secret.db_app.arn },
-    ]
+      ], var.demo_accounts ? [
+      # 시연용 호스트 2 · 관리자 1 (ADR-058 · 060). migrate가 없으면 만듦. 호스트 id는 시드 숙소의 host_id
+      { name = "HOST1_PASSWORD", valueFrom = "arn:aws:ssm:${local.region}:${local.account_id}:parameter/hotel-booking/host-password/11111111-0000-0000-0000-000000000002" },
+      { name = "HOST2_PASSWORD", valueFrom = "arn:aws:ssm:${local.region}:${local.account_id}:parameter/hotel-booking/host-password/11111111-0000-0000-0000-000000000003" },
+      { name = "ADMIN_PASSWORD", valueFrom = "arn:aws:ssm:${local.region}:${local.account_id}:parameter/hotel-booking/admin-password" },
+    ] : [])
 
     logConfiguration = {
       logDriver = "awslogs"

@@ -156,6 +156,31 @@ date; AWS_PROFILE=admin terraform apply; date                                 # 
 - 점검을 켜 두는 동안 Config 구성 항목 1건마다 $0.003입니다. 인프라를 올리고 내리면 그만큼 늘어납니다([ADR-057](../docs/04-decisions.md#adr-057)).
 - 끄기 전에 Security Hub 결과(실패 항목 · 고친 것 · 예외)를 03 결과 표에 기록합니다.
 
+## 5-3. 시연 계정 비밀번호 넣기 (한 번, SSM)
+
+호스트 2 · 관리자 1 시연 계정은 migrate가 배포마다 없으면 만듭니다([ADR-060](../docs/04-decisions.md#adr-060)). 비밀번호는 저장소 · Terraform 상태 · 대화 기록에 남지 않게 사람이 SSM Parameter Store에 직접 넣습니다. destroy해도 남으므로 한 번만 하면 됩니다. **서울(`demo_accounts = true`)을 올리기 전에 해야** migrate 태스크가 뜹니다.
+
+```bash
+# 1) 실행 역할이 파라미터를 읽을 권한 (bootstrap, 1 to change)
+cd infra/bootstrap
+date; AWS_PROFILE=admin terraform apply; date
+
+# 2) 비밀번호 3개. 화면에 보이지 않게 입력하고 명령 기록에도 남지 않음
+for name in host-password/11111111-0000-0000-0000-000000000002 host-password/11111111-0000-0000-0000-000000000003 admin-password; do
+  read -rsp "/hotel-booking/$name: " PW; echo
+  AWS_PROFILE=admin aws ssm put-parameter --region ap-northeast-2 --name "/hotel-booking/$name" --type SecureString --value "$PW"
+done; unset PW
+```
+
+| 계정 (이메일) | 파라미터 |
+|---|---|
+| `host1@spongetrip.local` (숙소 6곳) | `/hotel-booking/host-password/11111111-0000-0000-0000-000000000002` |
+| `host2@spongetrip.local` (숙소 4곳) | `/hotel-booking/host-password/11111111-0000-0000-0000-000000000003` |
+| `admin@spongetrip.local` | `/hotel-booking/admin-password` |
+
+- 이미 있는 계정의 비밀번호는 migrate가 바꾸지 않습니다. 값을 바꿨으면 서울을 내렸다 올려 DB가 새로 생길 때 반영됩니다.
+- 도쿄 복원(5단계)은 `demo_accounts = false`라 이 파라미터를 참조하지 않습니다.
+
 ## 6. 자주 만난 문제
 
 | 증상 | 원인 | 할 일 |
