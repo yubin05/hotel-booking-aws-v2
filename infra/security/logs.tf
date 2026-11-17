@@ -97,6 +97,17 @@ resource "aws_s3_bucket_policy" "audit_logs" {
             "AWS:SourceAccount" = local.account_id
           }
         }
+      },
+      {
+        # 암호화 안 된(HTTP) 요청은 누구든 거절 (Security Hub S3.5, 11 점검 보고서)
+        Sid       = "DenyInsecureTransport"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
+        Resource  = [aws_s3_bucket.audit_logs.arn, "${aws_s3_bucket.audit_logs.arn}/*"]
+        Condition = {
+          Bool = { "aws:SecureTransport" = "false" }
+        }
       }
     ]
   })

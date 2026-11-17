@@ -10,8 +10,9 @@ locals {
   trail_name        = "${local.project_name}-account"
   audit_logs_bucket = "${local.project_name}-audit-${local.account_id}-${local.main_region}-an"
 
-  # 경비원: 평소 사용자 권한(aws:RequestedRegion)이 닿는 곳 = 털린 키가 일을 벌일 수 있는 곳
-  guardduty_regions = toset(["ap-northeast-2", "ap-northeast-1", "us-east-1"])
+  # 쓰는 리전 = 평소 사용자 권한(aws:RequestedRegion)이 닿는 곳 = 털린 키가 일을 벌일 수 있는 곳
+  # GuardDuty와 계정 기본값(account.tf)을 여기에 둠
+  used_regions = toset(["ap-northeast-2", "ap-northeast-1", "us-east-1"])
 
   # 보호 기능은 기본값에 맡기지 않고 하나씩 정함 (API로 만들 때 무엇이 켜지는지 문서에 없음)
   guardduty_features = {
