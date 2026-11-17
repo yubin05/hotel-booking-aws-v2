@@ -57,6 +57,8 @@ resource "aws_ecs_task_definition" "app" {
       { name = "DB_NAME", value = aws_db_instance.this.db_name },
       { name = "DB_USER", value = "app" },
       { name = "DB_TLS", value = "rds" }, # RDS 인증서 · 주소까지 확인하는 TLS 접속 (ADR-045)
+      # 관제 화면용 1초 지표(요청 수 · 5xx · p95)를 EMF 로그로 남김 → CloudWatch 사용자 지표 HotelBooking/App (ADR-061)
+      { name = "METRICS_EMF", value = "1" },
     ]
 
     # 값이 아니라 금고 주소. ECS가 태스크를 띄울 때 꺼내 환경 변수로 넣음

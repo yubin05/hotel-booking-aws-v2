@@ -1356,5 +1356,5 @@
   | Grafana 외부 공유 대시보드(실시간 공개 링크) | 우리 Grafana가 인터넷에서 닿아야 한다([외부 공유 대시보드](https://grafana.com/docs/grafana/latest/visualizations/dashboards/share-dashboards-panels/shared-dashboards/)) |
   | 발표 · 면접 때 화면 공유 | 사용자가 원하지 않음. 보는 사람이 직접 열어 보는 스냅샷으로 |
 
-- **결과:** 앱에 EMF 지표 한 줄 추가(앱 저장소), 도쿄 Grafana EC2 · 관제용 읽기 전용 역할(인프라 저장소)은 3단계 준비에서 한다. 경보 · SNS · 자동 대응은 보류. 실제 관제에서 알림을 누가 어떻게 받는지는 데이터센터 관제 경력 동료에게 물어 보완한다. 고해상도 사용자 지표 단가와 Grafana에서 1초 간격으로 그려지는지는 그때 확인한다(가설).
+- **결과:** 앱 EMF 1초 지표는 2026-11-18 구현(앱 `src/metrics.ts`, `/api` 요청 수 · 5xx · p95, 헬스 체크 제외, 요청 0인 초도 0을 남김)하고 서울 앱 태스크에 `METRICS_EMF=1`로 켰다. 다음에 서울을 올리면 CloudWatch에 `HotelBooking/App` 지표가 1초로 생기는지 확인한다(awslogs 경로의 자동 추출은 [AWS 가이드](https://docs.aws.amazon.com/prescriptive-guidance/latest/implementing-logging-monitoring-cloudwatch/metrics-for-amazon-ecs.html) 기준, 실측 전). 도쿄 Grafana EC2 · 관제용 읽기 전용 역할(인프라 저장소)은 3단계 준비에서 한다. 경보 · SNS · 자동 대응은 보류. 실제 관제에서 알림을 누가 어떻게 받는지는 데이터센터 관제 경력 동료에게 물어 보완한다. 고해상도 사용자 지표 단가와 Grafana에서 1초 간격으로 그려지는지는 그때 확인한다(가설).
 
