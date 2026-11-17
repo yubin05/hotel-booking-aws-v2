@@ -7,6 +7,7 @@
 | `bootstrap` | state 버킷, IAM(평소 정책 · 역할), ECR, 금고, 예산, Route 53 영역 | 상시. 관리자만 |
 | `seoul` · `tokyo` | `modules/regional`: VPC, NAT, ALB(HTTPS), ECS, RDS, **CloudFront 통로(VPC Origin)** | 쓸 때만. 도쿄는 전환 시험 · DR 때만 |
 | `global` | CloudFront, WAF, 인증서(us-east-1), ALB 입구 규칙, `hotel` 레코드 | 서울과 함께 매일 ([ADR-052](../docs/04-decisions.md#adr-052)) |
+| `security` | CloudTrail(감사 로그 버킷 90일), GuardDuty(서울 · 도쿄 · us-east-1), 점검(Config + Security Hub CSPM, `posture_check`) | 상시. 관리자만. 점검만 켜고 끔 ([ADR-057](../docs/04-decisions.md#adr-057)) |
 
 ## 0. 시작 전
 
@@ -140,6 +141,20 @@ aws application-autoscaling describe-scaling-activities --service-namespace ecs 
 
 - 2026-11-16 시험: 예약 실행이 23 ~ 38초 늦고, 새 태스크가 손님을 받기까지 예약 시각부터 약 1분 반. 끝난 뒤에는 목표 추적이 CPU를 보고 줄임(대기 시간 300초를 적기 전에는 1분마다 하나씩).
 - 시연이 끝나면 `scale_events`에서 지난 이벤트를 지우고 apply합니다.
+
+## 5-2. 계정 보안 점검 켜고 끄기 (security)
+
+매일 올리기 · 내리기와 별개인 상시 루트라 destroy하지 않습니다. 점검(Config + Security Hub CSPM)만 변수로 켜고 끕니다.
+
+```bash
+cd infra/security
+AWS_PROFILE=admin terraform init                                              # 처음 한 번
+date; AWS_PROFILE=admin terraform apply -var posture_check=true; date        # 점검 켜기
+date; AWS_PROFILE=admin terraform apply; date                                 # 점검 끄기 (CloudTrail · GuardDuty는 남음)
+```
+
+- 점검을 켜 두는 동안 Config 구성 항목 1건마다 $0.003입니다. 인프라를 올리고 내리면 그만큼 늘어납니다([ADR-057](../docs/04-decisions.md#adr-057)).
+- 끄기 전에 Security Hub 결과(실패 항목 · 고친 것 · 예외)를 03 결과 표에 기록합니다.
 
 ## 6. 자주 만난 문제
 

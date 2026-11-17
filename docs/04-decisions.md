@@ -60,6 +60,7 @@
 | [054](#adr-054) | 로그인 실패는 입력한 이메일마다 DB에 세어, 15분 안에 5번 틀리면 15분 잠금 |
 | [055](#adr-055) | 숙소 사진은 숙소 · 객실마다 고유 파일을 640 · 1200 WebP로 미리 만들어 S3(상시, 도쿄 복제)에, 사진 CloudFront는 global, DB에는 크기 없는 주소 |
 | [056](#adr-056) | 3단계 다음에 운영 사건 대응 자동화(장애 · 보안)를 3.5단계로 넣고, 4단계의 짧은 장애 실험 3개를 앞당긴다 |
+| [057](#adr-057) | 계정 기본 보안: CloudTrail(90일) · GuardDuty(3개 리전)는 상시, Config + Security Hub CSPM은 하루 켜서 잰 뒤 예산 여유 안이면 상시 |
 
 ---
 
@@ -1428,6 +1429,8 @@
   | CloudWatch 이상 탐지 경보 | 과거 데이터로 평소 범위를 머신러닝으로 자동 학습하지만 학습에 최대 2주가 걸린다. 매일 지우는 환경과 k6로 만든 트래픽에는 익힐 평소 패턴이 없다 |
   | ZTNA(AWS Verified Access) | 직원용 사내 앱이 없는 시나리오다. 앱 하나에 시간당 $0.27로 상시면 월 약 $197이라 월 고정비 추정 $205([09 비용 추정](09-cost-estimate.md))와 맞먹는다. SSH · 배스천 없음(Fargate), 키 없는 배포(OIDC), Secrets Manager로 제로트러스트 원칙은 이미 들어가 있다 |
   | "XDR"이라는 이름 | 엔드포인트 · 네트워크 · 클라우드 · 계정 신호를 묶는 제품 범주라 이 범위에 붙이면 과장이다. 여러 원천을 묶는 생각만 쓴다 |
+  | AI를 Anthropic API로 직접 호출 | API 키를 따로 보관 · 교체해야 하고, 고객 로그(IP · 계정)가 AWS 밖으로 나간다. Bedrock은 Lambda의 IAM 역할로 부르고, 입력 · 응답을 학습에 쓰지 않으며 모델 제공사와 공유하지 않는다(문서) |
+  | Bedrock global 교차 리전 추론(Sonnet 5.5 · Haiku 5.5 등 최신 모델) | 서울에서 최신 Claude 대부분은 inference profile로만 부를 수 있다(계정에서 확인). global은 Bedrock이 전 세계 상용 리전 중 처리 리전을 고르므로 고객 로그가 한국 밖에서 처리될 수 있고, `aws:RequestedRegion` 조건과도 맞춰야 한다. 보고서 초안에는 최신 모델이 필요 없다 |
 
 - **근거:** AWS Startup Security Baseline은 CloudTrail · GuardDuty · Security Hub를 계정 단위 통제로 두고 처음에 켜라고 한다. GuardDuty가 분석하는 것은 CloudTrail 관리 이벤트 · VPC 흐름 로그 · DNS 로그다. CloudFront에 붙은 WAF 지표는 us-east-1에만 쌓이고, 한 계정 안이면 대시보드 하나에 리전이 다른 지표를 같이 띄울 수 있다.
 - **결과:**
@@ -1437,6 +1440,8 @@
   - 자동 차단이 WAF 한도(약 41초)보다 빠를지는 가설이다. WAF IP 세트를 바꾼 뒤 실제로 걸리기까지의 시간을 확인하지 않았다.
   - 여러 IP 공격을 재현하는 방법(발생기 여러 대 등)은 구현할 때 정한다.
   - 리전 전체 장애의 RTO · RPO는 5단계에 남는다. 3.5단계에서는 서버 · DB 수준의 복구 시간만 나온다.
+  - Bedrock 호출은 Lambda 기본 제한 시간(3초)으로는 응답을 못 기다릴 수 있어 늘리고, 차단이 끝난 뒤에 따로 부른다(AI가 늦거나 실패해도 차단에 영향 없게). Bedrock 단가는 확인하지 않았다(호출은 시험 횟수만큼 수십 번 수준).
+  - 보고서 단계를 읽기 전용 조사 Agent로 키울지는 캡스톤 평가 기준을 강사에게 확인한 뒤 정한다.
 
 <details>
 <summary>확인한 근거와 메모</summary>
@@ -1447,5 +1452,52 @@
 - [Verified Access 요금](https://aws.amazon.com/verified-access/pricing/)(2026-11-16 조회, HTTP(S) 앱 시간당 $0.27).
 - [WAF 지표(CloudFront용은 us-east-1)](https://docs.aws.amazon.com/waf/latest/developerguide/web-acl-testing-view-metrics.html), [리전 간 대시보드 · 경보 제한](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/Cross-Account-Cross-Region.html), [CloudWatch 요금](https://aws.amazon.com/cloudwatch/pricing/)(사용자 정의 대시보드 3개 · 지표 50개 이하 무료).
 - 판정은 규칙, AI는 설명만이라는 원칙은 SKT ALEPH 수업의 보안 Agent 과제(기존 엔진이 판정 · 집행, AI는 근거 설명과 제안)에서 가져왔다.
+- Bedrock: [데이터 보호](https://docs.aws.amazon.com/bedrock/latest/userguide/data-protection.html)(학습에 쓰지 않음, 모델 제공사와 공유 안 함), [모델 접근](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html)(첫 호출 때 Marketplace 구독 자동, Claude Opus 4.7부터는 사용 사례 양식 불필요), [global 교차 리전 추론](https://docs.aws.amazon.com/bedrock/latest/userguide/global-cross-region-inference.html)(처리 리전을 Bedrock이 고름), [Lambda 제한 시간](https://docs.aws.amazon.com/lambda/latest/dg/configuration-timeout.html). 서울 리전 호출 방식은 2026-11-17 `aws bedrock list-foundation-models --by-provider anthropic`으로 확인: 서울 안에서 바로 부를 수 있는(on-demand) Claude는 `claude-opus-5` · `claude-sonnet-5`뿐이고, 나머지는 inference profile(최신은 global, `apac`은 Claude 3 계열만)로만 부른다.
+
+</details>
+
+<a name="adr-057"></a>
+## ADR-057 계정 기본 보안: CloudTrail(90일) · GuardDuty(3개 리전)는 상시, Config + Security Hub CSPM은 하루 켜서 잰 뒤 예산 여유 안이면 상시
+
+- **상황:** [ADR-056](#adr-056)에서 CloudTrail · GuardDuty · Security Hub를 3.5단계 전에 켜기로 했다. Security Hub CSPM의 설정 점검은 대부분 AWS Config 기록이 있어야 돌고, Config는 구성 항목(자원 상태 사진) 1건마다 $0.003이다. Security Hub 30일 무료 체험에도 Config 비용은 들어가지 않는다. 그런데 이 프로젝트는 인프라를 매일 새로 짓고 지운다([ADR-052](#adr-052)). Config를 상시로 켜 두면 매일 전체를 만들 때 한 번, 지울 때 한 번 찍는다. v1에서도 Config 비용이 튀었다.
+- **결정:**
+
+  | 항목 | 고른 것 |
+  |---|---|
+  | CloudTrail | 여러 리전 트레일 1개, 관리 이벤트만, 로그 파일 무결성 검증, 서울 S3에 **90일** 보관 후 자동 삭제. **상시** |
+  | GuardDuty | **서울 · 도쿄 · us-east-1**. 평소 사용자 권한의 `aws:RequestedRegion` 범위와 같다(털린 평소 키가 일을 벌일 수 있는 곳). S3 · RDS 로그인 보호는 켜고, EKS · EBS 악성코드 · Lambda · 런타임 모니터링은 끈다. **상시**(리전별 30일 체험이 끝나기 전에 재결정) |
+  | 점검 | Config(바뀔 때마다 기록, `ResourceCompliance` 제외, IAM 전역 자원은 서울에서만) + Security Hub CSPM(기준은 FSBP 하나). **서울 + us-east-1**(CloudFront · WAF 점검은 us-east-1에서만 돎) |
+  | 점검 기간 | 인프라를 올리기 **전에** 켜고, 하루(올리기 · 낮 · 내리기) 뒤 다음 날 아침 주기 점검 결과까지 보고 끈다. apply 시각으로 구간을 나눠 사진 수를 센다: 켠 직후 bootstrap(1회성)과 매일 반복되는 몫(올리기 + 낮 변화 + 내리기) |
+  | 상시 전환 기준 | 보안 4종 합계가 **월 $8 이하**(월 예산 $50 − 작업 시간 기준 추정 $42, [09 비용 추정](09-cost-estimate.md))면 Config · Security Hub도 상시로 둔다 |
+  | 코드 위치 | 새 루트 `infra/security`(관리자 apply). 점검은 `posture_check` 변수로 켜고 끈다. bootstrap과 state를 나눈다 |
+
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | Config 상시 + 하루 1번 기록 | 건당 $0.012로 연속 기록의 4배다. 매일 전부 바뀌므로 매일 과금되고, 바뀐 것에 대한 점검 결과가 최대 24시간 늦다 |
+  | Config 상시 + 기록 종류 줄이기(bootstrap 자원만) | 매일 만드는 ECS · ALB · RDS · 보안 그룹이 점검에서 빠진다 |
+  | Config를 매일 켜고 끄기 | 꺼진 동안의 변경 · 삭제를 놓쳐 낡은 결과가 남는다(문서). 기록기를 지웠다 다시 만들면 bootstrap 자원을 매번 다시 찍을 가능성이 있다(가설) |
+  | 새 Security Hub(Essentials) | CSPM에 Inspector 취약점 스캔까지 묶은 상품이다. 자원 단위 단가를 확인하지 못했고 범위가 계획보다 크다 |
+  | GuardDuty 모든 리전 | 리전 수만큼 코드와 확인이 늘어난다. 평소 권한이 3곳으로 막혀 있어 털린 평소 키는 그 밖에서 자원을 만들지 못한다 |
+  | CloudTrail 1년 이상 보관 | 실제 회사는 감사 대응(기록 제출)을 위해 1년 이상 둔다(예: 개인정보 접속기록 1년 이상). 이 계정은 시연용이라 프로젝트가 끝나면 내린다. 무료 콘솔 이벤트 기록과 같은 90일이면 남은 기간을 덮는다 |
+  | 점검에 도쿄 포함 | 평소 도쿄에는 사진 복제 버킷과 ECR만 있고 서울과 같은 bootstrap 코드로 만든다. 5단계에서 도쿄를 올릴 때 넣는다 |
+
+- **근거:** 트레일은 보관보다 두 가지 이유가 크다. 하나는 EventBridge가 API 호출 이벤트를 받으려면 기록 중인 트레일이 있어야 한다는 것이다(3.5단계 자동 대응). 다른 하나는 트레일이 없으면 Security Hub CloudTrail.1(High)이 실패한다는 것이다. GuardDuty는 CloudTrail · VPC 흐름 · DNS 기록을 독립 사본으로 직접 읽으므로 우리가 켤 기록이 없다. Config는 켤 때 이미 있는 자원을 모두 찾아 한 번씩 찍으므로, 인프라를 올린 뒤 켜도 점검에는 지장이 없다. 다만 하루치를 재려고 먼저 켠다.
+- **결과:**
+  - Config 상시 비용 어림(가설)은 월 $14 ~ 30이다. 매일 새로 짓기 때문에 기준을 넘을 가능성이 크다. 시간 단위로 아끼는 결정(ADR-052)이 바뀔 때마다 받는 과금 방식과 반대로 작동하는 경우다. 실측으로 확인한다.
+  - GuardDuty 기본 기능은 Fargate 컨테이너 안에서 채굴 프로그램이 도는 것은 보지 못한다(런타임 모니터링 몫, 유료라 꺼 둠). 털린 평소 키로는 EC2를 띄우지 못한다(`ec2:RunInstances` 없음). 그러나 ECS 작업 정의 · 서비스로 컨테이너는 띄울 수 있다. 이 경우는 키 사용 행동(CloudTrail 기반 탐지)과 예산 알림(최대 하루 3번 갱신)으로 잡는다.
+  - 직무 분리는 사용자를 늘리지 않고 권한으로 한다(2026-11-17 결정). 평소 사용자 `vundle34`의 operator 정책 3개에는 cloudtrail · guardduty · securityhub · config 권한이 없다. S3 삭제도 state 잠금 파일과 사진 버킷 정책뿐이다. 그래서 평소 키가 털려도 감사 기록을 끄거나 지울 수 없고, `security` 루트는 관리자 역할로만 apply한다. 보안 담당 IAM 사용자를 따로 만드는 안은 버렸다. 오래 가는 키가 하나 늘어나고(AWS 권장은 임시 자격 증명), 쓰는 사람이 같은 한 명이라 관리 부담만 커진다. 읽기 전용 `SecurityAudit` 역할은 후속 후보다.
+  - 실서비스라면: CloudTrail 1년 이상(+ 객체 잠금), Config 상시(변경분만 찍혀 쌈), 로그 보관 · 감사용 계정 분리.
+
+<details>
+<summary>확인한 근거와 메모</summary>
+
+- [Security Hub CSPM 요금](https://aws.amazon.com/security-hub/cspm/pricing/)(점검 1건 $0.001, Security Hub가 만든 Config 규칙은 무료, 30일 체험), [Config 요금](https://aws.amazon.com/config/pricing/)(연속 $0.003 · 하루 1번 $0.012), [CSPM의 Config 설정](https://docs.aws.amazon.com/securityhub/latest/userguide/securityhub-setup-prereqs.html)(전역 자원은 한 리전, daily 기록은 결과 지연, ResourceCompliance 끄기), [점검 일정](https://docs.aws.amazon.com/securityhub/latest/userguide/securityhub-standards-schedule.html)(주기 12 ~ 24시간).
+- [Config 동작](https://docs.aws.amazon.com/config/latest/developerguide/how-does-config-work.html)(켜면 기존 자원 발견), [기록기 끄고 켜기](https://docs.aws.amazon.com/config/latest/developerguide/stop-start-recorder.html), [RecordingGroup](https://docs.aws.amazon.com/config/latest/APIReference/API_RecordingGroup.html)(빼기 방식에서도 IAM 전역 자원은 따로 빼야 함), [Config 버킷 정책](https://docs.aws.amazon.com/config/latest/developerguide/s3-bucket-policy.html), [Config 점검 Config.1](https://docs.aws.amazon.com/securityhub/latest/userguide/config-controls.html)(서비스 연결 역할).
+- [CloudTrail 요금](https://aws.amazon.com/cloudtrail/pricing/), [CloudTrail 버킷 정책](https://docs.aws.amazon.com/awscloudtrail/latest/userguide/create-s3-bucket-policy-for-cloudtrail.html), [전역 서비스 이벤트](https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-concepts.html#cloudtrail-concepts-global-service-events), [EventBridge의 CloudTrail 이벤트](https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-service-event-cloudtrail.html)(트레일 필요), [CloudTrail 점검](https://docs.aws.amazon.com/securityhub/latest/userguide/cloudtrail-controls.html).
+- [GuardDuty 시작하기](https://docs.aws.amazon.com/guardduty/latest/ug/guardduty_settingup.html)(독립 사본), [GuardDuty 요금 · 체험](https://docs.aws.amazon.com/guardduty/latest/ug/guardduty-pricing.html), [런타임 모니터링 탐지](https://docs.aws.amazon.com/guardduty/latest/ug/findings-runtime-monitoring.html)(컨테이너 채굴 `CryptoCurrency:Runtime/BitcoinTool.B`), [전역 자원 점검은 us-east-1만](https://docs.aws.amazon.com/securityhub/latest/userguide/controls-to-disable.html).
+- 개인정보 접속기록 보관: 「개인정보의 안전성 확보조치 기준」 제8조(1년 이상, 요건에 따라 2년 이상). 해설만 확인했고 법제처 원문은 확인하지 않았다.
+- 보호 기능 이름은 로컬 AWS CLI 도움말(`create-detector`)로 확인했다. API로 탐지기를 만들 때 어떤 보호 기능이 기본으로 켜지는지는 문서에 없어 6개를 모두 명시했다.
 
 </details>

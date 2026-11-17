@@ -8,6 +8,8 @@
 
 **▶ [새 PC에서 1단계 AWS 이전 환경 올리기](https://github.com/yubin05/hotel-booking-app/blob/main/legacy/README.md)** · 준비물 → 매일 올리기 · 확인 → 지우기를 한 페이지에
 
+**▶ [2단계 인프라 런북](infra/README.md)** · 매일 올리기(seoul → global → CD) · 내리기(global → seoul), 리전 전환 · 되돌리기, 계정 보안 점검 켜고 끄기, 자주 만난 문제
+
 ## 핵심 내용
 
 - v1 회고 — 실제 문제(트래픽 폭증)와 맞지 않던 멀티클라우드 DR을 Multi-AZ + 오토스케일링 + 리전 간 백업으로 단순화
@@ -197,7 +199,7 @@ flowchart LR
 | [08 실제 사례 조사](docs/08-real-cases.md) | 시나리오·결정의 근거가 된 실제 기업 사례와 신뢰도 |
 | [09 비용 추정](docs/09-cost-estimate.md) | v1·v2 월 고정 비용, 단계별 예상, Budgets 금액 |
 | [10 보안 점검과 WAF](docs/10-security.md) | 앱의 약점 점검, 그에 맞춘 WAF 구성, WAF로 못 막는 것 |
-| [2단계 실행 절차](infra/README.md) | 매일 올리기 · 내리기 순서, 리전 전환(failover) · 되돌리기(failback), 자주 만난 문제 |
+| [2단계 실행 절차](infra/README.md) | 매일 올리기 · 내리기 순서, 리전 전환(failover) · 되돌리기(failback), 계정 보안 점검 켜고 끄기, 자주 만난 문제 |
 | [1단계 이전 환경 올리기](https://github.com/yubin05/hotel-booking-app/blob/main/legacy/README.md) (고객사 저장소) | 새 PC 준비, legacy 권한 붙이기, 매일 apply → 앱 배포 → destroy 명령 |
 | [부하 시험](load/README.md) | 이관 전 기준선 · 이관 후 비교를 재는 방법 (인프라팀) |
 
