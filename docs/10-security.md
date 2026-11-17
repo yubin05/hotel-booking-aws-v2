@@ -85,12 +85,23 @@ WAF 규칙을 "있는 것 다 켜기"로 고르지 않고, **우리 앱의 약�
 | 의존성: npm Dependabot, ECR 이미지 스캔 | 알려진 라이브러리 취약점 |
 | WAF: 로그 저장, Bot Control · ATP | 오탐 추적, 6 · 8의 정교한 봇 |
 
+## 7. 공격 방법 메모 (6단계 시나리오 후보, 2026-11-18)
+
+앱 묶음 작업 중 정리한 공격 방법. 6단계 시나리오에 넣을지는 그때 정한다. 로그 칸은 앱의 보안 로그(`log=security`, [ADR-060](04-decisions.md#adr-060)).
+
+| 공격 | 방법 | 지금 막히나 | 우리 로그로 보는 신호 |
+|---|---|---|---|
+| 분산 크리덴셜 스터핑 | 다른 곳에서 털린 이메일 · 비밀번호 목록을 프록시망으로 수많은 IP에 나눠, 계정마다 한 번씩 넣는다(비밀번호 재사용을 노림) | 아니오. WAF 요청 수 제한(IP 단위)도, 앱 계정 잠금(15분 5회)도 숫자가 작아 안 울린다 | 사이트 전체의 `reason=unknown_account` 급증(유출 목록에 우리 회원이 아닌 이메일이 섞임), 실패한 서로 다른 `account` 수, 여러 IP의 같은 `ua`, `login_succeeded` 뒤 같은 `session_id`의 `booking_created.points_used` |
+| 세션 토큰 탈취 | 정보 탈취 악성코드가 브라우저에 저장된 비밀번호 · 세션 쿠키(우리 앱은 localStorage의 토큰)를 가져가, 로그인 없이 그 토큰으로 요청 | 아니오. 토큰은 만료(1시간)까지 유효하고, 주인이 비밀번호를 바꿔도 이미 발급된 토큰은 그대로 쓰인다. 세션 끊기는 보안 강화 단계 | 새 `login_succeeded` 없이 같은 `session_id`가 다른 `ip` · `ua`에서 쓰임(정상 사용자도 IP가 바뀔 수 있어 단독으로 확정하지 않음) |
+| X-Forwarded-For 위조 | 손님이 이 헤더에 남의 IP를 적어 보내 IP 차단 · 로그를 속이려 함 | 예. 앱은 우리 프록시(CloudFront → ALB)가 덧붙인 오른쪽 2칸만 믿는다(`trust proxy` 2, 앱 테스트로 확인) | 로그의 `ip`는 위조 값이 아닌 실제 손님 IP. "막히는 공격" 예시로 쓸 수 있음 |
+
 <details>
 <summary>확인한 근거</summary>
 
 - 요금(웹 ACL $5, 규칙 · 관리형 그룹 $1, 요청 100만 건당 $0.60, 시간 단위 일할, 1,500 WCU 초과분 요금): [WAF 요금](https://aws.amazon.com/waf/pricing/).
 - 핵심 규칙 세트 700 WCU, `SizeRestrictions_BODY` 8KB, 알려진 나쁜 입력 200 WCU(Log4j 규칙 포함): [기본 규칙 그룹](https://docs.aws.amazon.com/waf/latest/developerguide/aws-managed-rule-groups-baseline.html). SQL 그룹 200 WCU, "SQL DB를 쓰는 앱이면 검토": [용도별 규칙 그룹](https://docs.aws.amazon.com/waf/latest/developerguide/aws-managed-rule-groups-use-case.html). IP 평판 목록 25 WCU: [IP 평판 규칙 그룹](https://docs.aws.amazon.com/waf/latest/developerguide/aws-managed-rule-groups-ip-rep.html).
 - 요청 수 제한: 최소 10, 평가 기간 1 · 2 · 5 · 10분(기본 5분), 기본은 IP별: [요청 수 규칙](https://docs.aws.amazon.com/waf/latest/developerguide/waf-rule-statement-type-rate-based-high-level-settings.html).
+- 7절 크리덴셜 스터핑: 정의와 비밀번호 재사용 [OWASP](https://community.owasp.org/attacks/Credential_stuffing), 프록시망 분산이 "IP 차단 목록과 요청 수 제한을 둘 다 무력화할 수 있다" · IP 차단을 주된 방어로 쓰지 말 것 · 권하는 방어(MFA, CAPTCHA, 기기 지문, 이상 활동 알림 등) [OWASP 방어 가이드](https://cheatsheetseries.owasp.org/cheatsheets/Credential_Stuffing_Prevention_Cheat_Sheet.html). 세션 쿠키 탈취: [Microsoft, Lumma Stealer](https://www.microsoft.com/en-us/security/blog/2025/05/21/lumma-stealer-breaking-down-the-delivery-techniques-and-capabilities-of-a-prolific-infostealer/). X-Forwarded-For는 "믿을 수 있는 프록시가 추가한 IP만" 보안에 쓸 것: [MDN](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/X-Forwarded-For).
 - CloudFront 정액 요금제(Free는 WAF 포함 $0)는 Free · Pro가 VPC Origin을 지원하지 않아 쓰지 않음: [정액 요금제](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/flat-rate-pricing-plan.html).
 
 </details>
