@@ -55,7 +55,7 @@
 | [054](#adr-054) | 로그인 실패는 입력한 이메일마다 DB에 세어, 15분 안에 5번 틀리면 15분 잠금 |
 | [055](#adr-055) | 숙소 사진은 숙소 · 객실마다 고유 파일을 640 · 1200 WebP로 미리 만들어 S3(상시, 도쿄 복제)에, 사진 CloudFront는 global, DB에는 크기 없는 주소 |
 | [057](#adr-057) | 계정 기본 보안: CloudTrail(90일) · GuardDuty(3개 리전)는 상시, Config + Security Hub CSPM은 하루 켜서 잰 뒤 예산 여유 안이면 상시 |
-| [061](#adr-061) | 관제 화면은 CloudWatch 고해상도 사용자 지표(앱이 EMF로 1초) + Grafana, Grafana는 인터넷에 공개하지 않는다 |
+| [061](#adr-061) | 관제 화면은 CloudWatch 고해상도 사용자 지표(앱이 EMF로 1초) + 도쿄(관찰 리전)의 비공개 Grafana, 경보 · 알림은 CloudWatch 경보 + SNS |
 
 ---
 
@@ -1321,7 +1321,7 @@
 </details>
 
 <a name="adr-061"></a>
-## ADR-061 관제 화면은 CloudWatch 고해상도 사용자 지표(앱이 EMF로 1초) + Grafana, Grafana는 인터넷에 공개하지 않는다
+## ADR-061 관제 화면은 CloudWatch 고해상도 사용자 지표(앱이 EMF로 1초) + 도쿄(관찰 리전)의 비공개 Grafana, 경보 · 알림은 CloudWatch 경보 + SNS
 
 - **상황:** 3단계 쿠폰 스파이크에서 "요청 급증 → 태스크 증가 → 회복"을 한 화면(데이터센터 관제실 대형 화면처럼)에 보여 주고 싶다. 고객사 · 면접관에게 AWS 계정을 빌려줄 수 없다. ALB · ECS 기본 지표는 60초 간격이다([ALB 지표](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-cloudwatch-metrics.html)). 2026-11-18 사용자와 정함.
 - **결정:**
@@ -1331,7 +1331,12 @@
   | 1초 지표 | 앱이 1초 동안 모은 값(요청 수 · 오류 수 · 응답 시간)을 태스크마다 1초에 한 줄, EMF(로그에 지표를 싣는 형식)로 남기고 `StorageResolution: 1`로 저장([EMF 규격](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch_Embedded_Metric_Format_Specification.html)). 고해상도는 사용자 지표에만 된다. 태스크별로 쪼개지 않고 서비스 하나로 묶어 지표 3개(무료 10개 안) |
   | 1분 지표 | ECS 태스크 수 · CPU, ALB 정상 대상 · 5xx, RDS CPU · 연결 수 (AWS 기본) |
   | 화면 | Grafana가 CloudWatch를 데이터 소스로 읽는다([Grafana CloudWatch](https://grafana.com/docs/grafana/latest/datasources/aws-cloudwatch/configure/)). 대시보드는 JSON으로 저장소에 둔다 |
-  | 공개 | 인터넷에 열지 않는다. 노트북 docker로 띄우고 읽기 전용 역할로 CloudWatch를 읽는다(3단계 준비에서 확정). 다른 사람에게는 화면 녹화 · 스크린숏 · 정적 보고 페이지로 |
+  | Grafana 위치 | **도쿄** 비공개 서브넷의 작은 EC2. 평소 앱은 서울에서만 돌아 도쿄는 "앱이 쓰지 않는 바깥"(관찰 리전)이다. AWS는 대시보드 · 수집을 별도 리전에 두고([REL11-BP01](https://docs.aws.amazon.com/wellarchitected/latest/reliability-pillar/rel_withstand_component_failures_monitoring_health.html)), 대기 리전에서 주 리전을 바깥에서 보라고 권한다([다중 리전 운영 준비](https://docs.aws.amazon.com/prescriptive-guidance/latest/aws-multi-region-fundamentals/fundamental-4.html)). 서울 CloudWatch는 원격으로 읽는다 |
+  | 접속 · 인수인계 | 인터넷에 열지 않는다. SSM 포트 포워딩으로 접속(AWS 로그인 + 관제용 읽기 전용 역할이 있어야 하고 접속 기록이 CloudTrail에 남음). EC2 역할로 CloudWatch를 읽어 키를 만들지 않는다. 데이터 소스 · 대시보드는 파일로 정의해 저장소에 두고(Grafana 프로비저닝), 관제팀에는 Terraform · 파일 · 런북 · 역할을 넘긴다. 데이터는 CloudWatch에 있어 서버를 다시 만들어도 같은 화면 |
+  | 바깥에 보여 주기 | 발표 · 면접은 내 화면을 공유해 실제 관제 화면 그대로. 포트폴리오는 녹화 + "관제 화면 재생" 페이지(시험 뒤 지표를 내려받아 같은 칸 배치로 다시 그림) |
+  | 화면 구성 | 맨 위 경보 상태판(울린 것만 빨강), 아래 경보별 그래프 + 임계선. Grafana는 화면만 맡는다 |
+  | 경보 · 알림 | CloudWatch 경보 + SNS 주제. 화면을 아무도 안 볼 때 당번에게 알리고(시연은 사용자 이메일), 6단계 자동 대응도 경보에서 출발한다. Grafana가 꺼져도 경보는 AWS가 계속 감시. 이메일은 공개 저장소에 커밋하지 않고 구독을 따로 붙인다(ADR-027과 같은 원칙). 경보 목록 · 기준값은 3단계 준비에서(기준은 정상 k6 최댓값 × 배수) |
+  | 받아들인 위험 | 도쿄 장애 때는 운영 도구가 멈춘다: Terraform 상태(ADR-025) · 백업 복제본 · Grafana. 서비스(서울)와 경보(서울 · us-east-1)는 그대로. DR로 도쿄가 주 리전이 되면 관찰 리전과 같아진다. 앱이 쓰지 않는 제3 관찰 리전은 우리 규모에 과해 두지 않는다 |
   | 고해상도 켜는 시간 | 서울을 시험할 때만 올리므로 켜져 있는 동안 늘 1초. 상시 운영이면 이벤트 때만 1초로 올리는 것을 고객사 권고로 |
   | 손님 쪽 1초 | k6 요청별 원본으로 3단계 보고서에 함께 쓴다(관제 화면에는 넣지 않음) |
 
@@ -1345,6 +1350,9 @@
   | 모니터 전용 IAM 사용자 + 직접 만든 실시간 사이트 | 공개 사이트에 오래 쓰는 키가 필요하고, 방문마다 지표 조회 요금이 붙으며, 1분 데이터는 사이트를 만들어도 1분이다 |
   | 앱 관리자 화면에 트래픽 그래프 | 고객사 앱 안에 MSP 관제 화면이 들어가고(저장소 분리 원칙과 충돌), 앱 역할에 CloudWatch 읽기 권한이 붙어 관리자 계정이 털리면 인프라 정보까지 샌다 |
   | Grafana를 로그인 걸고 공개 | 로그인 화면이 공격 대상이 된다. 보고서에는 "공개하지 않은 이유"를 적용한 통제로 쓴다 |
+  | 노트북 docker의 Grafana | 관제팀에 인수인계할 수 없다(사용자 지적) |
+  | Amazon Managed Grafana | 로그인이 IAM Identity Center나 SAML이고 작업 공간을 만들면 Identity Center가 켜진다([AMG 시작하기](https://docs.aws.amazon.com/grafana/latest/userguide/getting-started-with-AMG.html)). Free 플랜 계정이 Organizations에 가입하면 Paid로 바뀌어 Free Tier 크레딧을 잃을 수 있다([Free Tier FAQ](https://aws.amazon.com/free/free-tier-faqs/)). 되돌릴 수 없어 피한다 |
+  | Grafana를 서울에 | 서울 장애 때 감시 화면이 함께 죽는다 |
 
-- **결과:** 앱에 EMF 지표 한 줄 추가(앱 저장소), 노트북 Grafana 구성과 읽기 전용 역할(인프라 저장소)은 3단계 준비에서 한다. 고해상도 사용자 지표 단가와 Grafana에서 1초 간격으로 그려지는지는 그때 확인한다(가설).
+- **결과:** 앱에 EMF 지표 한 줄 추가(앱 저장소), 도쿄 Grafana EC2 · 관제용 읽기 전용 역할 · SNS 주제 · 경보(인프라 저장소)는 3단계 준비에서 한다. 실제 관제에서 알림을 누가 어떻게 받는지는 데이터센터 관제 경력 동료에게 물어 보완한다. 고해상도 사용자 지표 단가와 Grafana에서 1초 간격으로 그려지는지는 그때 확인한다(가설).
 
