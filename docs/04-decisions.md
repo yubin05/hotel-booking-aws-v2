@@ -1637,6 +1637,7 @@
   | 관리자만 비밀값, 호스트는 관리자 화면에서 만들기 | DB가 매일 새로 생겨 시연 전마다 만들어야 한다 |
   | 호스트 직접 가입 + 관리자 승인 | 가장 실제와 같지만 기능이 가장 크고, 매일 다시 해야 한다 |
   | 시연 비밀번호를 Terraform `random_password`로 | 비밀번호가 상태 파일에 남고 서울을 내릴 때마다 바뀐다 |
+  | 시연 비밀번호를 Secrets Manager에 | 비밀 1개당 월 $0.40 + API 1만 건당 $0.05(3개면 월 $1.20). 자동 교체 · 리전 복제가 장점인데, 시연 비밀번호는 사람이 정해 넣고 교체할 필요가 없으며 도쿄 복원에서 쓰지 않는다. SSM 표준 파라미터는 추가 요금 없음. 대가: 비밀 보관 장소가 Secrets Manager(JWT · 앱 DB, 복제 필요)와 SSM 두 군데로 나뉜다. AWS는 비밀값에 Secrets Manager를 권장하므로 실제 운영 계정이면 Secrets Manager + 교체 ([SSM 요금](https://aws.amazon.com/systems-manager/pricing/), [Secrets Manager 비교](https://aws.amazon.com/compare/kms-and-secrets-manager/), [Parameter Store](https://docs.aws.amazon.com/systems-manager/latest/userguide/systems-manager-parameter-store.html)) |
 
 - **결과:**
   - 6단계 완료 기준을 "공격 시작부터 탐지 · IP 차단까지 시간"으로 바꾸고, 계정 단위 차단은 보고서 권고 · 전후 비교로 옮긴다([03 6단계](03-plan.md)).
