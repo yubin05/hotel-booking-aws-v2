@@ -1545,13 +1545,15 @@
   | 적립금 사용 | 결제액 전액까지. 쿠폰을 먼저 빼고 남은 금액에서 적립금을 뺀다 |
   | 적립액 | 실제 결제액(쿠폰 · 적립금을 뺀 금액) × 5%, 원 미만 버림 |
   | 예약 취소 | 쓴 적립금을 같은 내역 테이블에 '환원' 한 줄로 돌려준다. 되돌림 줄(환원 · 복구)은 되돌린 사용 줄을 가리키고 그 칸이 유니크라, 한 사용을 두 번 되돌릴 수 없다 |
+  | 예약 변경 (구현 중 결정) | 숙박을 줄여 쓴 적립금이 새 결제액보다 많아질 때만, 같은 트랜잭션 안에서 '환원' 한 줄 + 새 결제액까지 '사용' 한 줄을 쓴다. 늘리거나 조금 줄이는 변경은 사용액을 그대로 둔다. 거절하고 "취소 후 다시 예약"으로 돌리면 그 사이 다른 손님이 그 객실 · 날짜를 가져갈 수 있다(사용자 지적) |
+  | 동시 사용 (구현 중 결정) | 예약 INSERT보다 먼저 `users` 행을 `FOR UPDATE`로 잠근다(INSERT의 외래 키 검사가 거는 공유 잠금 뒤에 잠그면 동시 요청끼리 교착, 쿠폰 발급과 같은 이유). 잔액 합계는 잠금 읽기(`FOR SHARE`)로 구한다. 기본 격리 수준(REPEATABLE READ)의 일반 읽기는 "트랜잭션 첫 읽기 때의 스냅샷"을 봐서, 잠금을 기다리는 동안 커밋된 사용을 못 보고 두 번 쓸 수 있다([MySQL 일관된 읽기](https://dev.mysql.com/doc/refman/8.4/en/innodb-consistent-read.html)). 같은 잔액으로 동시 예약 5건 → 1건만 되는 테스트로 확인 |
   | 세션 번호 | 토큰에 `jti`를 넣고 적립금 사용 줄에 남긴다(복구 범위 · 보고서). 배포 때 테이블 구조를 바꿀 수 없어 처음부터 넣는다 |
-  | 세션 끊기 경로 | **미정(확인 대기).** 관리용 문을 인터넷에 열지 않는다(사용자 원칙). 사람이 손으로 끊지 않고 자동으로 한다. 후보: ECS 일회성 태스크(추천: migrate와 같은 방식이라 새 서비스 없음, 시작에 수십 초는 가설로 시험에서 잼) · SQS 명령 큐. 어느 쪽이든 기계는 끊기 · 잠금만 하고 시간당 상한을 두며, 처리 결과를 로그로 남긴다 |
+  | 세션 끊기 경로 | **보안 강화 단계로 미룸([ADR-060](#adr-060), 2026-11-18).** 아래는 미루기 전 기록. 관리용 문을 인터넷에 열지 않는다(사용자 원칙). 사람이 손으로 끊지 않고 자동으로 한다. 후보: ECS 일회성 태스크(추천: migrate와 같은 방식이라 새 서비스 없음, 시작에 수십 초는 가설로 시험에서 잼) · SQS 명령 큐. 어느 쪽이든 기계는 끊기 · 잠금만 하고 시간당 상한을 두며, 처리 결과를 로그로 남긴다 |
   | 같은 초 | 끊은 시각(초) 이하에 발급된 토큰은 모두 무효. 주인은 다시 로그인하면 된다 |
-  | 끊은 뒤 처리 | **미정(확인 대기).** 추천: 토큰 탈취(로그인한 적 없는 IP에서 같은 세션 번호가 쓰임)는 끊기만 해 주인이 바로 다시 로그인하고, 비밀번호 탈취(공격 IP에서 로그인 성공)는 끊기 + 잠금. 잠금 해제 · 임시 비밀번호 · 사건 복구(공격자 세션이 쓴 적립금 되돌림 + 그 세션이 만든 예약 취소)는 관리자 계정(사람)만 한다. 이메일 인증 재설정은 재발 방지 권고 |
+  | 끊은 뒤 처리 | **보안 강화 단계로 미룸([ADR-060](#adr-060)).** 미루기 전 추천: 토큰 탈취(로그인한 적 없는 IP에서 같은 세션 번호가 쓰임)는 끊기만 해 주인이 바로 다시 로그인하고, 비밀번호 탈취(공격 IP에서 로그인 성공)는 끊기 + 잠금. 잠금 해제 · 임시 비밀번호 · 사건 복구(공격자 세션이 쓴 적립금 되돌림 + 그 세션이 만든 예약 취소)는 관리자 계정(사람)만 한다. 이메일 인증 재설정은 재발 방지 권고 |
   | 계정 | 호스트 2개 + 관리자 1개. migrate 태스크가 배포마다 없으면 만든다. 비밀번호는 SSM SecureString(`/hotel-booking/host-password/<host_id>`, `/hotel-booking/admin-password`)을 ECS가 환경 변수로 넣고, 값이 없으면 건너뛴다 |
   | Google SSO | 지금 넣지 않는다. 사건 보고서의 재발 방지 권고(직원 계정 SSO · MFA)로 내고, 시간이 남으면 적용한 뒤 같은 공격을 다시 해서 전 · 후를 비교한다 |
-  | 적립금 테이블 크기 | 내역 테이블 + `user_id` 색인만. 한 사람 줄이 많아지면 잔액 표, 전체가 커지면 아카이브 |
+  | 적립금 테이블 크기 | 내역 테이블 + `user_id` 색인만. 한 사람 줄이 많아지면 잔액 표, 전체가 커지면 아카이브. 예약 id는 외래 키라 MySQL이 색인을 자동으로 만든다([외래 키 조건](https://dev.mysql.com/doc/refman/8.4/en/create-table-foreign-keys.html), 로컬 `SHOW INDEX`로 확인) |
   | 고객사 확인 | 관제 화면(CloudWatch 대시보드, 켜져 있을 때 실시간) + 고객사 보고 페이지(포트폴리오 사이트, 사건별 시간표 · 숫자 · 보고서, 언제든 열림) + 시연 영상. 먼저 만들어 보고 피드백을 받는다. CloudWatch만으로는 처음 보는 사람이 들어갈 수 없고 밤에 인프라를 내리면 비며, 앱 안에 관제 사이트를 따로 만들면 CloudWatch와 겹친다 |
 
   | 버린 대안 | 이유 |
@@ -1564,6 +1566,8 @@
   | 비밀번호 탈취에 끊기만 | 공격자가 아는 비밀번호로 바로 다시 로그인한다 |
   | 일회용 스크립트로 계정 생성 | 서울을 밤마다 내려 DB가 매일 새로 생기므로 매일 다시 돌려야 한다 |
   | 토큰 1인 1개 | 주인과 공격자가 서로 튕기기만 하고, 비밀번호를 아는 공격자는 못 막는다 |
+  | 예약 변경: 적립금이 넘치면 거절("취소 후 다시 예약") | 취소와 재예약 사이에 다른 손님이 객실 · 날짜를 가져갈 수 있다 |
+  | 예약 변경: 적립금 쓴 예약은 변경 불가 | 늘리는 변경까지 막히고, 위와 같은 빈틈이 생긴다 |
 
 <details>
 <summary>확인한 근거와 메모</summary>
@@ -1605,3 +1609,49 @@
   - 이관 마감까지 못 하면 4단계의 AZ 하나 장애 · 오토스케일링 상한은 README에 하지 않은 것으로 남긴다.
   - v1은 4인 팀, v2는 개인 작업이라는 구분을 서론 · 포트폴리오에서 지킨다.
   - 옛 3.5단계를 설명하는 "다음 단계 계획" 절(README, 포트폴리오 v2 페이지 `src/content/projects/hotel-booking-aws-v2.md`)과 단계 그림(stages.svg)은 이관이 끝날 때 대문을 "① 이관 / ② 보안 운영"으로 정리하면서 한 번에 고친다. 그때까지 약 10일 동안 옛 계획 절이 보이는 것은 받아들인다("측정 전 계획"이라고 붙어 있고, README와 포트폴리오를 같은 문장으로 맞추는 규칙상 한 번에 고치는 편이 일이 적다).
+
+<a name="adr-060"></a>
+## ADR-060 세션 끊기 · 계정 잠금 · 주인 알림은 6단계 보고서의 권고를 거쳐 보안 강화 단계에서 넣고, 관리자 화면은 계정 조회 · 사건 복구만 먼저 만든다
+
+- **상황:** [ADR-058](#adr-058)은 앱에 토큰 무효화(세션 끊기)를 넣어 대응 자동화가 부르게 했고, 전달 경로(ECS 일회성 태스크 · SQS)와 끊은 뒤 처리(잠금 여부)는 미정이었다. 2026-11-18 앱 작업 중 확인한 사실: SQS는 매달 100만 요청이 무료다. 탐지 자체가 분 단위다(로그 지표 필터의 지표에는 해상도 설정이 없고, 표준 경보의 최소 주기는 60초). AWS Cognito도 "취소한 토큰은 서명 · 만료만 보는 서버에서 만료까지 유효"라고 쓴다. 잠그려면 주인 알림과 공격자가 모르는 경로의 재설정이 함께 필요한데, 앱에는 이메일 발송이 없다. 사용자 판단: 보안 대응 · 강화는 진단(공격 재현 · 탐지 · 시각화) → 보고서 지적 다음에 오는 것이 순서다.
+- **결정:**
+
+  | 항목 | 고른 것 |
+  |---|---|
+  | 세션 끊기 · 잠금 · 알림 | 지금 넣지 않는다. 6단계 1차는 공격 재현 → 탐지 · 시각화 → WAF IP 자동 차단 → AI 보고서까지. 보고서가 "IP를 바꾸면 계정 단위로는 못 막는다"를 지적하고 세션 끊기 · 잠금 · 다른 경로 알림 · MFA를 권고한다. 시간이 남으면 보안 강화 단계에서 넣고 같은 공격을 다시 해 전 · 후를 비교한다(Google SSO와 같은 방식) |
+  | 그때 쓸 판단 기준 | 토큰 탈취 = 새 로그인 없이 주인의 세션 번호가 다른 IP · 브라우저에서 쓰임 → 끊기만(주인은 다시 로그인). 비밀번호 탈취 = 그 계정이 써 본 적 없는 IP에서 새 로그인 성공(특히 같은 IP에서 여러 계정이 실패한 뒤) → 끊기 + 잠금. 정보 탈취 악성코드는 비밀번호와 세션 쿠키를 둘 다 가져가므로 악성코드 종류가 아니라 흔적으로 가른다. IP 변화만으로 확정하지 않는다(모바일 등 정상 변화) |
+  | 주인 알림 원칙 | 비밀번호 탈취는 "다음 로그인 때 비밀번호 변경 화면"만으로는 안 된다. 공격자가 먼저 로그인해 바꿔 버린다. 재설정은 공격자가 갖지 못한 경로(이메일 링크 · 문자 · MFA · 관리자 본인 확인)로 한다 |
+  | 끊기 경로 후보 | SQS 명령 큐가 앞선다. 비용 $0(무료 범위 안, 넣는 쪽은 IAM 권한 있는 대응 Lambda뿐이고 시간당 상한을 둠), 몇 초 안에 반영. ECS 일회성 태스크는 뜨는 시간(가설: 수십 초)이 차단 시간에 그대로 더해진다. 보안 강화 때 확정 |
+  | 관리자 화면 | 지금 만든다: 이메일로 계정 찾기 → 적립금 내역(세션 번호 포함) → 사건 복구(세션 번호를 넣으면 그 세션이 쓴 적립금을 '복구' 줄로 되돌리고, 그 적립금으로 만든 확정 예약을 취소). 피해 복구는 막기가 아니라 운영자가 하는 일이다(메리어트도 도난 포인트 복구 명령, ADR-058) |
+  | 시연 계정 | 호스트 2 · 관리자 1은 시연용 고정 계정. migrate가 배포마다 없으면 만든다(환경 변수 `HOST1_PASSWORD` · `HOST2_PASSWORD` · `ADMIN_PASSWORD`, 없으면 건너뜀). 비밀번호 값은 사용자가 SSM Parameter Store(SecureString, 표준 무료)에 직접 넣는다. 대화 기록 · Terraform 상태 · 저장소에 남지 않게 하려는 것. ECS 연결 Terraform은 Claude가 3단계에서 서울을 올리기 전에 쓴다. 실제 서비스는 호스트가 스스로 가입한 뒤 숙소 확인을 받고, 직원은 회사 SSO로 들어온다. 첫 관리자 1명만 배포 비밀값으로 만드는 것은 흔한 방식이다(Keycloak · Grafana) |
+  | 탐지용 로그 (구현 중 결정) | 보안 이벤트를 한 줄 JSON(`log=security`)으로: 가입, 로그인 성공 · 실패, 토큰 거절, 예약(적립금 사용액), 호스트 예약 조회(건수), 숙박 완료(적립액), 쿠폰 발급, 관리자 조회 · 복구. 손님 IP는 Express `trust proxy` 2: CloudFront → ALB가 X-Forwarded-For 끝에 하나씩 덧붙이므로 손님이 보낸 가짜 값은 왼쪽에 남아 무시된다(프록시 단계가 바뀌면 같이 고침). 로그인 실패 이메일은 SHA-256 앞 16자(개인정보와 이메일 칸에 잘못 친 비밀번호가 로그에 안 남음), User-Agent는 200자까지 |
+
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | 지금 SQS로 끊기 · 잠금 | 주인 알림 · 안전한 재설정 없이 잠그면 반쪽 대응이고, 이관 마감(11-27)과 겹친다 |
+  | 지금 ECS 일회성 태스크 | 위와 같고, 끊는 데 수십 초(가설)가 더 걸린다 |
+  | 관리자 화면 전체를 강화 단계로 | 시나리오 1의 피해 복구를 보고서에 "했다"고 쓸 수 없다 |
+  | 관리자만 비밀값, 호스트는 관리자 화면에서 만들기 | DB가 매일 새로 생겨 시연 전마다 만들어야 한다 |
+  | 호스트 직접 가입 + 관리자 승인 | 가장 실제와 같지만 기능이 가장 크고, 매일 다시 해야 한다 |
+  | 시연 비밀번호를 Terraform `random_password`로 | 비밀번호가 상태 파일에 남고 서울을 내릴 때마다 바뀐다 |
+
+- **결과:**
+  - 6단계 완료 기준을 "공격 시작부터 탐지 · IP 차단까지 시간"으로 바꾸고, 계정 단위 차단은 보고서 권고 · 전후 비교로 옮긴다([03 6단계](03-plan.md)).
+  - 공격자 세션 번호가 적립금 사용 줄과 보안 로그에 남으므로, 강화 전에도 탐지와 복구 범위 산정은 된다. 적립금을 쓰지 않은 공격자 예약은 DB에 세션 번호가 없어 로그(`booking_created`)로 찾는다.
+  - 관리자 화면은 인터넷에 열린 사이트의 관리자 로그인이다. 직원 계정 SSO · MFA는 ADR-058대로 보고서의 재발 방지 권고다.
+
+<details>
+<summary>확인한 근거</summary>
+
+- SQS 무료 요청: [SQS 요금](https://aws.amazon.com/sqs/pricing/) "1 million Amazon SQS requests for free each month"
+- 탐지 주기: [지표 필터 MetricTransformation](https://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/API_MetricTransformation.html)(해상도 칸 없음), [CloudWatch 개념](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/cloudwatch_concepts.html)(표준 경보는 60초의 배수)
+- 토큰 취소의 한계: [Cognito 토큰 취소](https://docs.aws.amazon.com/cognito/latest/developerguide/token-revocation.html) "revoked tokens will still be valid if they are verified using any JWT library"
+- 악성코드: [Microsoft, Lumma Stealer](https://www.microsoft.com/en-us/security/blog/2025/05/21/lumma-stealer-breaking-down-the-delivery-techniques-and-capabilities-of-a-prolific-infostealer/) "extracts saved passwords, session cookies"
+- 세션 탈취 신호: [OWASP 세션 관리](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)(세션 도중 IP · User-Agent 변화, 단독으로는 신뢰 못 함)
+- 비밀값 보관: [Parameter Store](https://docs.aws.amazon.com/systems-manager/latest/userguide/systems-manager-parameter-store.html), [요금](https://aws.amazon.com/systems-manager/pricing/)(표준 무료), [ECS에서 Parameter Store 값 넣기](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/secrets-envvar-ssm-paramstore.html)(태스크 시작 때 한 번 넣음, 실행 역할 권한 필요)
+- 계정 관행: [Booking.com 파트너 가입](https://join.booking.com/), [Keycloak 첫 관리자](https://www.keycloak.org/server/configuration), [Grafana admin_password](https://grafana.com/docs/grafana/latest/setup-grafana/configure-grafana/)("Set once on first-run")
+- 손님 IP: [CloudFront X-Forwarded-For](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/RequestAndResponseBehaviorCustomOrigin.html), [ALB X-Forwarded-For(기본 append)](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/x-forwarded-headers.html), [Express behind proxies](https://expressjs.com/en/guide/behind-proxies.html)
+
+</details>
