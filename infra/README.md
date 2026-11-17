@@ -166,10 +166,14 @@ cd infra/bootstrap
 date; AWS_PROFILE=admin terraform apply; date
 
 # 2) 비밀번호 3개. 화면에 보이지 않게 입력하고 명령 기록에도 남지 않음
+#    MSYS_NO_PATHCONV=1: Git Bash가 /로 시작하는 인자를 윈도 경로(C:/Program Files/Git/...)로 바꾸는 것을 막음
 for name in host-password/11111111-0000-0000-0000-000000000002 host-password/11111111-0000-0000-0000-000000000003 admin-password; do
   read -rsp "/hotel-booking/$name: " PW; echo
-  AWS_PROFILE=admin aws ssm put-parameter --region ap-northeast-2 --name "/hotel-booking/$name" --type SecureString --value "$PW"
+  MSYS_NO_PATHCONV=1 AWS_PROFILE=admin aws ssm put-parameter --region ap-northeast-2 --name "/hotel-booking/$name" --type SecureString --value "$PW"
 done; unset PW
+
+# 3) 확인: 이름 3개(값은 안 나옴)
+MSYS_NO_PATHCONV=1 AWS_PROFILE=admin aws ssm get-parameters-by-path --region ap-northeast-2 --path /hotel-booking --recursive --query "Parameters[].Name"
 ```
 
 | 계정 (이메일) | 파라미터 |
@@ -190,4 +194,5 @@ done; unset PW
 | DB를 쓰는 API가 500, 앱 로그에 `Access denied for user 'app'` | 새 RDS인데 CD(migrate)를 아직 안 돌림 | 1절의 `gh workflow run cd.yml` |
 | `Value for undeclared variable "active_region"` | global이 아닌 폴더에서 실행 | 프롬프트의 폴더 확인 → `infra/global` |
 | 같은 PC에서 로그인 · 가입이 403 | WAF 로그인 한도(IP당 5분 100번)에 걸림 | 몇 분 뒤 풀림([10 보안 점검](../docs/10-security.md)) |
+| `ssm put-parameter`가 `Parameter name must be a fully qualified name` | Git Bash가 `/hotel-booking/...`를 `C:/Program Files/Git/hotel-booking/...`로 바꿔 넘김 (2026-11-18) | 명령 앞에 `MSYS_NO_PATHCONV=1` (런북 5-3) |
 | 같은 이메일 로그인이 429 | 계정 잠금(15분 안에 5번 틀림, [ADR-054](../docs/04-decisions.md#adr-054)) | 15분 뒤 풀림 |
