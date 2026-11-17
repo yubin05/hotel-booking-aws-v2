@@ -1,6 +1,6 @@
 # 부하 시험 (인프라팀)
 
-이관 수행사(우리)가 재는 부하 시험입니다. 1단계 이관 전 기준선과 3단계 이관 후 비교에 **같은 `baseline.js`**를 써서 조건을 고정합니다([ADR-043](../docs/04-decisions.md#adr-043)). 0단계 로컬 실험(E-01~E-06)은 고객사 앱 저장소 [hotel-booking-app](https://github.com/yubin05/hotel-booking-app)의 `load/`에 있습니다.
+이관 수행사(우리)가 재는 부하 시험입니다. 1단계 이관 전 기준선과 3단계 이관 후 비교에 **같은 `baseline.js`**를 써서 조건을 고정합니다([ADR-043](../docs/03-plan.md#adr-043)). 0단계 로컬 실험(E-01~E-06)은 고객사 앱 저장소 [hotel-booking-app](https://github.com/yubin05/hotel-booking-app)의 `load/`에 있습니다.
 
 | 파일 | 하는 일 |
 |---|---|

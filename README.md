@@ -133,7 +133,7 @@ flowchart LR
 
 ## 다음 단계 계획: 운영 사건 대응 자동화 (측정 전)
 
-> 아직 만들기 전인 계획입니다. 결과가 나오면 숫자와 함께 아래 "검증 기록"으로 옮깁니다. 결정과 버린 대안은 [ADR-056](docs/04-decisions.md#adr-056)에 있습니다.
+> 아직 만들기 전인 계획입니다. 결과가 나오면 숫자와 함께 아래 "검증 기록"으로 옮깁니다. 결정과 버린 대안은 [ADR-056](docs/03-plan.md#adr-056)에 있습니다.
 
 3단계(이관 · 비교) 다음에 하는 3.5단계입니다. 장애나 로그인 공격이 생기면 감지부터 복구 · 차단 · 보고까지 자동으로 처리되게 만들고, 걸린 시간을 잽니다.
 
@@ -174,7 +174,7 @@ flowchart LR
 
 ## 앱 저장소와 로컬 실행
 
-앱 코드와 CI/CD는 고객사 앱 저장소 역할의 [yubin05/hotel-booking-app](https://github.com/yubin05/hotel-booking-app)에 있습니다. 이 저장소는 우리(인프라팀)가 만드는 To-Be 인프라와 문서만 둡니다. 배포 역할 · 권한은 이 저장소의 [bootstrap](infra/bootstrap/README.md)이 관리하고, 앱 저장소의 CD는 OIDC로 그 역할을 받습니다([ADR-043](docs/04-decisions.md#adr-043)).
+앱 코드와 CI/CD는 고객사 앱 저장소 역할의 [yubin05/hotel-booking-app](https://github.com/yubin05/hotel-booking-app)에 있습니다. 이 저장소는 우리(인프라팀)가 만드는 To-Be 인프라와 문서만 둡니다. 배포 역할 · 권한은 이 저장소의 [bootstrap](infra/bootstrap/README.md)이 관리하고, 앱 저장소의 CD는 OIDC로 그 역할을 받습니다([ADR-043](docs/03-plan.md#adr-043)).
 
 로컬 실행 방법은 앱 저장소 README에 있습니다. 화면 하단 배지는 응답한 서버(로컬·리전·AZ·태스크)를 보여 주며, 장애·리전 전환 시연에 씁니다.
 

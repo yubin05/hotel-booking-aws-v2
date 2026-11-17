@@ -158,7 +158,7 @@ date; AWS_PROFILE=admin terraform apply; date                                 # 
 
 ## 5-3. 시연 계정 비밀번호 넣기 (한 번, SSM)
 
-호스트 2 · 관리자 1 시연 계정은 migrate가 배포마다 없으면 만듭니다([ADR-060](../docs/04-decisions.md#adr-060)). 비밀번호는 저장소 · Terraform 상태 · 대화 기록에 남지 않게 사람이 SSM Parameter Store에 직접 넣습니다. destroy해도 남으므로 한 번만 하면 됩니다. **서울(`demo_accounts = true`)을 올리기 전에 해야** migrate 태스크가 뜹니다.
+호스트 2 · 관리자 1 시연 계정은 migrate가 배포마다 없으면 만듭니다([ADR-060](../docs/03-plan.md#adr-060)). 비밀번호는 저장소 · Terraform 상태 · 대화 기록에 남지 않게 사람이 SSM Parameter Store에 직접 넣습니다. destroy해도 남으므로 한 번만 하면 됩니다. **서울(`demo_accounts = true`)을 올리기 전에 해야** migrate 태스크가 뜹니다.
 
 ```bash
 # 1) 실행 역할이 파라미터를 읽을 권한 (bootstrap, 1 to change)

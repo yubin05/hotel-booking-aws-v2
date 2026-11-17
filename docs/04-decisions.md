@@ -2,70 +2,59 @@
 
 무엇을 골랐는지보다 **왜 그랬고 무엇을 버렸는지**를 남깁니다. ADR-001~015는 2026-11-03 설계 검토에서, 016부터는 1단계(2026-11-09)에서 내렸으며, [01 시나리오](01-scenario.md)의 가정이 바뀌면 다시 검토합니다.
 
-**무엇을 여기에 남기나** (2026-11-18): 구조 · 비기능 특성 · 의존성 · 인터페이스 · 만드는 기법에 영향을 주는 결정만 남긴다([Nygard](https://www.cognitect.com/blog/2011/11/15/documenting-architecture-decisions)). 실험 조건은 [07 실험](07-experiments.md), 일정 · 범위 · 포트폴리오는 [03 계획](03-plan.md), 앱 기능 세부는 [앱 저장소](https://github.com/yubin05/hotel-booking-app)에 둔다. 그전에 들어온 것은 옮기거나 번호를 다시 매기지 않고 아래 "분류"로 구분한다. 번호는 다시 쓰지 않고, 뒤집힌 결정은 지우지 않고 "대체됨"으로 남긴다. ★는 처음 보는 사람이 먼저 읽을 핵심 결정 10개.
+**여기에는 아키텍처 결정만 남긴다**: 구조 · 비기능 특성 · 의존성 · 인터페이스 · 만드는 기법에 영향을 주는 결정([Nygard](https://www.cognitect.com/blog/2011/11/15/documenting-architecture-decisions)). 실험 조건은 [07 실험](07-experiments.md), 진행 · 범위 · 포트폴리오는 [03 계획](03-plan.md), 앱 기능 세부는 [앱 저장소](https://github.com/yubin05/hotel-booking-app)에 둔다. 번호는 다시 쓰지 않는다.
 
-| ADR | 결정 | 분류 | 상태 |
-|---|---|---|---|
-| [001](#adr-001) | ★ 멀티클라우드 DR을 쓰지 않는다 | 아키텍처 | 유효 |
-| [002](#adr-002) | SaaS·PaaS 조합 대신 AWS로 이관한다 | 아키텍처 | 유효 |
-| [003](#adr-003) | ★ EKS·EC2 대신 ECS Fargate | 아키텍처 | 유효 |
-| [004](#adr-004) | ★ 마이크로서비스 대신 모듈러 모놀리스 | 아키텍처 | 유효 |
-| [005](#adr-005) | ★ Aurora 대신 RDS for MySQL | 아키텍처 | 유효 |
-| [006](#adr-006) | ★ API Gateway 대신 CloudFront VPC Origin + Internal ALB | 아키텍처 | 유효 |
-| [007](#adr-007) | Cognito 대신 앱 자체 JWT | 아키텍처 | 유효 |
-| [008](#adr-008) | DMS CDC 대신 덤프로 이관 | 아키텍처 | 유효 |
-| [009](#adr-009) | ★ DR 전략: Multi-AZ + 리전 간 Backup & Restore | 아키텍처 | 유효 |
-| [010](#adr-010) | CI/CD: GitHub Actions + ECS 롤링 + 자동 롤백 | 아키텍처 | 유효 |
-| [011](#adr-011) | Terraform: 작은 범용 모듈 없이, regional만 모듈 + 리전별 루트 | 아키텍처 | 유효 |
-| [012](#adr-012) | 리전 전환은 DNS가 아니라 CloudFront 원본 전환 | 아키텍처 | 유효 |
-| [013](#adr-013) | 정적 프론트를 앱 컨테이너에 포함 | 아키텍처 | 유효 |
-| [014](#adr-014) | ★ 선착순 쿠폰은 DB 조건부 갱신으로 처리 | 아키텍처 | 유효 |
-| [015](#adr-015) | ★ 예정된 급증은 예약 스케일링, 예상 못 한 급증은 목표 추적 | 아키텍처 | 유효 |
-| [016](#adr-016) | 이전 환경은 IDC처럼: 약점은 그대로, 관리형 서비스는 필요할 때만 | 실험 조건 | 유효 |
-| [017](#adr-017) | 이전 환경도 Terraform으로 | 실험 조건 | 유효 |
-| [018](#adr-018) | 루트는 잠그고, 평소엔 최소 권한 + 관리자는 역할 전환 | 아키텍처 | 유효 |
-| [019](#adr-019) | k6 부하는 서울 리전 EC2에서 | 실험 조건 | 유효 |
-| [020](#adr-020) | 이미지 저장소: Docker Hub 대신 ECR | 아키텍처 | 유효 |
-| [021](#adr-021) | 이전 환경 서버는 빠르고 싸게: DB도 Docker, 비밀값은 SSH로, HTTP | 실험 조건 | 유효 |
-| [022](#adr-022) | 이미지 태그는 커밋 SHA | 아키텍처 | 유효 |
-| [023](#adr-023) | 부하 기준선 조건: 발생기는 퍼블릭 서브넷에서 앱 공인 IP로, t3는 unlimited 명시 | 실험 조건 | 유효 |
-| [024](#adr-024) | 2단계 전에 DB 병목을 로컬에서 분석·개선한다 (1단계 기록은 그대로) | 프로젝트 | 유효 |
-| [025](#adr-025) | bootstrap은 관리자 역할로 1회 적용, state는 도쿄 버킷 하나에 계정 전용 이름으로 | 아키텍처 | 유효 |
-| [026](#adr-026) | GitHub OIDC 역할은 main 브랜치만, 권한 정책은 리소스 이름이 정해지는 2-2에서 | 아키텍처 | 유효 |
-| [027](#adr-027) | 예산 알림은 콘솔 예산을 import, 이메일은 커밋하지 않는 tfvars로 | 아키텍처 | 유효 |
-| [028](#adr-028) | 평소 사용자의 state 권한은 루트별 허용 목록, bootstrap은 제외 | 아키텍처 | 유효 |
-| [029](#adr-029) | ECS 실행 역할은 bootstrap에서 관리자가 만들고, 평소 사용자 · CD에는 PassRole만 | 아키텍처 | 유효 |
-| [030](#adr-030) | 리소스 이름은 `hotel-booking-aws-v2` 접두사, 서울 · 도쿄 같은 이름 | 아키텍처 | 유효 |
-| [031](#adr-031) | 스키마 변경은 CD가 일회성 ECS 태스크로 먼저 적용, 앱과 DB 계정 분리 | 아키텍처 | 유효 |
-| [032](#adr-032) | 서비스 연결 역할은 필요한 것 전부를 bootstrap에서 관리한다 | 아키텍처 | 유효 |
-| [033](#adr-033) | VPC 주소 대역은 리전마다 겹치지 않게 /16으로 (서울 10.0, 도쿄 10.1) | 아키텍처 | 유효 |
-| [034](#adr-034) | 출구는 AZ마다 NAT Gateway(포트폴리오 평소 1개) + S3 게이트웨이 엔드포인트 | 아키텍처 | 유효 |
-| [035](#adr-035) | CloudFront는 유지하고 숙소 사진은 전용 도메인 CDN으로 (진입점 재검토) | 아키텍처 | 유효 |
-| [036](#adr-036) | ★ 장애 종류별 복구 목표 (잠정: AZ 10분, 리전 1시간) | 아키텍처 | 유효 |
-| [037](#adr-037) | 예약 알림은 이메일(SES) + 카카오톡("나에게 보내기") 두 채널 | 앱 | 유효 |
-| [038](#adr-038) | 평소 사용자 권한은 고객 관리형 정책 2개(v2 · legacy)로, bootstrap이 관리 | 아키텍처 | 유효 |
-| [039](#adr-039) | 태스크 정의 설정은 Terraform 모듈, 이미지는 CD (ECS의 최신 리비전을 읽어 교체) | 아키텍처 | 유효 |
-| [040](#adr-040) | ECR 저장소는 bootstrap(상시), 서울에 push하면 도쿄로 자동 복제 | 아키텍처 | 유효 |
-| [041](#adr-041) | 비밀값은 쓰기 전용으로 넣어 state에 남기지 않고(금고는 bootstrap · 도쿄 복제), DB 관리자 비밀번호는 RDS가 관리 | 아키텍처 | 유효 |
-| [042](#adr-042) | RDS는 apply마다 새로 만들고 시드를 다시 넣음, 백업 7일은 켜되 destroy 때 같이 삭제 | 아키텍처 | 유효 |
-| [043](#adr-043) | 앱 · 이전 환경은 고객사 저장소(hotel-booking-app, Public)로 분리, 이 저장소는 To-Be 인프라와 이관 전후 부하 시험 | 프로젝트 | 유효 |
-| [044](#adr-044) | 스키마 태스크는 RDS 관리자로 적용하고 앱 계정은 읽기 · 쓰기만, 배포마다 실행해도 같은 결과(IF NOT EXISTS), 시드 · 운영 규모 데이터는 빈 DB에만 | 아키텍처 | 유효 |
-| [045](#adr-045) | DB 접속은 TLS로 하고 앱이 RDS 인증서 · 주소까지 확인, RDS는 암호화하지 않은 접속을 거부 | 아키텍처 | 유효 |
-| [046](#adr-046) | CD 2부: CI가 테스트 통과 뒤 CD를 불러내고(재사용 워크플로), 배포 단계는 AWS CLI, 스키마 태스크 로그는 CD 화면에 | 아키텍처 | 유효 |
-| [047](#adr-047) | 워크플로의 외부 액션은 커밋 해시로 고정하고 Dependabot이 갱신 PR을 만든다 | 아키텍처 | 유효 |
-| [048](#adr-048) | 도메인 주소록(Route 53 퍼블릭 호스팅 영역)은 bootstrap에 상시로, 레코드는 global에서 CloudFront와 함께 | 아키텍처 | 유효 |
-| [049](#adr-049) | CloudFront → ALB 구간도 HTTPS로, ALB 입구는 VPC Origin 전용 보안 그룹만 | 아키텍처 | 유효 |
-| [050](#adr-050) | ★ WAF는 앱의 약점에서 골라 요청 수 제한 2개 + 관리형 4개로, global에서 CloudFront와 함께 만들고 지움 | 아키텍처 | 유효 |
-| [051](#adr-051) | CloudFront 캐시는 앱이 붙인 Cache-Control을 따르고, `/api/*`는 보관하지 않음 | 아키텍처 | 유효 |
-| [052](#adr-052) | global 루트는 서울과 함께 매일 만들고 지움 (올릴 때 seoul → global, 내릴 때 global → seoul) | 아키텍처 | 유효 |
-| [053](#adr-053) | global용 평소 권한은 세 번째 고객 관리형 정책 `operator-edge`로 나눔 | 아키텍처 | 유효 |
-| [054](#adr-054) | 로그인 실패는 입력한 이메일마다 DB에 세어, 15분 안에 5번 틀리면 15분 잠금 | 아키텍처 | 유효 |
-| [055](#adr-055) | 숙소 사진은 숙소 · 객실마다 고유 파일을 640 · 1200 WebP로 미리 만들어 S3(상시, 도쿄 복제)에, 사진 CloudFront는 global, DB에는 크기 없는 주소 | 아키텍처 | 유효 |
-| [056](#adr-056) | 3단계 다음에 운영 사건 대응 자동화(장애 · 보안)를 3.5단계로 넣고, 4단계의 짧은 장애 실험 3개를 앞당긴다 | 프로젝트 | 대체됨 → [059](#adr-059) |
-| [057](#adr-057) | 계정 기본 보안: CloudTrail(90일) · GuardDuty(3개 리전)는 상시, Config + Security Hub CSPM은 하루 켜서 잰 뒤 예산 여유 안이면 상시 | 아키텍처 | 유효 |
-| [058](#adr-058) | 3.5단계 공격 재현은 실제 사례 3개(회원 계정 탈취 · 숙소 계정 탈취 · 쿠폰 봇)로 하고, 앱에 적립금 · 호스트 화면 · 토큰 무효화를 더한다 | 프로젝트 · 앱 | 일부 대체 → [060](#adr-060) |
-| [059](#adr-059) | 포트폴리오를 이관 · 보안 운영 두 이야기로 나누고, 5단계까지 이관을 먼저(마감 11-27) 끝낸 뒤 보안 운영(6단계)을 한다. 저장소는 늘리지 않는다 | 프로젝트 | 유효 |
-| [060](#adr-060) | 세션 끊기 · 계정 잠금 · 주인 알림은 보고서 권고를 거쳐 보안 강화 단계에서, 관리자 화면은 계정 조회 · 사건 복구만 먼저 | 프로젝트 · 앱 | 유효 |
+| ADR | 결정 |
+|---|---|
+| [001](#adr-001) | 멀티클라우드 DR을 쓰지 않는다 |
+| [002](#adr-002) | SaaS·PaaS 조합 대신 AWS로 이관한다 |
+| [003](#adr-003) | EKS·EC2 대신 ECS Fargate |
+| [004](#adr-004) | 마이크로서비스 대신 모듈러 모놀리스 |
+| [005](#adr-005) | Aurora 대신 RDS for MySQL |
+| [006](#adr-006) | API Gateway 대신 CloudFront VPC Origin + Internal ALB |
+| [007](#adr-007) | Cognito 대신 앱 자체 JWT |
+| [008](#adr-008) | DMS CDC 대신 덤프로 이관 |
+| [009](#adr-009) | DR 전략: Multi-AZ + 리전 간 Backup & Restore |
+| [010](#adr-010) | CI/CD: GitHub Actions + ECS 롤링 + 자동 롤백 |
+| [011](#adr-011) | Terraform: 작은 범용 모듈 없이, regional만 모듈 + 리전별 루트 |
+| [012](#adr-012) | 리전 전환은 DNS가 아니라 CloudFront 원본 전환 |
+| [013](#adr-013) | 정적 프론트를 앱 컨테이너에 포함 |
+| [014](#adr-014) | 선착순 쿠폰은 DB 조건부 갱신으로 처리 |
+| [015](#adr-015) | 예정된 급증은 예약 스케일링, 예상 못 한 급증은 목표 추적 |
+| [018](#adr-018) | 루트는 잠그고, 평소엔 최소 권한 + 관리자는 역할 전환 |
+| [020](#adr-020) | 이미지 저장소: Docker Hub 대신 ECR |
+| [022](#adr-022) | 이미지 태그는 커밋 SHA |
+| [025](#adr-025) | bootstrap은 관리자 역할로 1회 적용, state는 도쿄 버킷 하나에 계정 전용 이름으로 |
+| [026](#adr-026) | GitHub OIDC 역할은 main 브랜치만, 권한 정책은 리소스 이름이 정해지는 2-2에서 |
+| [027](#adr-027) | 예산 알림은 콘솔 예산을 import, 이메일은 커밋하지 않는 tfvars로 |
+| [028](#adr-028) | 평소 사용자의 state 권한은 루트별 허용 목록, bootstrap은 제외 |
+| [029](#adr-029) | ECS 실행 역할은 bootstrap에서 관리자가 만들고, 평소 사용자 · CD에는 PassRole만 |
+| [030](#adr-030) | 리소스 이름은 `hotel-booking-aws-v2` 접두사, 서울 · 도쿄 같은 이름 |
+| [031](#adr-031) | 스키마 변경은 CD가 일회성 ECS 태스크로 먼저 적용, 앱과 DB 계정 분리 |
+| [032](#adr-032) | 서비스 연결 역할은 필요한 것 전부를 bootstrap에서 관리한다 |
+| [033](#adr-033) | VPC 주소 대역은 리전마다 겹치지 않게 /16으로 (서울 10.0, 도쿄 10.1) |
+| [034](#adr-034) | 출구는 AZ마다 NAT Gateway(포트폴리오 평소 1개) + S3 게이트웨이 엔드포인트 |
+| [035](#adr-035) | CloudFront는 유지하고 숙소 사진은 전용 도메인 CDN으로 (진입점 재검토) |
+| [036](#adr-036) | 장애 종류별 복구 목표 (잠정: AZ 10분, 리전 1시간) |
+| [037](#adr-037) | 예약 알림은 이메일(SES) + 카카오톡("나에게 보내기") 두 채널 |
+| [038](#adr-038) | 평소 사용자 권한은 고객 관리형 정책 2개(v2 · legacy)로, bootstrap이 관리 |
+| [039](#adr-039) | 태스크 정의 설정은 Terraform 모듈, 이미지는 CD (ECS의 최신 리비전을 읽어 교체) |
+| [040](#adr-040) | ECR 저장소는 bootstrap(상시), 서울에 push하면 도쿄로 자동 복제 |
+| [041](#adr-041) | 비밀값은 쓰기 전용으로 넣어 state에 남기지 않고(금고는 bootstrap · 도쿄 복제), DB 관리자 비밀번호는 RDS가 관리 |
+| [042](#adr-042) | RDS는 apply마다 새로 만들고 시드를 다시 넣음, 백업 7일은 켜되 destroy 때 같이 삭제 |
+| [044](#adr-044) | 스키마 태스크는 RDS 관리자로 적용하고 앱 계정은 읽기 · 쓰기만, 배포마다 실행해도 같은 결과(IF NOT EXISTS), 시드 · 운영 규모 데이터는 빈 DB에만 |
+| [045](#adr-045) | DB 접속은 TLS로 하고 앱이 RDS 인증서 · 주소까지 확인, RDS는 암호화하지 않은 접속을 거부 |
+| [046](#adr-046) | CD 2부: CI가 테스트 통과 뒤 CD를 불러내고(재사용 워크플로), 배포 단계는 AWS CLI, 스키마 태스크 로그는 CD 화면에 |
+| [047](#adr-047) | 워크플로의 외부 액션은 커밋 해시로 고정하고 Dependabot이 갱신 PR을 만든다 |
+| [048](#adr-048) | 도메인 주소록(Route 53 퍼블릭 호스팅 영역)은 bootstrap에 상시로, 레코드는 global에서 CloudFront와 함께 |
+| [049](#adr-049) | CloudFront → ALB 구간도 HTTPS로, ALB 입구는 VPC Origin 전용 보안 그룹만 |
+| [050](#adr-050) | WAF는 앱의 약점에서 골라 요청 수 제한 2개 + 관리형 4개로, global에서 CloudFront와 함께 만들고 지움 |
+| [051](#adr-051) | CloudFront 캐시는 앱이 붙인 Cache-Control을 따르고, `/api/*`는 보관하지 않음 |
+| [052](#adr-052) | global 루트는 서울과 함께 매일 만들고 지움 (올릴 때 seoul → global, 내릴 때 global → seoul) |
+| [053](#adr-053) | global용 평소 권한은 세 번째 고객 관리형 정책 `operator-edge`로 나눔 |
+| [054](#adr-054) | 로그인 실패는 입력한 이메일마다 DB에 세어, 15분 안에 5번 틀리면 15분 잠금 |
+| [055](#adr-055) | 숙소 사진은 숙소 · 객실마다 고유 파일을 640 · 1200 WebP로 미리 만들어 S3(상시, 도쿄 복제)에, 사진 CloudFront는 global, DB에는 크기 없는 주소 |
+| [057](#adr-057) | 계정 기본 보안: CloudTrail(90일) · GuardDuty(3개 리전)는 상시, Config + Security Hub CSPM은 하루 켜서 잰 뒤 예산 여유 안이면 상시 |
 
 ---
 
@@ -194,12 +183,12 @@
 <a name="adr-010"></a>
 ## ADR-010 CI/CD: GitHub Actions + ECS 롤링 + 자동 롤백
 
-- **상황:** 고객사 개발팀은 이미 GitHub에서 코드를 관리하고 GitHub Actions로 CI를 돌린다([ADR-043](#adr-043) 시나리오). 우리(인프라팀)가 맡은 이관 범위는 인프라다.
+- **상황:** 고객사 개발팀은 이미 GitHub에서 코드를 관리하고 GitHub Actions로 CI를 돌린다([ADR-043](03-plan.md#adr-043) 시나리오). 우리(인프라팀)가 맡은 이관 범위는 인프라다.
 - **검토한 대안:**
 
   | 대안 | 버린 이유 |
   |---|---|
-  | CodePipeline + CodeBuild + CodeDeploy Blue/Green(v1 방식) | 고객사가 쓰던 도구와 일하는 방식을 바꿔야 해서 이관 범위가 개발 프로세스까지 커진다. 파이프라인 · 빌드 시간만큼 추가 과금된다(공개 저장소의 Actions 표준 러너는 무료, [ADR-043](#adr-043)). 아래 "다시 볼 조건"에 해당하지 않는다 |
+  | CodePipeline + CodeBuild + CodeDeploy Blue/Green(v1 방식) | 고객사가 쓰던 도구와 일하는 방식을 바꿔야 해서 이관 범위가 개발 프로세스까지 커진다. 파이프라인 · 빌드 시간만큼 추가 과금된다(공개 저장소의 Actions 표준 러너는 무료, [ADR-043](03-plan.md#adr-043)). 아래 "다시 볼 조건"에 해당하지 않는다 |
   | Blue/Green · 카나리 | 앱이 1개이고 실패하면 자동으로 되돌아가므로 롤링으로 충분하다 |
 
 - **결정:** GitHub Actions(CI · CD 모두 고객사 저장소, 배포 권한은 인프라팀 bootstrap이 OIDC 역할로 관리), ECS 롤링 배포, 배포 circuit breaker 자동 롤백.
@@ -270,37 +259,10 @@
 - **결과:** 이벤트 일정이 바뀌면 예약도 함께 바꿔야 한다. 예약 스케일링 유무에 따른 오픈 순간 응답 시간을 3단계에서 비교한다.
 - **구현 · 시험(2026-11-16):** 확장 대상(평소 2 ~ 4개) + CPU 60% 목표 추적 + 이벤트마다 예약 2개(시작에 최소를 올리고, 끝에 평소 최소로 되돌림)를 regional 모듈에 만들었다. 끝에서 최대를 낮추지 않고, 남은 태스크는 목표 추적이 CPU를 보고 줄인다. ECS 서비스의 태스크 수와 확장 대상의 최소 · 최대는 Terraform이 되돌리지 않게 했다(이벤트 중 apply가 2개로 되돌리는 것을 막음).
   - 예약 시각부터 새 태스크가 손님을 받기까지 약 1분 반이고, 예약 실행 자체가 23 ~ 38초 늦어서 **오픈 5분 전쯤** 시작한다(1회 측정, 원본: [experiments/autoscaling](experiments/autoscaling/README.md)).
-  - 최대 4는 태스크당 DB 연결 12개(일반 10 + 쿠폰 2) × 4 = 48로 정한 가설값이다. 앱만 늘리면 DB가 먼저 막힐 수 있어([ADR-024](#adr-024)) 3단계 부하에서 ECS · RDS CPU를 같이 재서 최대 · DB 대책을 정한다.
+  - 최대 4는 태스크당 DB 연결 12개(일반 10 + 쿠폰 2) × 4 = 48로 정한 가설값이다. 앱만 늘리면 DB가 먼저 막힐 수 있어([ADR-024](03-plan.md#adr-024)) 3단계 부하에서 ECS · RDS CPU를 같이 재서 최대 · DB 대책을 정한다.
   - 일정(계획)은 서울 루트 `scale_events`로 git에 남기고, 실제로 늘고 줄인 기록은 AWS가 6주 보관한다(대시보드에 오래 보이려면 따로 쌓아야 함).
   - 대기 시간(쿨다운)을 안 적으면 0초로 들어가 1분마다 하나씩 줄었다. 줄이기 300초 · 늘리기 60초로 적었다(가설값).
   - 기능 자체는 추가 요금이 없고, 목표 추적이 만드는 CloudWatch 경보 2개(서울 1개당 월 $0.10, 계정 10개까지 무료)와 늘어난 태스크 시간만 돈이 든다([AWS Auto Scaling 요금](https://aws.amazon.com/autoscaling/pricing/)).
-
-<a name="adr-016"></a>
-## ADR-016 이전 환경은 IDC처럼: 약점은 그대로, 관리형 서비스는 필요할 때만
-
-- **상황:** 1단계는 이관 전 IDC(운영 중인 서비스)를 AWS 위에 재현해 부하 기준선을 잰다. 3단계 비교와 4단계 장애 테스트의 "개선 전"이 된다.
-- **검토한 대안:**
-  - 다중 AZ: 고가용성은 좋지만 재현할 약점("서버 하나가 죽으면 그 기능이 통째로 중단")이 사라져 R2 비교 대상이 없어진다.
-  - NAT 게이트웨이: 이 환경에서 가장 비싸고, 패키지 설치용 출구는 NAT 인스턴스로 충분하다.
-  - S3 게이트웨이 엔드포인트(무료, NAT 대신): Amazon Linux 기본 패키지 저장소는 S3에 있어 인터넷 없이 받을 수 있지만, DB 컨테이너 이미지(`mysql:8.4`)는 Docker Hub(인터넷)에서 받아야 해서 결국 NAT가 필요하다([ADR-021](#adr-021)).
-  - Session Manager: EC2에는 추가 요금이 없지만 프라이빗 서브넷에서 쓰려면 인터페이스 엔드포인트(시간당·GB당 요금)나 NAT가 필요하다. SSH로 충분하다.
-  - 배포 자동화(GitHub Actions → EC2): 22번을 GitHub Actions에 열어야 하는데, 실행 서버의 IP 범위가 넓고 자주 바뀌어 보안 그룹 허용 목록으로 쓰기 어렵다.
-- **결정:** 관리형 서비스는 비용과 필요를 따져 꼭 필요할 때만 쓴다([ADR-006](#adr-006)에서 API Gateway를 뺀 것과 같은 기준). 이전 환경은 IDC 재현이 목적이므로 약점을 가리는 구성은 넣지 않는다. VPC·EC2·보안 그룹은 IDC의 네트워크·서버·방화벽을 대신하는 것이라 쓰고, IDC에 대응물이 없는 관리형 서비스(S3 등)는 쓰지 않는다.
-  - 단일 AZ, 역할별 1대: 웹+앱 EC2(퍼블릭 서브넷, 로드밸런서 없이 사용자 요청을 직접 받음), MySQL EC2(프라이빗 서브넷, Docker로 실행, [ADR-021](#adr-021))
-  - DB 서버 패키지·이미지 설치용 NAT 인스턴스 1대(v1 방식). IDC 라우터·방화벽의 NAT 역할이다.
-  - 서버 접속은 SSH. DB 서버는 앱 서버를 거쳐 접속하고, 보안 그룹은 IP 대신 보안 그룹을 출발지로 지정한다.
-  - 배포는 수동: PC에서 이미지를 빌드해 Docker Hub에 올리고, SSH로 앱 서버에 접속해 받아서 재시작한다. 배포 자동화는 이관 대상인 2단계([ADR-010](#adr-010))에서 한다.
-- **근거:** 이전 환경의 약점이 그대로 있어야 이관 후 개선을 숫자로 보여 줄 수 있다. 다중 AZ처럼 약점을 가리는 구성을 넣으면 비교 기준이 흐려진다.
-- **결과:** EC2가 계획한 2대에서 3대가 된다(t3.small 기준 작업 시간 월 약 $11 → $15였으나, 앱·DB도 t3.micro로 정해([ADR-021](#adr-021)) 약 $10, [09 비용 추정](09-cost-estimate.md)). NAT 인스턴스도 단일 장애점이지만 이전 환경에서는 의도한 것이다. DB 서버가 패키지·이미지를 받으려고 NAT로 인터넷에 나갈 수 있는 것도 그대로 둔다. 실제 IDC라면 DB 서버는 인터넷에 직접 나가지 않고 사내 미러·레지스트리를 쓰는 경우가 많지만, 비용·시간 때문에 단순화했다. 3단계 RDS는 AWS가 패치하므로 DB에 인터넷 출구가 필요 없다. SSH 22번은 작업 장소(학원·집) IP만 허용하고, 개인 키는 저장소에 올리지 않는다. NAT 보안 그룹은 다른 보안 그룹과 참조를 주고받지 않고 규칙이 인바운드·아웃바운드 1개씩이라 Terraform 인라인 규칙으로 쓴다(별도 규칙 리소스는 서로 참조하는 보안 그룹에만). 앱·DB 보안 그룹도 참조가 한 방향(DB 인바운드 3306·22의 출발지 = 앱 보안 그룹)이다. 두 그룹 모두 이미지·패키지를 받으려고 아웃바운드를 0.0.0.0/0으로 열어 앱 쪽이 DB 그룹을 가리킬 일이 없으므로 인라인으로 쓴다. 웹과 앱은 같은 컨테이너([ADR-013](#adr-013))라 그 사이에는 보안 그룹이 없다.
-
-<a name="adr-017"></a>
-## ADR-017 이전 환경도 Terraform으로
-
-- **상황:** v1 원본(`3tier-seoul.yml`)은 CloudFormation이고, 2단계부터는 Terraform을 쓴다.
-- **검토한 대안:** CloudFormation 유지(원본을 줄이기만 하면 되고 state 관리가 없다).
-- **결정:** `infra/legacy/`도 Terraform으로 작성한다.
-- **근거:** 프로젝트 안의 IaC 도구를 하나로 맞춘다. 작업 시간에만 켜고 끝나면 destroy하는 흐름을 1단계부터 2단계와 같은 명령으로 익힌다. 원본의 CloudFormation 리소스를 Terraform 리소스로 직접 옮기며 학습한다.
-- **결과:** 1단계 state는 로컬 파일이고 커밋하지 않는다. 원격 state(S3)는 2단계 bootstrap에서 만든다.
 
 <a name="adr-018"></a>
 ## ADR-018 루트는 잠그고, 평소엔 최소 권한 + 관리자는 역할 전환
@@ -322,19 +284,10 @@
     - `SignInLocalDevelopmentAccess`: `aws login`용(`signin:AuthorizeOAuth2Access`·`signin:CreateOAuth2Token`). CLI 문서가 이 정책을 붙이라고 안내한다(*"Attach the SignInLocalDevelopmentAccess managed policy to your IAM user, role, or group"*, [aws login](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sign-in.html)).
     - 둘 다 다른 사용자나 정책을 바꿀 수 없어 권한 상승 경로가 아니다.
 
-<a name="adr-019"></a>
-## ADR-019 k6 부하는 서울 리전 EC2에서
-
-- **상황:** 1단계 기준선과 3단계 비교에서 "서버가 어디서 무너지는지"를 잰다.
-- **검토한 대안:** 내 PC(비용이 없지만 인터넷 왕복 지연과 회선·PC 한계가 측정값에 섞인다).
-- **결정:** 대상과 같은 서울 리전의 EC2에서 보내고, 3단계도 같은 위치에서 보낸다. 측정할 때만 켠다.
-- **근거:** 에러율이 기준을 넘었을 때 서버 한계인지 회선 한계인지 구분할 수 있어야 한다. 많은 사용자는 보내는 위치가 아니라 VU 수로 흉내 낸다.
-- **결과:** 측정값에 실제 사용자의 인터넷 지연은 들어가지 않는다. 발생기 자체가 병목이 아닌지 부하 EC2의 CPU도 함께 기록한다. 부하 EC2 비용이 추가된다.
-
 <a name="adr-020"></a>
 ## ADR-020 이미지 저장소: Docker Hub 대신 ECR
 
-- **상황:** 2단계 CD는 GitHub Actions에서 이미지를 빌드해 올리고, 프라이빗 서브넷의 ECS Fargate 태스크가 받아서 뜬다. 1단계 이전 환경은 Docker Hub를 쓴다([ADR-016](#adr-016)).
+- **상황:** 2단계 CD는 GitHub Actions에서 이미지를 빌드해 올리고, 프라이빗 서브넷의 ECS Fargate 태스크가 받아서 뜬다. 1단계 이전 환경은 Docker Hub를 쓴다([ADR-016](07-experiments.md#adr-016)).
 - **검토한 대안:** Docker Hub(무료, 1단계와 같은 저장소), ECR.
 - **결정:** ECR. 도쿄로 리전 간 복제하고, 올릴 때 기본 취약점 스캔을 켠다.
 - **근거:**
@@ -343,60 +296,14 @@
   - 외부 의존이 줄어든다. 리전 간 복제와 취약점 스캔을 AWS 안에서 처리한다.
 - **결과:** 저장 용량만큼 비용이 들지만 이미지 몇 개 수준이라 작다. Docker Hub도 AWS 밖에 있어 리전 장애 자체의 영향은 받지 않으므로, ECR을 고른 이유는 리전 장애 대비보다 키와 외부 의존을 줄이는 데 있다.
 
-<a name="adr-021"></a>
-## ADR-021 이전 환경 서버는 빠르고 싸게: DB도 Docker, 비밀값은 SSH로, HTTP
-
-- **상황:** 앱·DB EC2를 올리기 전에 MySQL 설치 방식, 비밀값(DB 비밀번호, JWT 서명 키) 전달 방법, 웹 포트를 정해야 한다. 1단계는 개선 전 기준선을 만드는 단계이고, 이 프로젝트의 핵심은 2단계 이후다.
-- **검토한 대안:**
-  - MySQL 공식 저장소(dnf): IDC에서 흔한 설치 방식에 더 가깝지만, 스키마·시드 넣기와 계정·문자셋 설정을 로컬과 별도로 새로 짜야 한다. 3단계 RDS 이관은 어느 쪽이든 mysqldump라 차이가 없다.
-  - 비밀값을 user_data로: EC2 읽기 권한(`ec2:DescribeInstanceAttribute`, 평소 정책의 `ec2:Describe*`에 포함)만 있어도 보이고, 서버 안의 모든 프로세스가 인스턴스 메타데이터로 읽을 수 있다. Terraform 변수로 넣으면 state에도 평문으로 남는다.
-  - SSM Parameter Store + 인스턴스 역할: 관리형 서비스라 IDC 재현([ADR-016](#adr-016))과 맞지 않는다. 평소 사용자에게 역할 생성·`iam:PassRole` 권한을 줘야 해서 최소 권한([ADR-018](#adr-018))과도 부딪힌다. 역할을 만들어 정책을 붙이고 EC2에 넘길 수 있으면 관리자 권한도 얻을 수 있다.
-  - HTTPS: 도메인은 있지만 apply할 때마다 공인 IP가 바뀌어 DNS 레코드와 인증서를 매번 다시 맞춰야 한다. 탄력적 IP로 고정하면 꺼 둔 시간에도 요금이 든다.
-- **결정:**
-  - DB는 EC2에 Docker로 `mysql:8.4`를 띄우고, 스키마·시드는 로컬 docker-compose와 같은 initdb로 넣는다. 부하 측정용 데이터(고객사 저장소 `db/seed-volume.sql`: 숙소 1,000 · 회원 2만 · 예약 10만 · 리뷰 5만)도 initdb 세 번째 파일로 매일 넣어, 1단계 기준선과 3단계 비교·덤프 이관이 같은 데이터 양에서 이뤄지게 한다.
-  - user_data에는 설치처럼 비밀값이 없는 단계만 넣는다. 비밀값은 PC의 저장소 밖 파일에 두고 SSH로 서버에 보내(권한 600) `docker run --env-file`로 넘긴다. 매일 destroy하므로 서버에서 직접 입력하지 않는다. Terraform 변수·state에도 넣지 않는다.
-  - 웹은 HTTP 80으로 받아 `docker run -p 80:3000`으로 앱에 넘긴다. 프론트가 앱 컨테이너 안에 있어([ADR-013](#adr-013)) 별도 웹 서버(nginx)는 두지 않는다.
-  - 앱·DB EC2는 NAT와 같은 t3.micro(2 vCPU · 1GB)로 하고, 세 대가 타입 변수 하나를 같이 쓴다. 3단계 비교 대상(RDS db.t4g.micro 1GB, Fargate 태스크 1GB 가정)과 같은 메모리 급이고, v1의 IDC 역할 DB도 t3.micro였다([ADR-008](#adr-008)). 비용도 t3.small의 절반이다.
-- **근거:** 1단계에는 시간과 비용을 적게 쓴다. 로컬에서 검증한 compose 설정을 그대로 쓰면 새로 짤 것이 줄어든다. 컨테이너로 띄워도 서버에서 직접 운영하는 DB라는 점은 같아서 3단계 RDS와의 비교는 그대로 남는다. 비밀값을 서버 파일로 두는 것은 IDC에서 운영자가 설정 파일을 두던 방식과 같다.
-- **결과:**
-  - 실제 운영 서비스라면 IDC에서도 HTTPS를 썼겠지만 1단계에서는 범위 밖으로 둔다. 로그인 정보가 평문으로 오가므로 시드 계정만 쓴다. HTTPS는 2단계 CloudFront + ACM에서 붙고 개선 항목이 된다. 3단계와 비교할 때는 HTTP·HTTPS 차이를 실험 조건에 적는다.
-  - 비밀값이 필요한 단계(앱 env 파일, DB 컨테이너 시작)는 PC에서 SSH로 하는 수동 작업이다. 비밀값은 서버에서 평문으로 남는다: env 파일(600, DB는 컨테이너를 띄운 뒤 지움)과 컨테이너 설정(`docker inspect`, root만). 2단계는 Secrets Manager가 시작할 때 주입해 서버 파일이 없고 교체(rotation)도 된다. SQL 파일은 비밀값이 아니므로 DB user_data가 공개 저장소(GitHub)에서 받는다. 내용을 user_data에 넣지 않으니 16KB 한도와 상관없다.
-  - 1GB라 MySQL 컨테이너와 Docker가 함께 돌기에 빠듯하다. 설치 단계에서 뜨지 않으면 t3.small로 올리고, 부하 중 메모리 부족은 기준선 결과로 기록한다. DB만 키워야 하면 그때 DB 전용 타입 변수로 나눈다.
-  - DB 이미지도 인터넷(Docker Hub)에서 받으므로 NAT는 그대로 필요하다. 2단계 비밀값은 Secrets Manager에 둔다([02 아키텍처](02-architecture.md)).
-
 <a name="adr-022"></a>
 ## ADR-022 이미지 태그는 커밋 SHA
 
-- **상황:** 1단계 수동 배포([ADR-016](#adr-016))는 PC에서 빌드한 이미지를 Docker Hub 공개 저장소에 올리고 앱 서버가 받는다. 태그 규칙이 필요하고, 2단계 CD([ADR-010](#adr-010))·ECR([ADR-020](#adr-020))도 같은 규칙을 이어 쓴다.
+- **상황:** 1단계 수동 배포([ADR-016](07-experiments.md#adr-016))는 PC에서 빌드한 이미지를 Docker Hub 공개 저장소에 올리고 앱 서버가 받는다. 태그 규칙이 필요하고, 2단계 CD([ADR-010](#adr-010))·ECR([ADR-020](#adr-020))도 같은 규칙을 이어 쓴다.
 - **검토한 대안:** `latest`. 명령은 짧지만 태그가 올릴 때마다 다른 이미지로 옮겨 간다. 지금 서버에서 도는 코드가 어느 커밋인지 답할 수 없고, 이전 `latest`가 사라져 되돌릴 이름이 없으며, 서버에 같은 태그가 이미 있으면 `docker run`이 새 이미지를 받지 않는다.
 - **결정:** 태그는 짧은 커밋 SHA(`git rev-parse --short HEAD`)로 한다. 빌드 범위인 `app` 폴더에 커밋하지 않은 변경이 없을 때만 빌드한다(`git status --short app`가 비어 있음). [start-app.sh](https://github.com/yubin05/hotel-booking-aws-v2/blob/39d08196c7ef0c4bc7ff2370bba035cc3c5e7acd/infra/legacy/start-app.sh)는 태그를 인자로 받고 `run` 전에 `pull`한다.
 - **근거:** 이미지와 커밋이 1:1로 이어져 롤백(이전 SHA로 다시 배포), 원인 추적(두 SHA 사이 `git diff`), 라이브러리 취약점 영향 판단(그 커밋의 `package-lock.json`)이 된다. 2026-11-11 예약 화면 버그를 고친 커밋 `62702e2`를 새 태그로 다시 배포했고, 브라우저가 받는 JS 파일명이 바뀐 것으로 새 이미지가 뜬 것을 확인했다.
 - **결과:** 태그 이름은 변조를 막지 못한다. SHA 태그도 쓰기 권한이 있으면 같은 이름으로 덮어쓸 수 있고, 공개 저장소는 태그 목록이 보여 SHA를 숨길 수도 없다. 막는 것은 쓰기 토큰 관리, 태그 불변 설정, 다이제스트(`@sha256:`) 고정이다. Docker Hub 개인 액세스 토큰은 저장소 하나로 범위를 좁힐 수 없어 계정의 모든 저장소에 쓰기 권한을 준다. 2단계 ECR에서는 장기 토큰 없이(OIDC) 올리고, 태그 불변 설정은 그때 정한다.
-
-<a name="adr-023"></a>
-## ADR-023 부하 기준선 조건: 발생기는 퍼블릭 서브넷에서 앱 공인 IP로, t3는 unlimited 명시
-
-- **상황:** 1단계 기준선([ADR-019](#adr-019))을 3단계 목표 구조와 비교한다. 서버는 모두 t3.micro이고, 프라이빗 서브넷의 인터넷 출구는 NAT 인스턴스(t3.micro) 1대다. 3단계 앱은 ECS 태스크 여러 개라 사설 IP가 뜰 때마다 바뀌고, 사용자는 CloudFront로만 들어온다.
-- **검토한 대안:**
-  - 발생기를 프라이빗 서브넷에: 부하 전부가 NAT t3.micro를 지나가 앱이 아니라 NAT의 한계를 잴 수 있다.
-  - 앱 사설 IP로 보내기: 1단계만 내부 통로로 재면 3단계(CloudFront)와 들어가는 문이 달라진다.
-  - t3 standard: 추가 요금은 없지만 크레딧이 바닥나면 CPU가 기준 사용률(t3.micro vCPU당 10%)로 내려가, 시험을 몇 분 돌렸느냐에 따라 한계가 달라진다(앱이 아니라 크레딧 잔고를 잰다).
-  - 화면 사이 고민 시간을 줄여(예: 6초 → 0.6초) 적은 VU로 같은 초당 요청 만들기: 발생기는 t3.micro로 충분하지만, 서버가 쥐는 연결 수가 실제보다 적고(VU마다 연결 하나) 결과를 동시 접속자 수로 말할 수 없다.
-- **결정:** 발생기는 퍼블릭 서브넷에 두고 앱의 공인 IP(사용자가 들어오는 문)로 보낸다. 앱·DB·발생기 3대 모두 Terraform에 `credit_specification`을 unlimited로 적는다. 손님 행동(화면 사이 5~20초)은 E-01 그대로 두고 발생기를 키운다. 발생기 타입은 최종 시나리오를 로컬에서 100명으로 돌려 잰 VU당 메모리 × 필요한 VU 수로 고른다(k6 권장 방법). 넉넉한 타입(xlarge)을 재지 않고 고르는 것보다 시간당 최대 $0.16 아낀다.
-- **근거:** IDC 서버와 3단계 Fargate에는 크레딧 제한이 없어 기준선도 제한 없이 재야 비교가 맞다. T3는 기본이 unlimited지만 계정 기본값은 바꿀 수 있어 측정 조건을 코드에 남긴다.
-- **결과:** 크레딧을 다 쓴 뒤의 초과분은 vCPU-시간당 $0.05(Linux)이고 정지·종료할 때 정산된다. t3.micro 한 대가 1시간 내내 CPU 100%여도 약 $0.09(쓰는 120 − 버는 12 = 108크레딧 = 1.8 vCPU-시간)다. T3는 시작 크레딧이 없다. 크레딧 지표(`CPUCreditBalance`, `CPUSurplusCreditsCharged`)는 평소 사용자에 CloudWatch 권한이 없어 보지 않고, 방식만 `describe-instance-credit-specifications`로 확인한다. 발생기 크기는 비교 조건이 아니다(병목이 아니었음만 기록). VU당 메모리(2026-11-11 로컬, `baseline.js`를 100명 1분 → 200명 1분): k6 컨테이너 평균 71MiB → 98MiB. 차이로는 1명당 0.27MiB지만 k6가 최대 인원만큼 VU를 미리 만들어 두고 로컬 숙소가 10개라 응답이 작아 적게 나온 값이므로, 200명에 98MiB → 1명당 약 0.5MiB로 잡아 3,000명 ≈ 1.5GiB + OS·Docker → **발생기 t3.medium(4GiB)**. t3.small(2GiB)은 k6 권장 상한(메모리 90%) 근처라 버림. 3단계는 같은 시나리오라 VU당 메모리를 그대로 쓰고 필요한 VU 수만 다시 곱한다. 서울 t3 단가(2026-11-11 Price List API): micro $0.013 · small $0.026 · medium $0.052 · large $0.104 · xlarge $0.208/시간. 출처: [크레딧 기본 개념](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/burstable-credits-baseline-concepts.html), [unlimited 모드](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/burstable-performance-instances-unlimited-mode-concepts.html), [요금](https://aws.amazon.com/ec2/pricing/on-demand/)
-
-<a name="adr-024"></a>
-## ADR-024 2단계 전에 DB 병목을 로컬에서 분석·개선한다 (1단계 기록은 그대로)
-
-- **상황:** [1단계 기준선](experiments/baseline.md)에서 옛날 구조는 동시 접속 500명에서 DB CPU 91~93%로 먼저 한계였고(앱 18~21%), 1,000명부터는 DB · 앱이 한가한데 실패가 97~99%였으며, 실패로 받았는데 저장된 예약이 1건 있었다. 3단계 목표 구조의 ECS 오토스케일링은 앱 수만 늘리고, RDS for MySQL은 인스턴스 크기와 읽기 전용 복제본 수를 자동으로 바꾸지 않는다([인스턴스 수정](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ModifyInstance.Settings.html), [자동 확장은 저장 공간만](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_PIOPS.Autoscaling.html)).
-- **검토한 대안:**
-  - 그대로 2단계로: 같은 앱이라 RDS에서도 같은 병목과 무너지는 방식이 옮겨 가고, 3단계 비교에서 원인을 설명할 수 없다.
-  - 1단계 이전 환경을 고쳐 다시 재기: "IDC 그대로"인 기준선이 사라진다.
-  - RDS를 크게 잡아 해결: 원인이 비싼 조회라면 비용으로 덮는 것이고, 무너지는 방식(시간 초과 처리)은 그대로다.
-- **결정:** 2단계 전에 로컬에서(DB 컨테이너 CPU 제한 + seed-volume) 1단계의 모양을 재현해 원인을 찾고 앱을 고친다. 1단계 기록(옛 앱 + 옛 구조 = 500명)은 지우지 않는다. 고친 앱으로 같은 옛날 구조에서 한 번 더 재서 "앱 개선 효과"를 따로 남기고, 3단계는 고친 앱으로 비교해 "인프라 효과"만 남긴다.
-- **근거:** 한 번에 하나씩 바꿔야 무엇 덕분에 좋아졌는지 나눠 설명할 수 있다. 로컬은 비용이 없다.
-- **결과:** 03 진행 계획에 1.5단계가 생긴다. 로컬 PC는 t3.micro와 CPU가 달라 숫자가 아니라 모양(DB 포화, 무너지는 방식)을 재현한다. 옛날 구조 재측정에 AWS 1회(약 $0.3)가 든다.
 
 <a name="adr-025"></a>
 ## ADR-025 bootstrap은 관리자 역할로 1회 적용, state는 도쿄 버킷 하나에 계정 전용 이름으로
@@ -440,7 +347,7 @@
   - 권한 정책까지 지금 작성: ECR 저장소·ECS 클러스터·서비스·태스크 역할 이름이 2-2에서 정해진다.
 - **결정:**
   - OIDC 공급자(`https://token.actions.githubusercontent.com`, 받는 대상 `sts.amazonaws.com`)와 역할 `hotel-booking-aws-v2-github-deploy`를 bootstrap에 둔다([iam.tf](../infra/bootstrap/iam.tf)). 공급자는 계정 안에서 URL마다 하나뿐이라 리전 루트에 둘 수 없다.
-  - 신뢰 조건은 `StringEquals`로 `aud`와 `sub`를 고정한다. `sub`는 main 브랜치 하나: `repo:yubin05@87186282/hotel-booking-aws-v2@1443891878:ref:refs/heads/main`. (2026-11-14 [ADR-043](#adr-043)에서 고객사 앱 저장소 `hotel-booking-app`의 main으로 바꿈)
+  - 신뢰 조건은 `StringEquals`로 `aud`와 `sub`를 고정한다. `sub`는 main 브랜치 하나: `repo:yubin05@87186282/hotel-booking-aws-v2@1443891878:ref:refs/heads/main`. (2026-11-14 [ADR-043](03-plan.md#adr-043)에서 고객사 앱 저장소 `hotel-booking-app`의 main으로 바꿈)
   - `thumbprint_list`는 적지 않는다.
   - 권한 정책은 2-2에서 리소스 이름이 정해질 때 bootstrap에 추가하고 관리자 역할로 다시 적용한다. 그전까지 역할은 권한이 없다.
 - **근거:**
@@ -808,7 +715,7 @@
 - **결정:**
   - 우리가 쓴 **고객 관리형** 정책 2개를 bootstrap Terraform(관리자 역할)이 만들어 평소 그룹에 연결한다([iam.tf](../infra/bootstrap/iam.tf)).
     - `hotel-booking-aws-v2-operator-v2`: 2단계 루트용. `ec2:Describe*`, 서울 조건의 네트워크 액션, seoul · global · tokyo state([v2-operator-policy.json](../infra/iam/v2-operator-policy.json))
-    - `hotel-booking-aws-v2-operator-legacy`: 1단계 legacy 루트용. 1단계 때 쓰던 권한 그대로(읽기, 네트워크, EC2 · 키 페어, state는 로컬이라 없음, [legacy-operator-policy.json](https://github.com/yubin05/hotel-booking-aws-v2/blob/39d08196c7ef0c4bc7ff2370bba035cc3c5e7acd/infra/iam/legacy-operator-policy.json)). (2026-11-14 [ADR-043](#adr-043)에서 고객사 저장소의 `legacy/iam`으로 옮김)
+    - `hotel-booking-aws-v2-operator-legacy`: 1단계 legacy 루트용. 1단계 때 쓰던 권한 그대로(읽기, 네트워크, EC2 · 키 페어, state는 로컬이라 없음, [legacy-operator-policy.json](https://github.com/yubin05/hotel-booking-aws-v2/blob/39d08196c7ef0c4bc7ff2370bba035cc3c5e7acd/infra/iam/legacy-operator-policy.json)). (2026-11-14 [ADR-043](03-plan.md#adr-043)에서 고객사 저장소의 `legacy/iam`으로 옮김)
     - 두 정책은 각자 완결이고, **작업하는 단계의 정책만 붙인다.** bootstrap의 `attach_operator_v2` · `attach_operator_legacy` 값을 바꿔 관리자 역할로 apply한다. 3단계 덤프 이관처럼 둘 다 쓸 때는 둘 다 붙인다
   - 기존 인라인은 백업한 뒤 지웠다. 관리자 전환 권한(인라인 `AssumeAdminRolePolicy`)은 그대로 둔다.
 - **근거:** AWS는 대부분 관리형을 권하고, 최소 권한을 주는 가장 안전한 방법으로 팀에 필요한 권한만 담은 고객 관리형을 든다. 정책마다 6,144자, 그룹에 10개까지라 여유가 크고, 버전(최대 5개)으로 되돌릴 수 있으며, 바꾸기 전에 plan으로 차이를 본다. 인라인의 장점은 1:1 관계(다른 사람에게 실수로 붙지 않음)인데, 평소 사용자는 IAM 권한이 없어 정책을 남에게 붙일 수 없으므로 이 장점이 작다. IAM은 bootstrap에서 관리자가 다룬다는 원칙([ADR-025](#adr-025) · [ADR-029](#adr-029) · [ADR-032](#adr-032))과 같다.
@@ -927,7 +834,7 @@
 - **결정:**
   - 매 apply마다 새 DB를 만들고 스키마 · 시드는 스키마 태스크([ADR-031](#adr-031))가 다시 넣는다. `skip_final_snapshot = true`, `deletion_protection = false`.
   - 자동 백업은 7일 보존, `delete_automated_backups = true`로 destroy 때 같이 지운다.
-  - MySQL 8.4(0단계 로컬과 같음), db.t4g.micro · gp3 20GB. 1단계 DB 서버(t3.micro, [ADR-021](#adr-021))와 같은 급이라 3단계에서 크기가 아니라 구조 효과를 비교하고, 크기는 3단계 뒤 확정한다.
+  - MySQL 8.4(0단계 로컬과 같음), db.t4g.micro · gp3 20GB. 1단계 DB 서버(t3.micro, [ADR-021](07-experiments.md#adr-021))와 같은 급이라 3단계에서 크기가 아니라 구조 효과를 비교하고, 크기는 3단계 뒤 확정한다.
   - Multi-AZ는 설계상 켜고 포트폴리오는 `db_multi_az = false`로 평소 끄며 AZ 장애 테스트 때 켠다(NAT와 같은 방식, [ADR-034](#adr-034)).
   - 도쿄로 백업 복제는 5단계 드릴 때만 켠다(복사 전송 · 도쿄 저장 요금).
 - **근거:** 매번 깨끗한 상태에서 시작해 재현성(2단계 완료 기준)도 함께 확인된다. 백업 기능은 켜 두되 남는 것이 없어 비용이 생기지 않는다.
@@ -945,52 +852,10 @@
 
 </details>
 
-<a name="adr-043"></a>
-## ADR-043 앱 · 이전 환경은 고객사 저장소(hotel-booking-app, Public)로 분리, 이 저장소는 To-Be 인프라와 이관 전후 부하 시험
-
-- **상황:** 시나리오는 고객사 개발팀이 GitHub으로 앱을 운영하고, 우리(인프라팀)가 AWS로 이관하는 것이다. 그런데 앱 코드, CI/CD, 고객사가 운영하던 이전 환경(legacy)이 모두 이 저장소에 있어 시나리오와 맞지 않았다(2026-11-13).
-- **검토한 대안:**
-
-  | 대안 | 버린 이유 |
-  |---|---|
-  | 한 저장소 유지 (monorepo) | 시나리오와 다르다. OIDC `sub`가 저장소 · 브랜치 단위라 "배포 실행은 고객사, 배포 권한은 우리"를 권한으로 나눌 수 없다 |
-  | 앱 저장소 비공개 | 앱 코드는 이미 이 공개 저장소의 기록에 있어 숨겨지지 않는다(지우려면 기록을 다시 쓰고 force push). 인프라 작업인 CD 워크플로가 면접관에게 보이지 않는다. 개인 Free 계정의 비공개 저장소는 비밀 스캔이 없다. Actions 한도(월 $12, Linux 2코어 약 2,000분)는 실측 약 600분/월이라 문제는 아니었다 |
-  | CD를 이 저장소에 | 배포 신호(main 머지)와 재료(이미지)가 앱 저장소에 있다. 이 저장소가 받으려면 고객사 저장소에 신호용 토큰을 비밀값으로 둬야 한다 |
-  | legacy를 이 저장소에 유지 | legacy는 "고객사가 이미 운영하던 환경"이라는 가정과 맞지 않는다 |
-  | legacy를 별도 고객사 저장소로 | 개발팀과 운영팀이 나뉜 고객사라면 더 사실적이지만 저장소가 3개가 된다 |
-
-- **결정:**
-  - 앱은 [yubin05/hotel-booking-app](https://github.com/yubin05/hotel-booking-app)(Public)으로 분리한다. 고객사 앱 저장소 역할이고, 그 README에 "평가 대상은 인프라 저장소"라고 적는다.
-  - CI와 CD는 앱 저장소에서 돈다. CD 워크플로는 인프라팀이 작성해 고객사 저장소에 제공하는 형태다. 배포 역할 · 권한 · 신뢰 조건은 이 저장소(bootstrap)가 관리한다. 고객사에 넘기는 값은 역할 ARN · 리전 · ECR 이름 같은 식별자뿐이고, AWS 키는 넘기지 않는다.
-  - 배포 역할의 `sub`는 앱 저장소 main 하나: `repo:yubin05@87186282/hotel-booking-app@1456714451:ref:refs/heads/main`.
-  - 고객사가 운영하던 이전 환경(legacy)과 0단계 앱 실험(E-01~E-06, `run-k6.sh`, 보고서, 정합성 검사 · 데이터 채우기 SQL)은 고객사 쪽(앱 저장소 `legacy/` · `load/` · `scripts/`)으로 옮긴다(④-b). 앱 로직이 맞는지(중복 예약, 쿠폰 초과)는 개발팀 몫이다.
-  - 이관 전후 부하 비교는 이관 수행사인 우리 몫이다. 1단계 기준선 도구(`baseline.js`, `run-baseline.sh`, 서버 상태 기록 스크립트, 기준선 보고서)는 이 저장소 `load/`에 남기고, 3단계 이관 후에도 같은 `baseline.js`로 잰다.
-  - 예외: 부하 발생기 Terraform은 이전 환경의 서브넷 · 키 페어를 같이 써서 고객사 legacy 루트에 그대로 둔다. "우리 측정 장비를 고객사 환경 안에 띄운 것"으로 본다. 따로 떼면 이 저장소가 다른 저장소의 서브넷에 기대게 되어 legacy를 바꿀 때 깨질 수 있다.
-  - legacy 작업용 IAM 정책은 고객사 저장소의 별도 루트 `legacy/iam`(관리자만 apply, state는 S3 `legacy-iam/terraform.tfstate`)으로 옮긴다. legacy 루트 안에 두면 매일 apply하는 평소 사용자에게 IAM 쓰기 권한이 필요해 자기 권한을 스스로 늘릴 수 있다. 정책이 아무 데도 붙어 있지 않아, 관리 주체를 옮기는 `removed` · `import` 대신 bootstrap에서 지우고 같은 이름으로 다시 만든다.
-  - `k6-lib.mjs`와 `check-consistency.sql`은 0단계 보고서와 기준선 시험이 함께 써서 양쪽에 같은 파일을 두고 출처를 적는다.
-  - 이 저장소에는 To-Be(v2) 인프라, 이관 전후 부하 시험, 문서만 남는다.
-- **근거:** 실제 이관 프로젝트에서 앱 저장소는 고객사에 이미 있고, 인프라팀은 인프라 저장소를 새로 만든다. [ADR-039](#adr-039)에서 "태스크 정의 설정은 Terraform, 이미지는 CD"로 나눠 두어 경계가 이미 있었다. 코드를 공개해도 RDS는 `publicly_accessible = false`이고 프라이빗 서브넷에 있으며 비밀번호는 Secrets Manager가 관리해 보안이 약해지지 않는다. 공개 저장소는 Actions 표준 러너가 무료이고 비밀 스캔이 자동으로 돈다([Actions 요금](https://docs.github.com/en/billing/concepts/product-billing/github-actions), [비밀 스캔](https://docs.github.com/en/code-security/secret-scanning/introduction/about-secret-scanning)).
-- **결과:**
-  - 바꾸는 순서는 "두 저장소 같이 허용 → 새 저장소에서 확인 → 옛 것 제거"(병행 후 전환)로, 배포 수단이 비는 때가 없게 했다.
-  - ① 2026-11-13: `git subtree split`으로 `app/` 히스토리 26개를 옮기고, 워크플로와 compose를 저장소 루트 기준으로 바꿨다. `.gitattributes`가 없어 `db/test-db.sh`가 CRLF로 받아진 것을 같은 LF 규칙을 넣어 고쳤다. ② 저장소를 만들고 첫 CI가 성공했다(23:42).
-  - ③ 2026-11-14: `sub`를 두 저장소 목록으로 바꿔 apply(state 저장 00:00:49). 앱 저장소의 OIDC check가 성공했다(00:01:19). Arn은 역할 이름 · 세션 이름이라 그대로였다.
-  - ④-a 2026-11-14: 이 저장소에서 `app/`, compose, 워크플로 3개를 지우고 `sub`에서 이 저장소를 뺐다(apply는 [03-plan](03-plan.md)). 앱 코드를 가리키던 문서 링크 24개는 지우기 직전 커밋 `d04aad9`의 고정 링크로 바꿨다. 실험 당시의 코드를 가리켜야 하고, 분리하면서 앱 저장소의 커밋 해시가 달라졌기 때문이다. 앱 저장소의 OIDC check 워크플로는 확인이 끝나 지웠다.
-  - ④-b 2026-11-14: bootstrap에서 legacy 정책을 빼는 변경을 ④-a와 한 번에 apply했다(0 · 1 · 1, state 저장 00:47:00). `infra/legacy` · `load` · `scripts`를 `git subtree split`과 `subtree add`로 히스토리째 고객사 저장소에 넣고, 양쪽에서 상대편 몫의 파일을 지웠다. `run-baseline.sh`는 이 저장소 `load/`로 옮기고 서버 IP를 고객사 저장소 legacy state에서 읽게 했다(`terraform -chdir`, 기본 `../../hotel-booking-app/legacy`, 다르면 `LEGACY_DIR`). PC에만 있던 legacy state(리소스 0개) · 변수 파일은 새 위치로 복사해 내용이 같은지 확인한 뒤 옛 폴더를 지웠다. 지운 파일을 가리키던 문서 링크 15개는 직전 커밋 `39d0819`의 고정 링크로 바꿨다. 고객사 저장소 CI는 `legacy/` · `load/` · `scripts/` · 문서만 바뀌면 건너뛴다.
-  - 권한 확인 2026-11-14: 평소 사용자(그룹에 `operator-v2`만 붙은 상태)를 IAM 정책 시뮬레이터(`aws iam simulate-principal-policy`, 관리자 역할로 실행)로 점검했다. IAM 쓰기 4개(`CreatePolicyVersion` · `AttachGroupPolicy` · `PutUserPolicy` · `CreateRole`) `implicitDeny`, PassRole은 ECS 실행 역할(`ecs-tasks.amazonaws.com`에 넘길 때) `allowed` · `Administrator-Role` `implicitDeny`, state 읽기는 `seoul` `allowed` · `legacy-iam` `implicitDeny`. 허용은 모두 `operator-v2`에서 나왔고, 정책에 Deny 문장이 없어 거부는 모두 "허용 문장 없음"이다. 대상 ARN을 여러 개 넣으면 대상별 결과는 `ResourceSpecificResults`에 있다.
-
-<details>
-<summary>확인한 근거와 메모</summary>
-
-- 계정 ID는 비밀로 보지 않는다(*"not considered secret, sensitive, or confidential information"*, [계정 식별자](https://docs.aws.amazon.com/accounts/latest/reference/manage-acct-identifiers.html)). 역할 ARN도 신뢰 조건이 지킨다.
-- 공개 저장소의 표준 러너는 무료, 비공개 저장소는 Free 계정에 월 $12어치가 포함되고, 결제 수단이 없으면 넘을 때 과금되지 않고 막힌다(*"usage is blocked once you use up your quota"*). 2,000분은 문서의 Linux 2코어 단가 $0.006/분으로 계산한 값.
-- 실측(11-03 ~ 11-13): Actions 97회, CI 평균 1.2분, 합계 약 188분.
-
-</details>
-
 <a name="adr-044"></a>
 ## ADR-044 스키마 태스크는 RDS 관리자로 적용하고 앱 계정은 읽기 · 쓰기만, 배포마다 실행해도 같은 결과, 시드 · 운영 규모 데이터는 빈 DB에만
 
-- **상황:** 2-2 ③-b(2026-11-14). [ADR-031](#adr-031)은 스키마 계정과 앱 계정을 나누기로 했지만, 스키마 계정을 무엇으로 할지와 배포마다 실행해도 안전한 방식은 정하지 않았다. `schema.sql`은 `CREATE TABLE`만 있어 두 번째 실행에서 멈추고, 운영 규모 데이터(`db/seed-volume.sql`: 고객사 운영 DB에 쌓여 있다고 가정한 숙소 1,000 · 회원 2만 · 예약 10만 · 리뷰 5만)는 두 번 넣으면 중복 키로 멈춘다. RDS는 apply마다 빈 DB로 새로 생기고([ADR-042](#adr-042)), 스키마는 고객사 개발팀 영역이다([ADR-043](#adr-043)).
+- **상황:** 2-2 ③-b(2026-11-14). [ADR-031](#adr-031)은 스키마 계정과 앱 계정을 나누기로 했지만, 스키마 계정을 무엇으로 할지와 배포마다 실행해도 안전한 방식은 정하지 않았다. `schema.sql`은 `CREATE TABLE`만 있어 두 번째 실행에서 멈추고, 운영 규모 데이터(`db/seed-volume.sql`: 고객사 운영 DB에 쌓여 있다고 가정한 숙소 1,000 · 회원 2만 · 예약 10만 · 리뷰 5만)는 두 번 넣으면 중복 키로 멈춘다. RDS는 apply마다 빈 DB로 새로 생기고([ADR-042](#adr-042)), 스키마는 고객사 개발팀 영역이다([ADR-043](03-plan.md#adr-043)).
 - **검토한 대안:**
 
   | 대안 | 버린 이유 |
@@ -998,7 +863,7 @@
   | 스키마 전용 계정(`migrator`)을 따로 | DB가 매번 새로 생겨 `migrator`를 만드는 관리자 단계가 매번 남는다. 같은 태스크에 관리자 비밀번호가 들어가 권한을 나눈 효과가 거의 없고, 금고(+ 도쿄 복제본)만 는다 |
   | 버전 파일 + 적용 기록 테이블을 직접 | 잠금 · 중간 실패 처리를 직접 짜야 한다. 지금은 기존 테이블을 바꿀 계획이 없다 |
   | 마이그레이션 도구(dbmate · Flyway 등) | 의존성과 이미지가 늘고, 도구 선택은 개발팀 몫이다 |
-  | 운영 규모 데이터는 부하 시험 날만 손으로 | 시나리오상 고객사 운영 DB의 데이터라 평소 트래픽 · 비용 · 크기 판단도 이 양이 기준이다. 빠뜨리면 숙소 10개짜리 DB로 판단하게 된다. 1단계 legacy도 매일 넣었다([ADR-021](#adr-021)) |
+  | 운영 규모 데이터는 부하 시험 날만 손으로 | 시나리오상 고객사 운영 DB의 데이터라 평소 트래픽 · 비용 · 크기 판단도 이 양이 기준이다. 빠뜨리면 숙소 10개짜리 DB로 판단하게 된다. 1단계 legacy도 매일 넣었다([ADR-021](07-experiments.md#adr-021)) |
   | 스키마 태스크는 apply 직후 1번만(CD에서 빼기) | 개발팀이 테이블을 추가한 배포에서 사람이 실행을 빠뜨리면 새 앱이 실패한다. 알림 아웃박스([ADR-037](#adr-037))처럼 테이블 추가가 예정돼 있다 |
 
 - **결정:**
@@ -1071,7 +936,7 @@
 <a name="adr-046"></a>
 ## ADR-046 CD 2부: CI가 테스트 통과 뒤 CD를 불러내고(재사용 워크플로), 배포 단계는 AWS CLI, 스키마 태스크 로그는 CD 화면에
 
-- **상황:** 2-2 CD 2부(2026-11-14). CD는 "빌드 → 서울 ECR push"까지만 있고 손으로 실행했다. 스키마 태스크([ADR-031](#adr-031) · [ADR-044](#adr-044))와 앱 교체([ADR-039](#adr-039))를 붙여 main push만으로 배포되게 해야 한다. 서울은 비용 때문에 평소 내려 두고, CD 워크플로는 고객사 저장소에 있지만 인프라팀이 작성한다([ADR-043](#adr-043)).
+- **상황:** 2-2 CD 2부(2026-11-14). CD는 "빌드 → 서울 ECR push"까지만 있고 손으로 실행했다. 스키마 태스크([ADR-031](#adr-031) · [ADR-044](#adr-044))와 앱 교체([ADR-039](#adr-039))를 붙여 main push만으로 배포되게 해야 한다. 서울은 비용 때문에 평소 내려 두고, CD 워크플로는 고객사 저장소에 있지만 인프라팀이 작성한다([ADR-043](03-plan.md#adr-043)).
 - **검토한 대안:**
 
   | 대안 | 버린 이유 |
@@ -1358,7 +1223,7 @@
   | 출처 | 시드의 Unsplash 11장 중 7장은 그대로 쓴다. 사람이 찍힌 4장(01 · 04 · 05 · 06)은 사람 · 상표가 없는 숙소 사진으로 바꾼다. 원본은 사용자가 브라우저로 직접 받고, git에는 넣지 않고 출처 목록만 남긴다 |
   | 고유 파일 | 11장을 사진 칸 7,050개(숙소 1,010곳 × 2장 + 객실 5,030개)에 복사해 칸마다 자기 주소(`hotels/0001/1`, `rooms/0001/1`)를 준다. 그림은 반복돼도 파일과 주소는 숙소 · 객실마다 다르다 |
   | 크기 · 형식 | 640 · 1200 두 크기의 WebP를 미리 만들고, 화면이 `srcset` · `sizes`로 브라우저에게 고르게 한다. 원본 대부분과 같은 3:2로 가운데를 잘라 맞춘다(화면 칸은 모두 가로형이라, 세로 · 정사각형 원본을 통째로 보내면 잘릴 부분까지 전송함). 사진이 1장뿐인 시드 숙소 9곳에는 1장씩 더 넣어 2장으로 맞춘다 |
-  | 스크립트 | 이 저장소 `scripts/photos/`(Node + sharp). 사진 이관은 MSP가 하는 To-Be 작업이다([ADR-043](#adr-043)) |
+  | 스크립트 | 이 저장소 `scripts/photos/`(Node + sharp). 사진 이관은 MSP가 하는 To-Be 작업이다([ADR-043](03-plan.md#adr-043)) |
   | 수명 | S3 버킷(서울 · 도쿄) · 복제 설정은 bootstrap, 사진은 처음 한 번 올리고 상시 보관한다. 버킷 정책(그날 배포 ARN만 허용하는 OAC)과 사진 CloudFront는 global에서 매일 만들고 지운다. `operator-edge`에 버킷 정책 권한을 더한다 |
   | 사진 CloudFront | global 루트. 앱 웹 ACL을 같이 쓰고, 사진 요청 한도는 따로 둔다([ADR-035](#adr-035)) |
   | 사진 주소 | DB에는 크기를 뺀 전체 주소(`https://img.hotel.vundle34.cloud/hotels/0001/1`)를 넣고, 화면이 `/640.webp` · `/1200.webp`를 붙인다. 우리 도메인이 아닌 주소는 그대로 쓴다 |
@@ -1407,64 +1272,10 @@
 
 </details>
 
-<a name="adr-056"></a>
-## ADR-056 3단계 다음에 운영 사건 대응 자동화(장애 · 보안)를 3.5단계로 넣고, 4단계의 짧은 장애 실험 3개를 앞당긴다
-
-- **상황:** 2026-11-17부터 약 10일 동안 집중 작업 기간(SKT ALEPH 캡스톤)이 있다. 2단계 남은 일과 3단계에 더해 무엇을 할지 정해야 했다. 보안 쪽에 남은 틈은 세 가지다. WAF 로그인 한도는 약 41초 늦게 걸리고, IP 단위라 여러 IP로 나눈 공격을 못 막는다([10 보안 점검](10-security.md) 5절). 앱의 계정 잠금([ADR-054](#adr-054))은 여러 계정에 유출 비밀번호를 넣는 공격(크리덴셜 스터핑)에는 잘 안 통한다. 또 v1 회고의 셋째 문제(장애 복구를 정량 검증하지 못함)는 4 · 5단계 몫이라 아직 답이 없다.
-- **결정:**
-
-  | 항목 | 고른 것 |
-  |---|---|
-  | 순서 | 2단계 나머지 → 3단계 → **3.5단계(운영 사건 대응 자동화)**. 4단계 중 ECS 태스크 강제 종료 · RDS 강제 장애 조치 · 깨진 버전 배포는 3.5단계에서 먼저 한다. 4단계 나머지(AZ 하나 장애, 오토스케일링 상한)와 5단계는 그 뒤 |
-  | 흐름 | 경보 · 이벤트 → Lambda 판단 → 조치 → 사건 보고서. 장애는 AWS가 스스로 복구하므로(ECS 태스크 교체, RDS 장애 조치, 배포 자동 롤백 [ADR-010](#adr-010)) 감지 · 기록 · 보고 · 측정만 한다 |
-  | 보안 조치 | 앱 로그의 로그인 실패를 IP와 계정으로 묶어(한 IP가 여러 계정, 한 계정에 여러 IP) WAF IP 세트에 자동으로 넣고 1시간 뒤 자동으로 뺀다. 범위가 넓거나 돈이 드는 조치(IP 대역 차단, 유료 Bot Control 켜기)는 사람이 승인한다. 계정 잠금은 앱이 이미 한다(ADR-054) |
-  | 임계값 | 정상 k6 시나리오의 평소 최댓값 × 배수. 지금 WAF 한도 같은 가설값 대신 잰 값에서 정한다 |
-  | AI | 판정과 조치는 규칙이 하고, AI는 사건 보고서(고객 보고용 초안)만 쓴다. AI가 실패해도 차단은 동작한다. 모델은 **Bedrock의 Claude Sonnet 5를 서울 리전 안에서(on-demand)** 부른다(2026-11-17 추가) |
-  | 계정 기본 보안 | CloudTrail 기록 보관, GuardDuty, Security Hub(설정 점검)를 서비스 작업 전에 켠다. GuardDuty는 웹 요청 내용을 보지 않으므로 로그인 공격 탐지에 쓰지 않고, 샘플 탐지 결과로 알림 경로만 확인한다 |
-  | 화면 | CloudWatch 대시보드 1개(Terraform): 경보 상태 · 서비스 · 보안 · 대응 기록. 부하 시연과 공격 · 장애 시연을 같은 화면으로 보여 준다 |
-
-- **검토한 대안:**
-
-  | 대안 | 버린 이유 |
-  |---|---|
-  | 새 보안관제 프로젝트를 따로 시작 | 이야기가 둘로 갈리고, 10일 안에 v2만큼의 깊이를 만들기 어렵다 |
-  | GuardDuty · Security Hub를 켜기만 | 탐지 도구 도입일 뿐 판단 · 조치 · 측정이 없다 |
-  | 보안 대응만(장애 제외) | MSP 운영은 장애와 보안 사건을 같은 방식으로 감지하고 보고한다. 장애 쪽은 같은 흐름을 다시 쓰고 복구는 AWS가 하므로 더하는 일이 작다 |
-  | 계정 잠금을 사람 승인 조치로 | 앱이 이미 자동으로 잠근다(ADR-054). 같은 일을 두 곳에서 하면 결과가 엇갈린다 |
-  | CloudWatch 이상 탐지 경보 | 과거 데이터로 평소 범위를 머신러닝으로 자동 학습하지만 학습에 최대 2주가 걸린다. 매일 지우는 환경과 k6로 만든 트래픽에는 익힐 평소 패턴이 없다 |
-  | ZTNA(AWS Verified Access) | 직원용 사내 앱이 없는 시나리오다. 앱 하나에 시간당 $0.27로 상시면 월 약 $197이라 월 고정비 추정 $205([09 비용 추정](09-cost-estimate.md))와 맞먹는다. SSH · 배스천 없음(Fargate), 키 없는 배포(OIDC), Secrets Manager로 제로트러스트 원칙은 이미 들어가 있다 |
-  | "XDR"이라는 이름 | 엔드포인트 · 네트워크 · 클라우드 · 계정 신호를 묶는 제품 범주라 이 범위에 붙이면 과장이다. 여러 원천을 묶는 생각만 쓴다 |
-  | AI를 Anthropic API로 직접 호출 | API 키를 따로 보관 · 교체해야 하고, 고객 로그(IP · 계정)가 AWS 밖으로 나간다. Bedrock은 Lambda의 IAM 역할로 부르고, 입력 · 응답을 학습에 쓰지 않으며 모델 제공사와 공유하지 않는다(문서) |
-  | Bedrock global 교차 리전 추론(Sonnet 5.5 · Haiku 5.5 등 최신 모델) | 서울에서 최신 Claude 대부분은 inference profile로만 부를 수 있다(계정에서 확인). global은 Bedrock이 전 세계 상용 리전 중 처리 리전을 고르므로 고객 로그가 한국 밖에서 처리될 수 있고, `aws:RequestedRegion` 조건과도 맞춰야 한다. 보고서 초안에는 최신 모델이 필요 없다 |
-
-- **근거:** AWS Startup Security Baseline은 CloudTrail · GuardDuty · Security Hub를 계정 단위 통제로 두고 처음에 켜라고 한다. GuardDuty가 분석하는 것은 CloudTrail 관리 이벤트 · VPC 흐름 로그 · DNS 로그다. CloudFront에 붙은 WAF 지표는 us-east-1에만 쌓이고, 한 계정 안이면 대시보드 하나에 리전이 다른 지표를 같이 띄울 수 있다.
-- **결과:**
-  - 일정이 밀리면 CD 보안 검사 → AI 보고서 → 깨진 버전 배포 실험 순으로 뺀다. 3단계 이관 전 · 후 비교는 빼지 않는다.
-  - 경보는 다른 리전의 지표를 볼 수 없어 WAF 경보는 us-east-1에 만든다.
-  - GuardDuty · Security Hub는 리전마다 30일 무료 체험이다. 체험이 끝나기 전에 끄거나 비용을 기록한다.
-  - 자동 차단이 WAF 한도(약 41초)보다 빠를지는 가설이다. WAF IP 세트를 바꾼 뒤 실제로 걸리기까지의 시간을 확인하지 않았다.
-  - 여러 IP 공격을 재현하는 방법(발생기 여러 대 등)은 구현할 때 정한다.
-  - 리전 전체 장애의 RTO · RPO는 5단계에 남는다. 3.5단계에서는 서버 · DB 수준의 복구 시간만 나온다.
-  - Bedrock 호출은 Lambda 기본 제한 시간(3초)으로는 응답을 못 기다릴 수 있어 늘리고, 차단이 끝난 뒤에 따로 부른다(AI가 늦거나 실패해도 차단에 영향 없게). Bedrock 단가는 확인하지 않았다(호출은 시험 횟수만큼 수십 번 수준).
-  - 보고서 단계를 읽기 전용 조사 Agent로 키울지는 캡스톤 평가 기준을 강사에게 확인한 뒤 정한다.
-
-<details>
-<summary>확인한 근거와 메모</summary>
-
-- [AWS Startup Security Baseline – 계정 통제](https://docs.aws.amazon.com/prescriptive-guidance/latest/aws-startup-security-baseline/controls-acct.html), [ACCT.14 GuardDuty](https://docs.aws.amazon.com/prescriptive-guidance/latest/aws-startup-security-baseline/acct-14.html)(분석 원천, 리전별 30일 무료 체험), [ACCT.15 Security Hub](https://docs.aws.amazon.com/prescriptive-guidance/latest/aws-startup-security-baseline/acct-15.html).
-- [GuardDuty 요금](https://docs.aws.amazon.com/guardduty/latest/ug/guardduty-pricing.html), [Security Hub 요금](https://aws.amazon.com/security-hub/pricing/), [GuardDuty 결과를 EventBridge로](https://docs.aws.amazon.com/guardduty/latest/ug/guardduty_findings_eventbridge.html)(새 결과는 거의 실시간, 반복 결과는 기본 6시간).
-- [CloudWatch 이상 탐지](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch_Anomaly_Detection.html)(머신러닝 모델, 시간 · 일 · 주 패턴), [이상 탐지 경보](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/Create_Anomaly_Detection_Alarm.html)("up to two weeks").
-- [Verified Access 요금](https://aws.amazon.com/verified-access/pricing/)(2026-11-16 조회, HTTP(S) 앱 시간당 $0.27).
-- [WAF 지표(CloudFront용은 us-east-1)](https://docs.aws.amazon.com/waf/latest/developerguide/web-acl-testing-view-metrics.html), [리전 간 대시보드 · 경보 제한](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/Cross-Account-Cross-Region.html), [CloudWatch 요금](https://aws.amazon.com/cloudwatch/pricing/)(사용자 정의 대시보드 3개 · 지표 50개 이하 무료).
-- 판정은 규칙, AI는 설명만이라는 원칙은 SKT ALEPH 수업의 보안 Agent 과제(기존 엔진이 판정 · 집행, AI는 근거 설명과 제안)에서 가져왔다.
-- Bedrock: [데이터 보호](https://docs.aws.amazon.com/bedrock/latest/userguide/data-protection.html)(학습에 쓰지 않음, 모델 제공사와 공유 안 함), [모델 접근](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html)(첫 호출 때 Marketplace 구독 자동, Claude Opus 4.7부터는 사용 사례 양식 불필요), [global 교차 리전 추론](https://docs.aws.amazon.com/bedrock/latest/userguide/global-cross-region-inference.html)(처리 리전을 Bedrock이 고름), [Lambda 제한 시간](https://docs.aws.amazon.com/lambda/latest/dg/configuration-timeout.html). 서울 리전 호출 방식은 2026-11-17 `aws bedrock list-foundation-models --by-provider anthropic`으로 확인: 서울 안에서 바로 부를 수 있는(on-demand) Claude는 `claude-opus-5` · `claude-sonnet-5`뿐이고, 나머지는 inference profile(최신은 global, `apac`은 Claude 3 계열만)로만 부른다.
-
-</details>
-
 <a name="adr-057"></a>
 ## ADR-057 계정 기본 보안: CloudTrail(90일) · GuardDuty(3개 리전)는 상시, Config + Security Hub CSPM은 하루 켜서 잰 뒤 예산 여유 안이면 상시
 
-- **상황:** [ADR-056](#adr-056)에서 CloudTrail · GuardDuty · Security Hub를 3.5단계 전에 켜기로 했다. Security Hub CSPM의 설정 점검은 대부분 AWS Config 기록이 있어야 돌고, Config는 구성 항목(자원 상태 사진) 1건마다 $0.003이다. Security Hub 30일 무료 체험에도 Config 비용은 들어가지 않는다. 그런데 이 프로젝트는 인프라를 매일 새로 짓고 지운다([ADR-052](#adr-052)). Config를 상시로 켜 두면 매일 전체를 만들 때 한 번, 지울 때 한 번 찍는다. v1에서도 Config 비용이 튀었다.
+- **상황:** [ADR-056](03-plan.md#adr-056)에서 CloudTrail · GuardDuty · Security Hub를 3.5단계 전에 켜기로 했다. Security Hub CSPM의 설정 점검은 대부분 AWS Config 기록이 있어야 돌고, Config는 구성 항목(자원 상태 사진) 1건마다 $0.003이다. Security Hub 30일 무료 체험에도 Config 비용은 들어가지 않는다. 그런데 이 프로젝트는 인프라를 매일 새로 짓고 지운다([ADR-052](#adr-052)). Config를 상시로 켜 두면 매일 전체를 만들 때 한 번, 지울 때 한 번 찍는다. v1에서도 Config 비용이 튀었다.
 - **결정:**
 
   | 항목 | 고른 것 |
@@ -1507,156 +1318,3 @@
 
 </details>
 
-<a name="adr-058"></a>
-## ADR-058 3.5단계 공격 재현은 실제 사례 3개(회원 계정 탈취 · 숙소 계정 탈취 · 쿠폰 봇)로 하고, 앱에 적립금 · 호스트 화면 · 토큰 무효화를 더한다
-
-- **상황:** [ADR-056](#adr-056)은 공격 재현을 로그인 대입 2종(IP 하나, IP 여러 개)으로 잡았다. 2026-11-17 강사 피드백은 "실제로 일어난 사례를 그대로 해 보는 편이 낫다"였고, 고른 사례는 셋이다. 메리어트(회원 계정이 털려 적립 포인트가 빠져나감, FTC가 계정 점검 요청 창구와 도난 포인트 복구를 명령), Booking.com(숙소 직원 PC의 정보 탈취 악성코드로 파트너 계정이 털려 진짜 손님에게 사기 메시지), 여행 업계 봇(가짜 계정 · 자동화 요청). 그런데 우리 앱에는 적립금이 없다. 호스트는 DB에만 있다(`users.role`의 `host`, `hotels.host_id`. 시드 숙소 10곳을 주인 2명이 6 · 4곳으로 나눔). 호스트 계정 · 화면 · API는 없다. 로그인 토큰(JWT)은 1시간 유효하고 서버가 중간에 취소할 방법이 없다.
-- **결정:**
-
-  | 항목 | 고른 것 |
-  |---|---|
-  | 시나리오 1 (메리어트형) | 유출 목록 대입(크리덴셜 스터핑) → 회원 계정 탈취 → 남의 적립금으로 예약 → 탐지 → 세션 끊기 · 비밀번호 재설정 안내 · **적립금 복구** |
-  | 시나리오 2 (Booking.com형) | 호스트 직원 PC 악성코드가 비밀번호를 훔쳤다고 가정한다(악성코드는 재현하지 않음). 공격자 PC(낯선 IP)에서 정상 비밀번호로 호스트 로그인 → 손님 예약 정보(이름 · 연락처 · 날짜) 대량 조회 → 탐지 → 세션 끊기. 사기 메시지 발송은 재현하지 않는다(메시지 기능 없음). 가장 이른 탐지 지점인 "손님 정보가 빠져나가는 순간"까지만 |
-  | 시나리오 3 (여행 업계 봇) | 선착순 쿠폰 오픈 시각에 가짜 계정 대량 가입 → 쿠폰 독식 → 탐지 → 차단 · 봇 계정 쿠폰 회수. 스크래핑은 하지 않는다 |
-  | 적립금 저장 | 거래 내역 테이블. 적립 · 사용 · 복구를 한 줄씩 쌓고 잔액은 합계. 복구는 되돌림 한 줄이고, 누가 · 언제 · 어디서 썼는지가 탐지 · 감사 근거가 된다 |
-  | 적립 | **숙박 완료 때** 결제액의 5%(시연용 값). 숙박 완료는 호스트가 "숙박 완료(체크아웃)" 버튼으로 처리하고, **체크인 날짜가 오늘이거나 지난 예약만** 된다. 시험은 오늘 체크인 예약 → 바로 완료(조기 체크아웃)로 날짜 우회 없이 한다. 가입 보너스는 없다(시나리오 3과 섞임) |
-  | 적립금 사용 | 예약할 때 결제액에서 차감 |
-  | 호스트 | 화면 한 페이지(내 숙소 예약 목록 + 숙박 완료 버튼)와 API. 계정 2개(시드 `host_id` 2개)는 일회용 스크립트가 SSM Parameter Store의 비밀번호로 만든다. 공개 저장소라 시드에 비밀번호를 넣지 않는다 |
-  | 세션 끊기 | 사용자별로 "이 시각 이전에 발급한 토큰은 무효"를 기록하는 테이블을 두고 인증할 때 확인한다. 대응 자동화가 부른다 |
-
-- **검토한 대안:**
-
-  | 대안 | 버린 이유 |
-  |---|---|
-  | 쿠폰을 포인트로 간주(새 기능 없음) | 강사 의견: 실제 적립금 기능이 있어야 사례와 같고 시연이 낫다 |
-  | `users`에 잔액 칸 | 배포 때 도는 스키마 작업은 이미 있는 테이블 구조를 바꾸지 않는다. 무엇이 털렸는지 근거가 남지 않아 복구 금액을 알 수 없다 |
-  | 예약하자마자 적립 | 실제(숙박 후 적립)와 다르다. 오늘 체크인 + 조기 체크아웃으로 실제 규칙 그대로 시험할 수 있다 |
-  | 숙박 완료에 날짜 검사 없음 | 털린 호스트 계정이 미래 예약을 완료로 바꿔 적립금을 찍어낼 수 있다 |
-  | 비밀번호 재설정만 | 공격자가 이미 가진 토큰이 최대 1시간 유효하다. "차단했다"고 말할 수 없다 |
-  | 토큰 15분 + 갱신 토큰 | 실무 표준에 가깝지만 로그인 구조 전체를 고쳐야 해 10일 일정에 크다 |
-  | 호스트 API만 | 시연에서 공격자가 보는 호스트 화면을 보여 줘야 한다 |
-  | 스크래핑 봇 | 10일 안에 사례마다 깊이 있게 한다. 쿠폰 봇이 우리 대표 이벤트(선착순 쿠폰)와 이어진다 |
-
-- **결과:**
-  - ADR-056의 공격 재현 2종(로그인 대입)은 시나리오 1의 탈취 단계가 된다. WAF IP 자동 차단(1시간 뒤 해제)은 그대로 쓰고, 세션 끊기 · 적립금 복구가 더해진다. 공격자는 IP를 바꿀 수 있어 IP 차단만으로는 봉쇄가 안 된다.
-  - 로그인한 요청마다 DB 조회가 1번 늘어 부하 시험 수치가 바뀔 수 있다. 구현 뒤 잰다.
-  - 앱 변경은 hotel-booking-app에서 한다([ADR-043](#adr-043)). 시나리오별 탐지 규칙 · 임계값 · 자동/승인 조치 · 재현 방법 · 성공 기준은 구현 세션에서 정해 덧붙인다.
-- **구현 전 세부 결정 (2026-11-17):** 위 표의 "일회용 스크립트"와 "대응 자동화가 부른다"를 아래처럼 구체화한다.
-
-  | 항목 | 고른 것 |
-  |---|---|
-  | 적립금 사용 | 결제액 전액까지. 쿠폰을 먼저 빼고 남은 금액에서 적립금을 뺀다 |
-  | 적립액 | 실제 결제액(쿠폰 · 적립금을 뺀 금액) × 5%, 원 미만 버림 |
-  | 예약 취소 | 쓴 적립금을 같은 내역 테이블에 '환원' 한 줄로 돌려준다. 되돌림 줄(환원 · 복구)은 되돌린 사용 줄을 가리키고 그 칸이 유니크라, 한 사용을 두 번 되돌릴 수 없다 |
-  | 예약 변경 (구현 중 결정) | 숙박을 줄여 쓴 적립금이 새 결제액보다 많아질 때만, 같은 트랜잭션 안에서 '환원' 한 줄 + 새 결제액까지 '사용' 한 줄을 쓴다. 늘리거나 조금 줄이는 변경은 사용액을 그대로 둔다. 거절하고 "취소 후 다시 예약"으로 돌리면 그 사이 다른 손님이 그 객실 · 날짜를 가져갈 수 있다(사용자 지적) |
-  | 동시 사용 (구현 중 결정) | 예약 INSERT보다 먼저 `users` 행을 `FOR UPDATE`로 잠근다(INSERT의 외래 키 검사가 거는 공유 잠금 뒤에 잠그면 동시 요청끼리 교착, 쿠폰 발급과 같은 이유). 잔액 합계는 잠금 읽기(`FOR SHARE`)로 구한다. 기본 격리 수준(REPEATABLE READ)의 일반 읽기는 "트랜잭션 첫 읽기 때의 스냅샷"을 봐서, 잠금을 기다리는 동안 커밋된 사용을 못 보고 두 번 쓸 수 있다([MySQL 일관된 읽기](https://dev.mysql.com/doc/refman/8.4/en/innodb-consistent-read.html)). 같은 잔액으로 동시 예약 5건 → 1건만 되는 테스트로 확인 |
-  | 세션 번호 | 토큰에 `jti`를 넣고 적립금 사용 줄에 남긴다(복구 범위 · 보고서). 배포 때 테이블 구조를 바꿀 수 없어 처음부터 넣는다 |
-  | 세션 끊기 경로 | **보안 강화 단계로 미룸([ADR-060](#adr-060), 2026-11-18).** 아래는 미루기 전 기록. 관리용 문을 인터넷에 열지 않는다(사용자 원칙). 사람이 손으로 끊지 않고 자동으로 한다. 후보: ECS 일회성 태스크(추천: migrate와 같은 방식이라 새 서비스 없음, 시작에 수십 초는 가설로 시험에서 잼) · SQS 명령 큐. 어느 쪽이든 기계는 끊기 · 잠금만 하고 시간당 상한을 두며, 처리 결과를 로그로 남긴다 |
-  | 같은 초 | 끊은 시각(초) 이하에 발급된 토큰은 모두 무효. 주인은 다시 로그인하면 된다 |
-  | 끊은 뒤 처리 | **보안 강화 단계로 미룸([ADR-060](#adr-060)).** 미루기 전 추천: 토큰 탈취(로그인한 적 없는 IP에서 같은 세션 번호가 쓰임)는 끊기만 해 주인이 바로 다시 로그인하고, 비밀번호 탈취(공격 IP에서 로그인 성공)는 끊기 + 잠금. 잠금 해제 · 임시 비밀번호 · 사건 복구(공격자 세션이 쓴 적립금 되돌림 + 그 세션이 만든 예약 취소)는 관리자 계정(사람)만 한다. 이메일 인증 재설정은 재발 방지 권고 |
-  | 계정 | 호스트 2개 + 관리자 1개. migrate 태스크가 배포마다 없으면 만든다. 비밀번호는 SSM SecureString(`/hotel-booking/host-password/<host_id>`, `/hotel-booking/admin-password`)을 ECS가 환경 변수로 넣고, 값이 없으면 건너뛴다 |
-  | Google SSO | 지금 넣지 않는다. 사건 보고서의 재발 방지 권고(직원 계정 SSO · MFA)로 내고, 시간이 남으면 적용한 뒤 같은 공격을 다시 해서 전 · 후를 비교한다 |
-  | 적립금 테이블 크기 | 내역 테이블 + `user_id` 색인만. 한 사람 줄이 많아지면 잔액 표, 전체가 커지면 아카이브. 예약 id는 외래 키라 MySQL이 색인을 자동으로 만든다([외래 키 조건](https://dev.mysql.com/doc/refman/8.4/en/create-table-foreign-keys.html), 로컬 `SHOW INDEX`로 확인) |
-  | 고객사 확인 | 관제 화면(CloudWatch 대시보드, 켜져 있을 때 실시간) + 고객사 보고 페이지(포트폴리오 사이트, 사건별 시간표 · 숫자 · 보고서, 언제든 열림) + 시연 영상. 먼저 만들어 보고 피드백을 받는다. CloudWatch만으로는 처음 보는 사람이 들어갈 수 없고 밤에 인프라를 내리면 비며, 앱 안에 관제 사이트를 따로 만들면 CloudWatch와 겹친다 |
-
-  | 버린 대안 | 이유 |
-  |---|---|
-  | 관리 API + 비밀 헤더(CloudFront 경유) | 관리용 문이 인터넷 경로에 열린다. 비밀값이 새면 잠금 남발(서비스 마비)까지 된다 |
-  | 대응 Lambda가 DB에 직접(VPC Lambda) | 복구 규칙이 앱 · Lambda 두 곳에 생기고, 털리면 DB 전체 쓰기 |
-  | 내부 전용 관리 API(WAF로 `/api/admin` 차단 + VPC Lambda) | VPC Lambda는 지울 때 네트워크 인터페이스 정리에 최대 20분이 걸려([AWS 지식 센터](https://repost.aws/knowledge-center/lambda-eni-find-delete)) 매일 destroy가 길어진다 |
-  | 세션 끊기 · 잠금을 관리자가 손으로 | 하루 종일 지켜볼 수 없고, 탈취 시도가 많으면 손으로 못 한다 |
-  | Lambda가 복구 · 잠금 해제까지 | 자동 경로가 털리면 예약 취소 · 계정 재개방까지 된다 |
-  | 비밀번호 탈취에 끊기만 | 공격자가 아는 비밀번호로 바로 다시 로그인한다 |
-  | 일회용 스크립트로 계정 생성 | 서울을 밤마다 내려 DB가 매일 새로 생기므로 매일 다시 돌려야 한다 |
-  | 토큰 1인 1개 | 주인과 공격자가 서로 튕기기만 하고, 비밀번호를 아는 공격자는 못 막는다 |
-  | 예약 변경: 적립금이 넘치면 거절("취소 후 다시 예약") | 취소와 재예약 사이에 다른 손님이 객실 · 날짜를 가져갈 수 있다 |
-  | 예약 변경: 적립금 쓴 예약은 변경 불가 | 늘리는 변경까지 막히고, 위와 같은 빈틈이 생긴다 |
-
-<details>
-<summary>확인한 근거와 메모</summary>
-
-- 메리어트: [FTC 발표(2024-10)](https://www.ftc.gov/news-events/news/press-releases/2024/10/ftc-takes-action-against-marriott-starwood-over-multiple-data-breaches), [최종 명령(2024-12)](https://www.ftc.gov/news-events/news/press-releases/2024/12/ftc-finalizes-order-marriott-starwood-requiring-them-implement-robust-data-security-program-address). 탈취 수단이 크리덴셜 스터핑이었는지는 원문에서 다시 확인하지 않았다. 회원 계정 탈취로 숙박을 예약한 사례는 업체 자료([Kasada](https://www.kasada.io/loyalty-fraud-prevention/))다.
-- Booking.com: [KELA](https://kelacyber.com/your-compromise-is-confirmed-how-threat-actors-access-hotel-accounts-on-booking-com)(숙소 계정 탈취 방식).
-- 여행 업계 봇: [Netacea](https://netacea.com/blog/are-bots-threatening-the-travel-industry)(스크래핑 · 재고 고갈, 업체 자료).
-- 앱 확인(hotel-booking-app `02096dc`): 예약은 과거 날짜만 거부해 오늘 체크인이 된다. 예약을 `completed`로 바꾸는 코드는 없다. 토큰은 `expiresIn: '1h'`이고 검증은 서명 · 만료만 본다.
-
-</details>
-
-<a name="adr-059"></a>
-## ADR-059 포트폴리오를 이관과 보안 운영 두 이야기로 나누고, 5단계까지 이관을 먼저 끝낸 뒤 보안 운영(6단계)을 한다. 저장소는 늘리지 않는다
-
-- **상황:** 2026-11-17 데이터센터 관제 경력 동료와 서로 프로젝트를 설명해 보니 "진행이 안 된 느낌, 질문에 설명이 어렵다"는 피드백을 받았다. 한 프로젝트 안에 v1 회고(멀티클라우드 오버엔지니어링), 이관 · 성능 · 장애 · 리전 복원 검증, 공격 재현 · 자동 대응 · AI 보고서 · 고객사 대시보드가 섞여 한 문장으로 설명되지 않았다. 캡스톤은 과정 시간표상 "보안 Agent/앱 캡스톤 실습"(11-19 ~ 12-02 오전, 성과 공유 12-08 ~ 09)이고, 바로 앞 수업이 이상탐지 자동화 · 자동 대응(SOAR)이다. 3 · 4 · 5단계(실제 덤프 이관, 장애 테스트, 리전 복원 RTO · RPO)는 아직 결과가 없다.
-- **결정:**
-
-  | 항목 | 고른 것 |
-  |---|---|
-  | 이야기 | ① 이관(v1 회고 → 규모 맞춤 설계 → 이관 → 부하 · 장애 · RTO · RPO) ② 보안 운영(이관을 마친 고객사가 맡긴 운영 · 보안: 공격 재현 → 자동 탐지 · 대응 → 대시보드 · 보고서). 캡스톤 발표의 중심은 ② |
-  | 서론 (발표 30초) | "숙박 예약 회사가 선착순 쿠폰 이벤트를 열자 손님이 몰려 서버가 멈췄습니다. 기존 서버는 동시 접속 500명이 한계였습니다. 그래서 AWS로 옮겼는데, 처음 팀 프로젝트(v1)는 실제 문제와 맞지 않는 멀티클라우드 DR까지 넣어서 월 고정비가 약 $679로 추정되는 과한 구조였습니다. 이를 고객 규모에 맞게 다시 설계해 약 $205로 줄였습니다(v2). 이관을 마치고 운영 단계로 넘어오면서 고객사가 보안 운영을 맡겼고, 오늘은 그 이야기입니다." |
-  | 순서 | 3 → 4 → 5단계를 먼저 끝내고 보안 운영을 한다. 이관 마감 2026-11-27(금), 주말 작업 포함. 3.5단계는 5단계 뒤 6단계로 옮기고, 장애 실험 3종(ECS 태스크 종료 · RDS 장애 조치 · 깨진 배포)은 4단계로 되돌린다 |
-  | 저장소 | 늘리지 않는다. 앱 기능 · 관리자 화면은 hotel-booking-app, 탐지 · 대응 · 대시보드 · 보고서는 v2의 새 Terraform 루트, 계정 기본 보안은 v2 `infra/security` 그대로, 고객사 보고 페이지는 포트폴리오 사이트 |
-  | 보여 주기 | 포트폴리오 사이트 하나에 프로젝트 페이지 2개. v2 README는 이관이 끝날 때 "① 이관 / ② 보안 운영" 두 부분으로 정리한다 |
-  | 앱 기능([ADR-058](#adr-058)) | 인프라 없이 로컬 테스트로 되므로 이관과 나란히 먼저 만든다 |
-
-- **검토한 대안:**
-
-  | 대안 | 버린 이유 |
-  |---|---|
-  | 한 이야기로 계속(2026-11-16 캡스톤 범위) | 설명이 길어지고 듣는 사람이 핵심을 못 잡는다(동료 피드백) |
-  | 보안 운영 먼저, 이관은 캡스톤 뒤 | 수료 뒤에는 작업하지 않을 계획이라 ①이 끝나지 않는다. 서론의 "이관을 마치고"가 사실이 되려면 실제 덤프 이관(3단계)이 먼저다 |
-  | 보안 운영 새 저장소 | 만드는 것마다 이미 자리가 있다(위 표). 남는 건 v2 값에 기대는 Terraform뿐이라 출력값 약속 · 매일 올리기 단계만 늘어난다. 고객사 앱과 따로 배포하는 앱(여러 고객사를 보는 관제 포털 등)이 생기면 그때 나눈다 |
-  | `infra/security`를 보안 운영 쪽으로 옮김 | 계정 기본 보안은 실무에서 인프라 · 플랫폼 팀이 계정을 만들 때 까는 기반이고, 보안 운영은 그 결과를 가져다 쓴다. 옮기면 state 경로 · 런북 · 링크를 다 고쳐야 한다 |
-  | 포트폴리오 사이트 2개 | 보는 사람의 눈이 흩어진다 |
-
-- **결과:**
-  - 2026-11-16 캡스톤 범위(이관 + 운영 대응 자동화를 한 주제로, 4 · 5단계는 캡스톤 뒤)를 바꾼다. 보안 운영은 11-28 ~ 12-02 오전(주말 포함)에 한다. 밀리면 CD 보안 검사 → Failback 대조 → 공격 ③ 쿠폰 봇 → 고객사 보고 페이지(영상으로 대신) 순으로 빼고, AI 사건 보고서는 과정 이름(보안 Agent)과 맞닿아 빼지 않는다.
-  - 이관 마감까지 못 하면 4단계의 AZ 하나 장애 · 오토스케일링 상한은 README에 하지 않은 것으로 남긴다.
-  - v1은 4인 팀, v2는 개인 작업이라는 구분을 서론 · 포트폴리오에서 지킨다.
-  - 포트폴리오 구성(2026-11-18): 카드 3장을 발전 순서(① v1 팀 → ② v2 이관 → ③ 보안 운영)로 시험 중이고, 카드마다 요약 첫 문장을 그 카드의 핵심 한 줄로 둔다. 직무별 대문 `/cloud`(② 대표) · `/security`(③ 대표)를 만들어 두고, 이력서 링크 칸에는 지원 직무에 맞는 경로를 쓴다. 내용은 대문과 같고 순서 · 첫 줄만 다르다. ③ 카드에는 시작 날짜를 쓰지 않는다(시작 시점 미정).
-  - 옛 3.5단계를 설명하는 "다음 단계 계획" 절(README, 포트폴리오 v2 페이지 `src/content/projects/hotel-booking-aws-v2.md`)과 단계 그림(stages.svg)은 이관이 끝날 때 대문을 "① 이관 / ② 보안 운영"으로 정리하면서 한 번에 고친다. 그때까지 약 10일 동안 옛 계획 절이 보이는 것은 받아들인다("측정 전 계획"이라고 붙어 있고, README와 포트폴리오를 같은 문장으로 맞추는 규칙상 한 번에 고치는 편이 일이 적다).
-
-<a name="adr-060"></a>
-## ADR-060 세션 끊기 · 계정 잠금 · 주인 알림은 6단계 보고서의 권고를 거쳐 보안 강화 단계에서 넣고, 관리자 화면은 계정 조회 · 사건 복구만 먼저 만든다
-
-- **상황:** [ADR-058](#adr-058)은 앱에 토큰 무효화(세션 끊기)를 넣어 대응 자동화가 부르게 했고, 전달 경로(ECS 일회성 태스크 · SQS)와 끊은 뒤 처리(잠금 여부)는 미정이었다. 2026-11-18 앱 작업 중 확인한 사실: SQS는 매달 100만 요청이 무료다. 탐지 자체가 분 단위다(로그 지표 필터의 지표에는 해상도 설정이 없고, 표준 경보의 최소 주기는 60초). AWS Cognito도 "취소한 토큰은 서명 · 만료만 보는 서버에서 만료까지 유효"라고 쓴다. 잠그려면 주인 알림과 공격자가 모르는 경로의 재설정이 함께 필요한데, 앱에는 이메일 발송이 없다. 사용자 판단: 보안 대응 · 강화는 진단(공격 재현 · 탐지 · 시각화) → 보고서 지적 다음에 오는 것이 순서다.
-- **결정:**
-
-  | 항목 | 고른 것 |
-  |---|---|
-  | 세션 끊기 · 잠금 · 알림 | 지금 넣지 않는다. 6단계 1차는 공격 재현 → 탐지 · 시각화 → WAF IP 자동 차단 → AI 보고서까지. 보고서가 "IP를 바꾸면 계정 단위로는 못 막는다"를 지적하고 세션 끊기 · 잠금 · 다른 경로 알림 · MFA를 권고한다. 시간이 남으면 보안 강화 단계에서 넣고 같은 공격을 다시 해 전 · 후를 비교한다(Google SSO와 같은 방식) |
-  | 그때 쓸 판단 기준 | 토큰 탈취 = 새 로그인 없이 주인의 세션 번호가 다른 IP · 브라우저에서 쓰임 → 끊기만(주인은 다시 로그인). 비밀번호 탈취 = 그 계정이 써 본 적 없는 IP에서 새 로그인 성공(특히 같은 IP에서 여러 계정이 실패한 뒤) → 끊기 + 잠금. 정보 탈취 악성코드는 비밀번호와 세션 쿠키를 둘 다 가져가므로 악성코드 종류가 아니라 흔적으로 가른다. IP 변화만으로 확정하지 않는다(모바일 등 정상 변화) |
-  | 주인 알림 원칙 | 비밀번호 탈취는 "다음 로그인 때 비밀번호 변경 화면"만으로는 안 된다. 공격자가 먼저 로그인해 바꿔 버린다. 재설정은 공격자가 갖지 못한 경로(이메일 링크 · 문자 · MFA · 관리자 본인 확인)로 한다 |
-  | 끊기 경로 후보 | SQS 명령 큐가 앞선다. 비용 $0(무료 범위 안, 넣는 쪽은 IAM 권한 있는 대응 Lambda뿐이고 시간당 상한을 둠), 몇 초 안에 반영. ECS 일회성 태스크는 뜨는 시간(가설: 수십 초)이 차단 시간에 그대로 더해진다. 보안 강화 때 확정 |
-  | 관리자 화면 | 지금 만든다: 이메일로 계정 찾기 → 적립금 내역(세션 번호 포함) → 사건 복구(세션 번호를 넣으면 그 세션이 쓴 적립금을 '복구' 줄로 되돌리고, 그 적립금으로 만든 확정 예약을 취소). 피해 복구는 막기가 아니라 운영자가 하는 일이다(메리어트도 도난 포인트 복구 명령, ADR-058) |
-  | 시연 계정 | 호스트 2 · 관리자 1은 시연용 고정 계정. migrate가 배포마다 없으면 만든다(환경 변수 `HOST1_PASSWORD` · `HOST2_PASSWORD` · `ADMIN_PASSWORD`, 없으면 건너뜀). 비밀번호 값은 사용자가 SSM Parameter Store(SecureString, 표준 무료)에 직접 넣는다. 대화 기록 · Terraform 상태 · 저장소에 남지 않게 하려는 것. ECS 연결은 2026-11-18에 넣었다(다음 날 동료 시연에 호스트 · 관리자 화면이 필요해 앞당김): 서울만 켜고(`demo_accounts`), 도쿄 복원은 끈다(없는 파라미터를 참조하면 태스크가 못 뜰 수 있음, 가설). 실행 역할에는 `ssm:GetParameters`만 더한다(기본 키라 `kms:Decrypt` 불필요, [ECS 실행 역할](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_execution_IAM_role.html)). 절차는 런북 5-3. 실제 서비스는 호스트가 스스로 가입한 뒤 숙소 확인을 받고, 직원은 회사 SSO로 들어온다. 첫 관리자 1명만 배포 비밀값으로 만드는 것은 흔한 방식이다(Keycloak · Grafana) |
-  | 탐지용 로그 (구현 중 결정) | 보안 이벤트를 한 줄 JSON(`log=security`)으로: 가입, 로그인 성공 · 실패, 토큰 거절, 예약(적립금 사용액), 호스트 예약 조회(건수), 숙박 완료(적립액), 쿠폰 발급, 관리자 조회 · 복구. 손님 IP는 Express `trust proxy` 2: CloudFront → ALB가 X-Forwarded-For 끝에 하나씩 덧붙이므로 손님이 보낸 가짜 값은 왼쪽에 남아 무시된다(프록시 단계가 바뀌면 같이 고침). 로그인 실패 이메일은 SHA-256 앞 16자(개인정보와 이메일 칸에 잘못 친 비밀번호가 로그에 안 남음), User-Agent는 200자까지 |
-
-- **검토한 대안:**
-
-  | 대안 | 버린 이유 |
-  |---|---|
-  | 지금 SQS로 끊기 · 잠금 | 주인 알림 · 안전한 재설정 없이 잠그면 반쪽 대응이고, 이관 마감(11-27)과 겹친다 |
-  | 지금 ECS 일회성 태스크 | 위와 같고, 끊는 데 수십 초(가설)가 더 걸린다 |
-  | 관리자 화면 전체를 강화 단계로 | 시나리오 1의 피해 복구를 보고서에 "했다"고 쓸 수 없다 |
-  | 관리자만 비밀값, 호스트는 관리자 화면에서 만들기 | DB가 매일 새로 생겨 시연 전마다 만들어야 한다 |
-  | 호스트 직접 가입 + 관리자 승인 | 가장 실제와 같지만 기능이 가장 크고, 매일 다시 해야 한다 |
-  | 시연 비밀번호를 Terraform `random_password`로 | 비밀번호가 상태 파일에 남고 서울을 내릴 때마다 바뀐다 |
-  | 시연 비밀번호를 Secrets Manager에 | 비밀 1개당 월 $0.40 + API 1만 건당 $0.05(3개면 월 $1.20). 자동 교체 · 리전 복제가 장점인데, 시연 비밀번호는 사람이 정해 넣고 교체할 필요가 없으며 도쿄 복원에서 쓰지 않는다. SSM 표준 파라미터는 추가 요금 없음. 대가: 비밀 보관 장소가 Secrets Manager(JWT · 앱 DB, 복제 필요)와 SSM 두 군데로 나뉜다. AWS는 비밀값에 Secrets Manager를 권장하므로 실제 운영 계정이면 Secrets Manager + 교체 ([SSM 요금](https://aws.amazon.com/systems-manager/pricing/), [Secrets Manager 비교](https://aws.amazon.com/compare/kms-and-secrets-manager/), [Parameter Store](https://docs.aws.amazon.com/systems-manager/latest/userguide/systems-manager-parameter-store.html)) |
-
-- **결과:**
-  - 6단계 완료 기준을 "공격 시작부터 탐지 · IP 차단까지 시간"으로 바꾸고, 계정 단위 차단은 보고서 권고 · 전후 비교로 옮긴다([03 6단계](03-plan.md)).
-  - 공격자 세션 번호가 적립금 사용 줄과 보안 로그에 남으므로, 강화 전에도 탐지와 복구 범위 산정은 된다. 적립금을 쓰지 않은 공격자 예약은 DB에 세션 번호가 없어 로그(`booking_created`)로 찾는다.
-  - 관리자 화면은 인터넷에 열린 사이트의 관리자 로그인이다. 직원 계정 SSO · MFA는 ADR-058대로 보고서의 재발 방지 권고다.
-
-<details>
-<summary>확인한 근거</summary>
-
-- SQS 무료 요청: [SQS 요금](https://aws.amazon.com/sqs/pricing/) "1 million Amazon SQS requests for free each month"
-- 탐지 주기: [지표 필터 MetricTransformation](https://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/API_MetricTransformation.html)(해상도 칸 없음), [CloudWatch 개념](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/cloudwatch_concepts.html)(표준 경보는 60초의 배수)
-- 토큰 취소의 한계: [Cognito 토큰 취소](https://docs.aws.amazon.com/cognito/latest/developerguide/token-revocation.html) "revoked tokens will still be valid if they are verified using any JWT library"
-- 악성코드: [Microsoft, Lumma Stealer](https://www.microsoft.com/en-us/security/blog/2025/05/21/lumma-stealer-breaking-down-the-delivery-techniques-and-capabilities-of-a-prolific-infostealer/) "extracts saved passwords, session cookies"
-- 세션 탈취 신호: [OWASP 세션 관리](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)(세션 도중 IP · User-Agent 변화, 단독으로는 신뢰 못 함)
-- 비밀값 보관: [Parameter Store](https://docs.aws.amazon.com/systems-manager/latest/userguide/systems-manager-parameter-store.html), [요금](https://aws.amazon.com/systems-manager/pricing/)(표준 무료), [ECS에서 Parameter Store 값 넣기](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/secrets-envvar-ssm-paramstore.html)(태스크 시작 때 한 번 넣음, 실행 역할 권한 필요)
-- 계정 관행: [Booking.com 파트너 가입](https://join.booking.com/), [Keycloak 첫 관리자](https://www.keycloak.org/server/configuration), [Grafana admin_password](https://grafana.com/docs/grafana/latest/setup-grafana/configure-grafana/)("Set once on first-run")
-- 손님 IP: [CloudFront X-Forwarded-For](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/RequestAndResponseBehaviorCustomOrigin.html), [ALB X-Forwarded-For(기본 append)](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/x-forwarded-headers.html), [Express behind proxies](https://expressjs.com/en/guide/behind-proxies.html)
-
-</details>
