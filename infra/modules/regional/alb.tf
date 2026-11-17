@@ -45,6 +45,8 @@ resource "aws_lb" "this" {
   load_balancer_type = "application"
   subnets            = aws_subnet.app[*].id
   security_groups    = [aws_security_group.alb.id]
+
+  drop_invalid_header_fields = true # 규격에 안 맞는 헤더는 앱에 넘기지 않고 버림 (Security Hub ELB.4, 11 점검 보고서)
 }
 
 # 직원 명단: Fargate(awsvpc)는 태스크마다 IP를 받아서 대상 종류가 ip
@@ -106,7 +108,7 @@ resource "aws_lb_listener" "https" {
   load_balancer_arn = aws_lb.this.arn
   port              = 443
   protocol          = "HTTPS"
-  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06" # TLS 1.2 · 1.3만 허용
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-Res-PQ-2025-09" # TLS 1.2 · 1.3, 강한 암호만(Res) + 양자 내성 키 교환(PQ). 2021-06은 ELB.17 통과 목록에 없음
   certificate_arn   = aws_acm_certificate_validation.origin.certificate_arn
 
   default_action {

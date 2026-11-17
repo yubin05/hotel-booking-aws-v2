@@ -73,7 +73,7 @@ resource "aws_cloudfront_distribution" "photos" {
   viewer_certificate {
     acm_certificate_arn      = aws_acm_certificate_validation.app.certificate_arn
     ssl_support_method       = "sni-only"
-    minimum_protocol_version = "TLSv1.2_2021"
+    minimum_protocol_version = "TLSv1.2_2025" # 2021은 CloudFront.15 통과 목록에 없음 (11 점검 보고서)
   }
 }
 
@@ -86,15 +86,28 @@ resource "aws_s3_bucket_policy" "photos" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Sid       = "AllowPhotoCloudFrontReadOnly"
-      Effect    = "Allow"
-      Principal = { Service = "cloudfront.amazonaws.com" }
-      Action    = "s3:GetObject"
-      Resource  = "arn:aws:s3:::${each.value.name}/*"
-      Condition = {
-        StringEquals = { "AWS:SourceArn" = aws_cloudfront_distribution.photos.arn }
+    Statement = [
+      {
+        Sid       = "AllowPhotoCloudFrontReadOnly"
+        Effect    = "Allow"
+        Principal = { Service = "cloudfront.amazonaws.com" }
+        Action    = "s3:GetObject"
+        Resource  = "arn:aws:s3:::${each.value.name}/*"
+        Condition = {
+          StringEquals = { "AWS:SourceArn" = aws_cloudfront_distribution.photos.arn }
+        }
+      },
+      {
+        # 암호화 안 된(HTTP) 요청은 누구든 거절 (Security Hub S3.5, 11 점검 보고서)
+        Sid       = "DenyInsecureTransport"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
+        Resource  = ["arn:aws:s3:::${each.value.name}", "arn:aws:s3:::${each.value.name}/*"]
+        Condition = {
+          Bool = { "aws:SecureTransport" = "false" }
+        }
       }
-    }]
+    ]
   })
 }

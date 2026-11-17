@@ -9,6 +9,12 @@ resource "aws_vpc" "this" {
   tags       = { Name = local.name }
 }
 
+# VPC를 만들면 AWS가 기본 보안 그룹(같은 그룹끼리 전부 · 밖으로 전부 허용)을 붙임. 아무도 안 쓰므로 규칙을 모두 비움
+# 규칙 블록을 안 적으면 Terraform이 있던 규칙을 지움. destroy 때는 state에서만 빠짐(VPC와 함께 사라짐) (Security Hub EC2.2)
+resource "aws_default_security_group" "this" {
+  vpc_id = aws_vpc.this.id
+}
+
 # ── 2. 서브넷: 층 3개(퍼블릭·앱·DB) × AZ 2개 ─────────────────────────
 # cidrsubnet(대역, 더할 비트, 몇 번째) → /16 + 8 = /24, "몇 번째"가 셋째 자리 숫자
 # 퍼블릭 0·1, 앱 10·11, DB 20·21

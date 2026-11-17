@@ -55,6 +55,7 @@ resource "aws_db_instance" "this" {
   vpc_security_group_ids = [aws_security_group.db.id]
   publicly_accessible    = false
 
+  copy_tags_to_snapshot    = true # 스냅샷에도 태그가 붙어 누구 것인지 · 비용이 추적됨 (Security Hub RDS.17)
   backup_retention_period  = 7    # 시점 복구 범위 · 리전 간 백업 복제의 전제 (끄면 그 기능들이 같이 꺼짐)
   delete_automated_backups = true # destroy 때 백업도 같이 지움 (남아서 요금이 쌓이지 않게)
 

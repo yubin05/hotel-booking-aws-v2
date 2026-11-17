@@ -72,6 +72,6 @@ resource "aws_cloudfront_distribution" "app" {
   viewer_certificate {
     acm_certificate_arn      = aws_acm_certificate_validation.app.certificate_arn
     ssl_support_method       = "sni-only"
-    minimum_protocol_version = "TLSv1.2_2021"
+    minimum_protocol_version = "TLSv1.2_2025" # 2021은 CloudFront.15 통과 목록에 없음 (11 점검 보고서)
   }
 }
