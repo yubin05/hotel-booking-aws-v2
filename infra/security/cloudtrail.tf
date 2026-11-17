@@ -1,5 +1,5 @@
 # 출입 기록부: 계정 전체(모든 리전)의 관리 이벤트(누가 · 언제 · 어디서 · 무엇을)를 S3에 파일로
-# 왜 트레일까지: ① 3.5단계 자동 대응이 EventBridge로 API 호출을 받으려면 트레일이 꼭 있어야 함
+# 왜 트레일까지: ① 6단계 자동 대응이 EventBridge로 API 호출을 받으려면 트레일이 꼭 있어야 함
 #               ② 없으면 Security Hub CloudTrail.1(High)이 실패. 관리 이벤트 첫 사본은 무료(S3 비용만)
 resource "aws_cloudtrail" "account" {
   name                          = local.trail_name

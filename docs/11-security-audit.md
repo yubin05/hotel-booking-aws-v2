@@ -52,15 +52,15 @@
 |---|---|---|---|---|---|
 | ECS.5 | HIGH | 앱 작업 정의 | 컨테이너의 루트 파일 시스템에 쓸 수 있음. 침입하면 실행 파일을 바꿔 칠 수 있음 | 앱이 실행 중 어디에 쓰는지 확인하고 시험해야 함 | 앱 저장소에서 읽기 전용으로 바꾸고, 쓰기가 필요한 경로만 따로 연 뒤 CD로 확인 |
 | ECS.20 | MEDIUM | 앱 작업 정의 | 컨테이너가 root로 실행됨. 침입하면 권한이 큼 | 이미지의 실행 사용자와 파일 권한을 바꿔야 함 | ECS.5와 함께 |
-| SecretsManager.1 | MEDIUM | 앱 DB 비밀번호, JWT 키 | 자동 교체 없음 | 교체용 Lambda와, 바뀐 비밀을 앱이 다시 읽는 구조가 필요 | 3.5단계에서 Lambda를 만들 때 검토 |
+| SecretsManager.1 | MEDIUM | 앱 DB 비밀번호, JWT 키 | 자동 교체 없음 | 교체용 Lambda와, 바뀐 비밀을 앱이 다시 읽는 구조가 필요 | 6단계에서 Lambda를 만들 때 검토 |
 
 ## 5. 위험 수용 (예외)
 
 | 분류 | 점검 | 받아들이는 이유 | 보완 통제 | 다시 볼 때 |
 |---|---|---|---|---|
-| 유료 탐지 서비스 | Inspector.1 ~ 4, Macie.1, GuardDuty.5 ~ 8 · 11 ~ 13 | 추가 비용. EC2 · EKS · Lambda가 없고, S3에는 숙소 사진뿐이라 개인정보가 없음(Macie) | GuardDuty 기본 탐지 + S3 · RDS 로그인 보호 켬([ADR-057](04-decisions.md#adr-057)) | 3.5단계, GuardDuty 체험이 끝나기 전 |
+| 유료 탐지 서비스 | Inspector.1 ~ 4, Macie.1, GuardDuty.5 ~ 8 · 11 ~ 13 | 추가 비용. EC2 · EKS · Lambda가 없고, S3에는 숙소 사진뿐이라 개인정보가 없음(Macie) | GuardDuty 기본 탐지 + S3 · RDS 로그인 보호 켬([ADR-057](04-decisions.md#adr-057)) | 6단계, GuardDuty 체험이 끝나기 전 |
 | 인터페이스 엔드포인트 | EC2.10, 55 ~ 58, 60 | 엔드포인트마다 시간 요금. NAT + S3 게이트웨이로 결정([ADR-034](04-decisions.md#adr-034)) | 앱 · DB는 비공개 서브넷, 외부로는 NAT로만 | 비용을 다시 볼 때 |
-| 로그 · 모니터링 저장 | CloudTrail.5, ELB.5, CloudFront.5, S3.9, Route53.2, RDS.9, RDS.6, ECS.12, SSM.6, EC2.6 | 저장 · 수집 비용. 매일 지우는 환경 | CloudTrail(S3 90일), 앱 로그는 CloudWatch Logs, VPC 흐름 · DNS 기록은 GuardDuty가 독립 사본으로 분석 | 3.5단계(사건 대응에 필요한 것만 켬) |
+| 로그 · 모니터링 저장 | CloudTrail.5, ELB.5, CloudFront.5, S3.9, Route53.2, RDS.9, RDS.6, ECS.12, SSM.6, EC2.6 | 저장 · 수집 비용. 매일 지우는 환경 | CloudTrail(S3 90일), 앱 로그는 CloudWatch Logs, VPC 흐름 · DNS 기록은 GuardDuty가 독립 사본으로 분석 | 6단계(사건 대응에 필요한 것만 켬) |
 | 고객 관리 암호화 키 | CloudTrail.2 | KMS 키 월 $1 + 호출 비용 | S3 기본 암호화, 버킷 공개 차단, 로그 무결성 검증 | 실서비스로 바꿀 때 |
 | 매일 만들고 지우는 설계 | RDS.5, ELB.6, RDS.8, CloudFront.4 | Multi-AZ는 AZ 장애 시험 때만 켬(비용). 삭제 보호는 매일 destroy와 충돌. 원본 전환은 사람이 판단([ADR-012](04-decisions.md#adr-012)) | 설계상 실운영은 Multi-AZ · 삭제 보호를 켬([ADR-005](04-decisions.md#adr-005)), 백업 7일 | 4 · 5단계 |
 | 내부 구간 HTTP | ELB.21, ELB.22 | ALB → 컨테이너는 VPC 안 사설 구간. 앱에 인증서를 넣으면 관리 부담 | 입구(CloudFront · ALB)는 HTTPS, 앱 보안 그룹은 ALB에서 오는 것만 | 실서비스로 바꿀 때 |

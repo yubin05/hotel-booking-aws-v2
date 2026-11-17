@@ -20,7 +20,7 @@ locals {
     RDS_LOGIN_EVENTS       = "ENABLED"  # DB 로그인 무차별 시도
     EKS_AUDIT_LOGS         = "DISABLED" # EKS 안 씀
     EBS_MALWARE_PROTECTION = "DISABLED" # EC2 안 씀
-    LAMBDA_NETWORK_LOGS    = "DISABLED" # 지금 Lambda 없음. 3.5단계에서 다시 봄
+    LAMBDA_NETWORK_LOGS    = "DISABLED" # 지금 Lambda 없음. 6단계에서 다시 봄
     RUNTIME_MONITORING     = "DISABLED" # 컨테이너 안(채굴 프로그램 실행 등)을 보는 유료 기능
   }
 
