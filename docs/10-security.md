@@ -28,7 +28,7 @@ WAF 규칙을 "있는 것 다 켜기"로 고르지 않고, **우리 앱의 약�
 | 4 | **비밀번호 대입** | ⚠️ 로그인 시도 횟수 제한이 없음([auth:99](https://github.com/yubin05/hotel-booking-app/blob/7e498d5/src/auth/index.ts#L99)) | WAF (+앱) | ✅ 로그인 전용 낮은 한도 |
 | 5 | **로그인 폭주로 서버가 느려짐** | ⚠️ 비밀번호 확인(scrypt) 1번에 메모리 약 32MiB와 CPU를 많이 씀([auth:26](https://github.com/yubin05/hotel-booking-app/blob/7e498d5/src/auth/index.ts#L26)), 태스크는 0.5 vCPU · 1GB. "수십 건이 동시에 오면 모든 손님의 로그인이 느려진다"는 가설(부하 시험으로 확인 가능) | WAF | ✅ 4와 같은 규칙 |
 | 6 | 가짜 계정 대량 가입 → 선착순 쿠폰 독식 | ⚠️ 가입 제한이 없음([auth:71](https://github.com/yubin05/hotel-booking-app/blob/7e498d5/src/auth/index.ts#L71)) | WAF + (나중에 본인 확인) | △ IP 하나에서 오는 것만. IP를 여러 개 쓰는 봇은 Bot Control · CAPTCHA |
-| 7 | 봇이 예약만 잔뜩 해 객실 묶어 두기 | ⚠️ 결제가 없어 예약이 공짜 | 앱(사람당 한도) + 결제 | △ 일부만. 근본 대책은 [데모 결제](03-plan.md#v2-이후-후보) |
+| 7 | 봇이 예약만 잔뜩 해 객실 묶어 두기 | ⚠️ 결제가 없어 예약이 공짜 | 앱(사람당 한도) + 결제 | △ 일부만. 근본 대책인 데모 결제(예약 먼저 + 10분 결제 대기, 안 내면 자동 취소)는 2026-11-18 앱에 넣음([APP-001](https://github.com/yubin05/hotel-booking-app/blob/main/docs/decisions.md)). 결제 키를 넣은 환경에서 동작 |
 | 8 | 숙소 · 검색 긁어 가기 → DB 부담 | ⚠️ 검색이 `LIKE '%…%'`라 무거운 편 | WAF | ✅ 전체 한도 |
 | 9 | XSS → 로그인 토큰 탈취 | 🟡 React가 기본으로 막고 `dangerouslySetInnerHTML`도 없음. 그러나 토큰이 localStorage에 있어([auth.tsx:33](https://github.com/yubin05/hotel-booking-app/blob/7e498d5/web/src/auth.tsx#L33)) XSS 하나면 토큰이 털리고, 보안 헤더(CSP 등)가 없음 | 코드 + CloudFront 보안 헤더 | 2차 방어(핵심 규칙 세트) |
 | 10 | 취약점 스캐너(`/.env`, Log4j 탐색) | 🟡 화면 주소 처리 때문에 아무 주소나 200(`index.html`)으로 답함([app:54](https://github.com/yubin05/hotel-booking-app/blob/7e498d5/src/app.ts#L54)) | WAF | ✅ 알려진 나쁜 입력 + 핵심 규칙 세트 |
@@ -80,7 +80,7 @@ WAF 규칙을 "있는 것 다 켜기"로 고르지 않고, **우리 앱의 약�
 | 후보 | 막는 위험 |
 |---|---|
 | 앱: 계정 단위 로그인 실패 제한 | 4 (IP를 바꿔 가며 하는 대입) |
-| 앱: 사람당 예약 수 한도, [데모 결제](03-plan.md#v2-이후-후보) | 7 |
+| 앱: 사람당 예약 수 한도 (데모 결제는 [APP-001](https://github.com/yubin05/hotel-booking-app/blob/main/docs/decisions.md)로 넣음) | 7 |
 | 앱: 토큰을 httpOnly 쿠키로(+CSRF 대책), CSP 직접 설정 | 9 |
 | 의존성: npm Dependabot, ECR 이미지 스캔 | 알려진 라이브러리 취약점 |
 | WAF: 로그 저장, Bot Control · ATP | 오탐 추적, 6 · 8의 정교한 봇 |
