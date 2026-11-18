@@ -24,7 +24,7 @@ aws sts get-caller-identity --query Arn --output text   # user/vundle34 (평소 
 
 ```bash
 cd /c/dev/hotel-booking-aws-v2/infra/seoul
-terraform plan                      # 48 to add (모듈 47: 오토스케일링 대상 · 목표 추적 · 비운 기본 보안 그룹 · 3단계 일회성 태스크 정의 restore · sql(11-18~) 포함 + 통로 1, 예약 이벤트가 있으면 이벤트마다 +2)
+terraform plan                      # 49 to add (모듈 48: 관제 대시보드 · 오토스케일링 대상 · 목표 추적 · 비운 기본 보안 그룹 · 3단계 일회성 태스크 정의 restore · sql(11-18~) 포함 + 통로 1, 예약 이벤트가 있으면 이벤트마다 +2)
 date; terraform apply; date         # 약 9분. 이 동안 CloudFront가 서울 VPC에 보안 그룹을 만들어 둠
 
 cd ../global
@@ -58,7 +58,7 @@ terraform plan -destroy             # 13 to destroy (사진 버킷 · 사진은 
 date; terraform destroy; date       # 약 4~5분 (CloudFront 끄고 지우기)
 
 cd ../seoul
-terraform plan -destroy             # 48 to destroy (restore · sql 태스크 정의 포함, 기본 보안 그룹은 state에서만 빠짐)
+terraform plan -destroy             # 49 to destroy (restore · sql 태스크 정의 · 관제 대시보드 포함, 기본 보안 그룹은 state에서만 빠짐)
 date; terraform destroy; date       # 약 9분 (통로 삭제를 기다려 예전보다 3~4분 김, 2026-11-16 9분 26초)
 ```
 
@@ -77,7 +77,7 @@ CloudFront 원본만 바꾸고 DNS는 그대로 둡니다([ADR-012](../docs/04-d
 ```bash
 # 1) 도쿄 올리기: 통로까지 같이 만들어짐(9분 남짓). 그 사이 CloudFront가 도쿄 VPC에 보안 그룹을 만들어 둠
 cd /c/dev/hotel-booking-aws-v2/infra/tokyo
-terraform plan                      # 46 to add (서울과 같은 모듈, 오토스케일링 · 기본 보안 그룹 포함)
+terraform plan                      # 47 to add (서울과 같은 모듈, 관제 대시보드 · 오토스케일링 · 기본 보안 그룹 포함)
 date; terraform apply; date
 
 # 2) (5단계에서 정함) 도쿄 RDS 복원 · 기능 검증
@@ -104,7 +104,7 @@ date; terraform apply; date         # 2026-11-15: 1분 1초, 손님 오류 0
 
 # 3) 도쿄 내리기 (global이 서울을 가리킨 뒤에만)
 cd ../tokyo
-terraform plan -destroy             # 46 to destroy
+terraform plan -destroy             # 47 to destroy (관제 대시보드 포함)
 date; terraform destroy; date
 ```
 
@@ -199,7 +199,7 @@ cd /c/dev/hotel-booking-app/legacy
 date; terraform apply -var is_load_test=true; date   # 19개
 bash start-db.sh && bash start-app.sh yubin05/hotel-booking-aws-v2:<태그>
 cd /c/dev/hotel-booking-aws-v2/infra/seoul
-terraform plan                      # 48 to add (1번 매일 올리기와 같음)
+terraform plan                      # 49 to add (1번 매일 올리기와 같음)
 date; terraform apply; date
 cd ../global
 # k6 발생기 IP를 WAF 요청 수 한도에서만 뺌 (관리형 규칙은 그대로). 평소 apply에는 안 붙임
