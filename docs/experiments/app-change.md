@@ -60,6 +60,8 @@ docker rm -f app && docker update --cpus <Docker CPU 수> hotel-booking-app-db-1
 - 이미 쓰던 로컬 DB가 있으면(숙소 1,010개 이상) seed-volume은 넣지 않는다(두 번 넣으면 중복 키로 멈춤). 스크립트가 숙소 1,000개 초과를 확인한다
 - compose의 `app`이 떠 있으면 스크립트가 멈춘다(`docker compose stop app`)
 - 화면: `시작: local-ab-old-1 (hotel-app:old, 시각)` → k6 진행 → 요약 표 → `끝: … → load/results/local-ab-old-1/`
+- **중간에 끊기면(PC 꺼짐 등):** DB 컨테이너가 남아 있으면(`docker ps -a`에 `hotel-booking-app-db-1`) `docker start hotel-booking-app-db-1`(0.3코어 설정은 남아 있음) → 끊긴 회차 폴더만 지우고 같은 회차부터 다시. 컨테이너를 지웠으면(`docker compose down`) 데이터도 같이 사라진다(이름 없는 볼륨) → 같은 DB에서 6회를 다 재야 비교가 공정하므로 `rm -rf load/results/local-ab-*` 후 준비부터 다시. 멈출 때는 `down` 말고 `docker compose stop`
+- 2026-11-18 1차 시도: old 1까지 끝내고 new 1 중 PC가 꺼짐, 컨테이너를 지워 처음부터 다시 함
 
 ## 예측 (실행 전)
 
