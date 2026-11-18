@@ -10,7 +10,7 @@
 | 3 | 쿠폰 오픈 스파이크 (예약 스케일링 없이 / 있게) | 초과 발급 0, 남은 수량 거절 0, 오픈 순간 p95, 쿠폰 행 처리량 상한 | 뼈대 |
 | 4 | 실측 기반 라이트사이징 (2026-11-18 추가) | 태스크 크기 확정, 월 비용 차이 | 뼈대 |
 
-## 하루 순서 (안)
+## 하루 순서 (2026-11-18 정함)
 
 legacy(+ 발생기) apply → 서울 apply → global apply(WAF 예외 포함) → **1 이관** → CD(migrate) → **2 k6 비교 3회**(37분씩) → **3 쿠폰 스파이크** → **4 라이트사이징 확인 1회** → 전부 destroy.
 
@@ -23,9 +23,9 @@ legacy(+ 발생기) apply → 서울 apply → global apply(WAF 예외 포함) �
 
 ```text
 [사전] 서울 · global 미리 apply, CD는 아직 안 돌림 ── migrate가 빈 DB에 시드를 넣어 버리므로 복원 전에는 금지
-[중단 시작] 옛 앱 멈춤
+[중단 시작] 옛 앱 자리에 503 점검 페이지
   → 옛 DB에서 mysqldump (utf8mb4, --single-transaction, 루틴 · 트리거 · 이벤트 제외)
-  → 압축 → 전달(정할 것 ①) → 서울 RDS에 복원(관리자 계정)
+  → 압축 → S3에 올림 → 서울 일회성 태스크가 받아 RDS에 복원(관리자 계정)
   → 검증: 테이블별 건수 · 체크섬 · 한글 행 바이트 비교
   → CD(migrate): app 계정 · 새 테이블(결제 · 적립금 등, CREATE IF NOT EXISTS) · 시연 계정
 [중단 끝] 새 주소에서 예약 성공
@@ -78,12 +78,12 @@ legacy(+ 발생기) apply → 서울 apply → global apply(WAF 예외 포함) �
 | 7. 회귀 테스트 | 앱을 고치게 되면 상태 확인 기반으로 |
 | 8. 스모크 점검 | Claude가 짧게(몇 명 · 1분) 돌려 보고 기록하지 않음 |
 
-## 정할 것 (사용자)
+## 정한 것 (2026-11-18, 사용자)
 
-| # | 질문 | 추천 | 다른 안 |
-|---|---|---|---|
-| ① | 덤프를 서울로 옮기는 길 | **S3 경유 + 일회성 복원 태스크**(`mysql:8.4` 이미지에 curl · mysql 있음, 확인함). 비공개 서브넷에 새 통로를 안 열고, migrate와 같은 일회성 태스크 방식, 덤프 파일이 남아 재시도 · 검증 가능 | VPC 피어링으로 옛 DB → RDS 직접(AWS 문서 방식이지만 두 저장소의 Terraform이 엮임) / ECS Exec 포트 포워딩 |
-| ② | 점검 방식 | **옛 앱 컨테이너 멈춤**(앱에 점검 모드가 없음). 중단 시간은 어느 쪽이든 같다 | 앱에 점검 화면 추가(옛 환경 이미지를 새로 만들어야 함) |
-| ③ | 전환 범위 | **global을 미리 올리고 DNS 전환은 하지 않음**. 도메인은 원래 새 구조만 가리켜, 중단 시간 = 옛 앱 멈춤 → 새 주소 예약 성공. DNS 전환 시간(TTL)은 빠진다고 한계로 적음 | 이관 뒤 global apply(CloudFront 생성 4 ~ 13분이 중단 시간에 들어감) |
-| ④ | 일정 | **하루에 1 → 4**(legacy를 한 번만 올림) | 이관 · 비교 / 쿠폰 · 라이트사이징 이틀 |
-| ⑤ | k6 IP의 WAF 예외 | **요청 제한 3개만 예외, 관리형 규칙은 그대로** | 시험 동안 WAF 전체를 count 모드 / 예외 없음(WAF 한도 시험이 됨) |
+| # | 결정 | 이유 (자료 / 추론) |
+|---|---|---|
+| ① 덤프 전달 | **S3 경유 + 일회성 복원 태스크**(`mysql:8.4` 이미지에 curl · mysql 있음, 확인함) | 자료: VPC 피어링은 VPC끼리만 잇는다([피어링](https://docs.aws.amazon.com/vpc/latest/peering/what-is-vpc-peering.html)) → 실제 IDC에는 못 씀. IDC → AWS 연결은 VPN · 전용선([Site-to-Site VPN](https://docs.aws.amazon.com/vpn/latest/s2svpn/VPC_VPN.html))이고, v1이 VPN + DMS였다. AWS도 덤프를 같은 리전의 중간 서버로 옮겨 넣는 절차를 안내한다([RDS 문서](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/mysql-importing-data-reduced-downtime.html)). 추론: 한 번뿐인 작은 덤프라 상시 통로 없이 인터넷(HTTPS)으로 파일만 보낸다. 원본이 진짜 IDC여도 바깥 인터넷 출구만 있으면 같은 절차. 덤프에 개인정보(이메일 · 비밀번호 해시)가 있어 TLS 전송 · 저장 암호화 · 끝나면 삭제 · 업로드 권한은 그 경로 하나만 |
+| ② 점검 | **공지된 새벽 점검처럼, 옛 앱 자리에 503 점검 페이지**(`Retry-After`) | 자료: 01 가정 "이관 시 새벽 점검 시간을 쓸 수 있다"와 [ADR-008](../04-decisions.md#adr-008). 계획된 중단에는 오류 · 연결 거부 대신 503 안내 페이지를 권한다([Google](https://developers.google.com/search/docs/crawling-indexing/pause-online-business)). 작은 DB는 오프라인 덤프로 충분하고 중단을 줄여야 하면 DMS · 변경 복제를 쓴다([AWS 패턴](https://docs.aws.amazon.com/prescriptive-guidance/latest/patterns/migrate-an-on-premises-mysql-database-to-amazon-rds-for-mysql.html)). 국내 새벽 점검 공지 예: [업비트](https://docs.upbit.com/kr/changelog/점검-서버-점검-안내-0524-0200~) · [정부24](https://www.gov.kr/portal/ntcItm/107348). 숙박 플랫폼의 점검 공지는 찾지 못함 |
+| ③ 전환 범위 | **새 구조(global 포함)를 미리 올리고**, 중단 시간 = 점검 페이지 켬 → 새 주소에서 예약 성공 | 자료: RDS 문서도 새 DB를 미리 만들어 데이터를 넣은 뒤, 마지막에 쓰기를 멈추고 앱을 옮긴다. 추론: 앱 · 입구도 같은 원리로, 옛 사이트가 평소대로 영업하는 동안 미리 만들어 둔다(손님에게 중단이 아님). 한계: 도메인이 처음부터 새 구조만 가리켜 DNS 전환 · 반영 시간은 재지 않는다 |
+| ④ 일정 | **하루에 1 → 4** | 사용자: 빨리 끝낸다. legacy를 한 번만 올림 |
+| ⑤ WAF | **요청 제한 규칙 3개만 발생기 IP 예외, 관리형 규칙은 그대로** | 위 WAF 절 |
