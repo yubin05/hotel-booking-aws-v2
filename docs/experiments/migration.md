@@ -39,6 +39,7 @@ legacy(+ 발생기) apply → 서울 apply → global apply(WAF 예외 포함) �
 
 - 체크섬: 테이블마다 행 수 + 모든 칸을 이은 문자열의 CRC32를 XOR로 합친 값(행 순서 · 저장 형식과 무관). `CHECKSUM TABLE`은 행 형식이 바뀌면 값도 바뀐다고 문서에 있어([MySQL](https://dev.mysql.com/doc/refman/8.4/en/checksum-table.html)) 서버가 다른 양쪽 비교에는 쓰지 않는다
 - 측정: 단계별 시각(스크립트가 남김), **중단 시간 = ⑤ → ⑩**, 덤프 크기, 덤프 · 올리기 · 복원 · migrate 각 시간, 손님이 본 503 수(1초 기록)
+- 사진(2026-11-18 사용자와 정함): 옛 환경도 사진은 바깥 CDN에서 받았다고 가정한다(실제 시드는 11-16 전 Unsplash). 가져오는 방식(DB에 바깥 주소, 브라우저가 직접 받음)은 이관 전후가 같고, 사진 창고는 2단계에서 먼저 S3 + 사진 CloudFront로 옮겼다([ADR-055](../04-decisions.md#adr-055)). 오늘 옮기는 것은 DB뿐. 한계: 옛 환경도 고객사 저장소 main의 시드를 받아 사진 주소가 이미 새 CDN을 가리켜, 옛 화면도 global을 올려야 사진이 보인다(실제라면 옛 CDN이 이관 날까지 떠 있음)
 - 스모크 점검(Claude, 2026-11-18, 기록용 아님): 옛 환경과 같은 초기화 순서의 로컬 MySQL + 한글 표지 손님 → 같은 덤프 명령 → PC(Git Bash openssl 3.5.7)로 잠금 → `mysql:8.4` 컨테이너(openssl 3.5.8)로 풀어 빈 MySQL에 복원 → 같은 `checksum.sh`. 덤프 2.66MB(압축 · 잠금 후), 덤프 0.7초 · 복원 7초(CPU 제한 없음), **12개 테이블 체크섬 일치, 표지 손님 이름 HEX 일치**, 틀린 키는 `bad decrypt`로 실패. 걸린 것 1개: 윈도 openssl은 `MSYS_NO_PATHCONV=1`일 때 `/c/...` 절대 경로를 못 열어 스크립트는 상대 경로를 씀. AWS 부분(미리 서명 주소 · RDS TLS · Fargate의 Docker Hub 받기)은 이관 날 처음 돈다
 
 ### 예측 (실행 전)
