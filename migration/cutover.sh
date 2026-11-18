@@ -91,15 +91,15 @@ CONF
 
 run() {
   [ -s "$MARKER" ] || { echo "prep 먼저" >&2; exit 1; }
-  local email name key t5 t10 sum_pid poll_pid
+  local email name key t5 t10 sum_pid
   email=$(cat "$MARKER")
   name=$([ "$REHEARSAL" = 1 ] && echo rehearsal || echo cutover)-$(date +%m%d-%H%M)
   OUT=results/$name
   mkdir -p "$OUT"
   key=$(admin ssm get-parameter --name "$KEY_PARAM" --with-decryption --query Parameter.Value --output text)
   while :; do echo "$(date +%T) old=$(code "$OLD/api/health") new=$(code "$NEW/api/health/deep")"; sleep 1; done >"$OUT/poll.log" &
-  poll_pid=$!
-  trap 'kill $poll_pid 2>/dev/null' EXIT
+  POLL_PID=$! # 전역: 함수가 끝난 뒤 EXIT에서도 번호가 남아야 끔(지역 변수면 사라져 기록기가 계속 돎)
+  trap 'kill $POLL_PID 2>/dev/null' EXIT
   trap 'echo "실패(위 단계). 40분 안에 다시 하거나 되돌림: bash migration/cutover.sh rollback" >&2' ERR
 
   t5=$(date +%s)
