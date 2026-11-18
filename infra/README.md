@@ -269,15 +269,7 @@ node scripts/coupon-report.mjs load/results/coupon-*/coupon-*.json.gz
 3. 1줄 손님 체감(1초) → 2줄 용량 → 3줄 DB. 칸마다 기준선(p95 1초 · 태스크 최소 2 / 최대 4 · CPU 늘리기 60% · RDS 한계 90% · 연결 예산 48)
 4. **회차가 끝날 때마다** `bash load/cw-metrics.sh load/results/<회차 폴더>`(관리자). 1초 지표는 3시간만 남아, 나중에 한 화면 페이지를 만들 원본을 그때 받아 둡니다
 
-- **미리 한 번(이관 날 전):** 대시보드 JSON에 1초 주기가 들어가는지 문서가 엇갈려(지표 개념 문서는 1초 조회 가능, 대시보드 본문 문서는 최소 60초), 거부되면 서울 apply가 실패합니다. 시험용 대시보드를 넣었다 지워 확인합니다(무료, 시간 비례).
-
-```bash
-MSYS_NO_PATHCONV=1 AWS_PROFILE=admin aws cloudwatch put-dashboard --region ap-northeast-2 --dashboard-name hotel-booking-aws-v2-period-test \
-  --dashboard-body '{"widgets":[{"type":"metric","x":0,"y":0,"width":8,"height":6,"properties":{"region":"ap-northeast-2","period":1,"metrics":[["HotelBooking/App","Requests","Service","app",{"stat":"Sum"}]]}}]}'
-# {"DashboardValidationMessages": []} 이면 통과. 오류면 dashboard.tf의 fast_period를 60으로 바꾸고 녹화 때 콘솔에서 주기를 1초로 고름
-AWS_PROFILE=admin aws cloudwatch delete-dashboards --region ap-northeast-2 --dashboard-names hotel-booking-aws-v2-period-test
-```
-
+- 1초 주기: 대시보드 본문 문서는 최소 60초라고 적지만, 2026-11-18 시험용 대시보드에 `period: 1`을 넣어 보니 검증 메시지 없이 받아들여졌다(바로 지움). 실제로 1초 간격으로 그려지는지는 서울을 올린 날 화면으로 확인하고, 안 그려지면 녹화 때 콘솔에서 주기를 1초로 고릅니다.
 - 대시보드를 만드는 권한은 평소 정책에 있습니다(이름 `hotel-booking-aws-v2-*`만). 이 권한을 넣는 bootstrap apply(1 to change)가 서울 apply보다 먼저입니다.
 
 ## 6. 자주 만난 문제

@@ -1327,7 +1327,7 @@
 - **변경 (2026-11-18 오후, 사용자):** 아래 처음 결정의 도쿄 EC2 Grafana는 바깥에 대화형 화면을 보여 주는 **시연 · 보고 요구(포트폴리오)**가 주된 이유였다. AWS는 운영 대시보드를 Managed Grafana의 쓰임새로 들지만([AWS 비교](https://aws.amazon.com/compare/cloudwatch-and-managed-grafana/)), 관리형은 Identity Center 문제로 이미 버렸고(아래 대안 표), 직접 운영하면 서버 · Grafana 프로그램 · 도쿄 NAT가 늘어 패치 · 공격 대상 · 비용이 는다. 또 Grafana는 CloudWatch에 있는 것만 그려 **손님 쪽(k6) 값을 같은 화면에 담지 못한다**(사용자 요구: "한 화면에 다, 한눈에").
   - 시험하는 동안: CloudWatch 대시보드 한 화면을 Terraform으로(`modules/regional/dashboard.tf`). apply하면 같이 생겨 바로 녹화할 수 있고 destroy하면 지워진다. 대시보드는 리전에 묶이지 않아 서울 지표를 그대로 보고, 3개까지 무료([개념](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/cloudwatch_concepts.html), [요금](https://aws.amazon.com/cloudwatch/pricing/)). 배치는 중요한 것을 위에(손님 체감 1초 → 용량 → DB, [Builders' Library](https://aws.amazon.com/builders-library/building-dashboards-for-operational-visibility/)), 칸마다 기준선
   - 바깥에: 시험 데이터(CloudWatch 1초 · 1분 + k6 손님 쪽)로 만든 한 화면 페이지. 1초 데이터는 3시간만 남아 회차마다 `load/cw-metrics.sh`로 받아 둔다
-  - 둘 다 만들어 본 뒤 실제 화면을 보고 하나로 정한다(사용자). 1초 그래프를 대시보드 JSON에 넣을 수 있는지는 문서가 엇갈려(지표 개념 문서는 1초 조회 가능, 대시보드 본문 문서는 최소 60초) 실제로 넣어 확인
+  - 둘 다 만들어 본 뒤 실제 화면을 보고 하나로 정한다(사용자). 1초 그래프: 문서가 엇갈려(지표 개념 문서는 1초 조회 가능, 대시보드 본문 문서는 최소 60초) 시험용 대시보드에 `period: 1`을 넣어 보니 PutDashboard가 검증 메시지 없이 받아들임(2026-11-18, 사용자 실행). 실제로 1초 간격으로 그려지는지는 서울을 올린 날 확인
   - 평소 정책에 대시보드 권한(이름 `hotel-booking-aws-v2-*`만, 공백 뺀 5,892 / 6,144자). 도쿄 EC2 · NAT · 관제용 읽기 전용 역할은 만들지 않음. 역할은 경보를 정할 때(보류 항목과 함께) 다시 본다
 
 - **상황:** 3단계 쿠폰 스파이크에서 "요청 급증 → 태스크 증가 → 회복"을 한 화면(데이터센터 관제실 대형 화면처럼)에 보여 주고 싶다. 고객사 · 면접관에게 AWS 계정을 빌려줄 수 없다. ALB · ECS 기본 지표는 60초 간격이다([ALB 지표](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-cloudwatch-metrics.html)). 2026-11-18 사용자와 정함.

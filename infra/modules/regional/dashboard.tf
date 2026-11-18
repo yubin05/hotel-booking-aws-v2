@@ -2,7 +2,7 @@
 # 배치: 중요한 것을 위에 (Amazon Builders' Library "운영 대시보드"). 1줄 손님 체감(1초) → 2줄 용량 → 3줄 DB, 16:9 한 화면(3 × 3칸)
 # 대시보드는 리전에 묶이지 않아 이름에 리전을 붙임(서울 · 도쿄가 같이 떠도 안 겹침). 3개까지 무료(지표 50개까지)
 locals {
-  # 1초 그래프의 주기. 고해상도 사용자 지표는 1초로 읽을 수 있지만(지표 개념 문서), 대시보드 JSON 문서는 최소 60초라고 적어 엇갈림 → 실제로 넣어 확인
+  # 1초 그래프의 주기. 대시보드 JSON 문서는 최소 60초라고 적지만, 실제로 넣어 보니 PutDashboard가 검증 메시지 없이 받아들임(2026-11-18)
   fast_period = 1
   ecs_dims    = ["ClusterName", aws_ecs_cluster.this.name, "ServiceName", aws_ecs_service.app.name]
   rds_dims    = ["DBInstanceIdentifier", aws_db_instance.this.identifier]
