@@ -24,7 +24,7 @@ aws sts get-caller-identity --query Arn --output text   # user/vundle34 (평소 
 
 ```bash
 cd /c/dev/hotel-booking-aws-v2/infra/seoul
-terraform plan                      # 47 to add (모듈 46: 오토스케일링 대상 · 목표 추적 · 비운 기본 보안 그룹 · 이관 복원 태스크 정의(11-18~) 포함 + 통로 1, 예약 이벤트가 있으면 이벤트마다 +2)
+terraform plan                      # 48 to add (모듈 47: 오토스케일링 대상 · 목표 추적 · 비운 기본 보안 그룹 · 3단계 일회성 태스크 정의 restore · sql(11-18~) 포함 + 통로 1, 예약 이벤트가 있으면 이벤트마다 +2)
 date; terraform apply; date         # 약 9분. 이 동안 CloudFront가 서울 VPC에 보안 그룹을 만들어 둠
 
 cd ../global
@@ -58,7 +58,7 @@ terraform plan -destroy             # 13 to destroy (사진 버킷 · 사진은 
 date; terraform destroy; date       # 약 4~5분 (CloudFront 끄고 지우기)
 
 cd ../seoul
-terraform plan -destroy             # 47 to destroy (복원 태스크 정의 포함, 기본 보안 그룹은 state에서만 빠짐)
+terraform plan -destroy             # 48 to destroy (restore · sql 태스크 정의 포함, 기본 보안 그룹은 state에서만 빠짐)
 date; terraform destroy; date       # 약 9분 (통로 삭제를 기다려 예전보다 3~4분 김, 2026-11-16 9분 26초)
 ```
 
@@ -199,7 +199,7 @@ cd /c/dev/hotel-booking-app/legacy
 date; terraform apply -var is_load_test=true; date   # 19개
 bash start-db.sh && bash start-app.sh yubin05/hotel-booking-aws-v2:<태그>
 cd /c/dev/hotel-booking-aws-v2/infra/seoul
-terraform plan                      # 47 to add (1번 매일 올리기와 같음, 복원 태스크 정의 포함)
+terraform plan                      # 48 to add (1번 매일 올리기와 같음)
 date; terraform apply; date
 cd ../global
 # k6 발생기 IP를 WAF 요청 수 한도에서만 뺌 (관리형 규칙은 그대로). 평소 apply에는 안 붙임
@@ -224,7 +224,14 @@ bash migration/cutover.sh cleanup   # 되돌렸을 때 덤프 · 키 지우기
 - 결과는 `migration/results/cutover-<시각>/`(git에 안 올라감): `steps.log` 단계 시각, `poll.log` 1초 기록, `legacy.sum` · `rds.sum` 체크섬. 결과 표는 03에 적습니다.
 - 처음 접속하는 서버 지문을 물으면 `yes`(prep에서 한 번).
 - 이관 뒤 옛 주소는 점검 페이지(503)로 남습니다. 옛 환경은 k6 발생기 때문에 그날 끝까지 둡니다.
-- 이관 뒤 1단계와 같은 k6: `cd load && TARGET=aws bash run-baseline.sh` × 3(37분씩, 대상만 새 주소). 계획은 [3단계 계획](../docs/experiments/migration.md) 2절.
+- 이관 뒤 1단계와 같은 k6: `cd load && TARGET=aws bash run-baseline.sh` × 3(37분씩, 대상만 새 주소). 계획은 [3단계 계획](../docs/experiments/migration.md) 2절. 끝나면 **서울 destroy 전에** 관리자로:
+
+```bash
+cd /c/dev/hotel-booking-aws-v2
+bash load/cw-metrics.sh load/results/baseline-aws-*        # 회차마다 서울 서버 지표(CloudWatch 1분)를 cw.json으로
+for f in load/results/baseline-aws-2*/*.json.gz; do node scripts/baseline-report.mjs "$f"; done   # 층별 표 + 서울 서버 지표
+bash migration/sql.sh scripts/check-consistency.sql       # 정합성 검사를 RDS에서 (서울 안 일회성 태스크 sql, 약 1분)
+```
 
 ## 6. 자주 만난 문제
 

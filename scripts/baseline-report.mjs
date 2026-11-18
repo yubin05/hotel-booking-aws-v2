@@ -48,6 +48,23 @@ function readVmstat(path) {
 const dir = dirname(file);
 const hosts = ['app', 'db', 'load'].map((h) => [h, readVmstat(join(dir, `${h}.vmstat`))]).filter(([, v]) => v);
 
+// 3단계: load/cw-metrics.sh가 받은 CloudWatch 1분 지표(cw.json)가 있으면 층마다 붙인다 (시각은 1분 구간의 시작)
+const cwPath = join(dir, 'cw.json');
+const cw = existsSync(cwPath)
+  ? Object.fromEntries(JSON.parse(readFileSync(cwPath, 'utf8')).MetricDataResults.map((m) => [m.Id, m.Timestamps.map((t, i) => [Date.parse(t), m.Values[i]])]))
+  : null;
+const cwIn = (id, f, how) => {
+  const v = (cw[id] ?? []).filter(([t]) => t >= f.from && t < f.to).map(([, x]) => x);
+  return v.length ? Math.round(how(v)) : '-';
+};
+const avg = (v) => v.reduce((s, x) => s + x, 0) / v.length;
+const max = (v) => Math.max(...v);
+const min = (v) => Math.min(...v);
+const cloud = (f) =>
+  `태스크 CPU 평균 ${cwIn('ecs_cpu_avg', f, avg)}%(가장 바쁜 태스크 최대 ${cwIn('ecs_cpu_max', f, max)}%) · 메모리 평균 ${cwIn('ecs_mem_avg', f, avg)}%(최대 ${cwIn('ecs_mem_max', f, max)}%)` +
+  ` · 정상 태스크 ${cwIn('healthy', f, min)} ~ ${cwIn('healthy', f, max)}개 · 앱 5xx ${cwIn('alb_5xx', f, (v) => v.reduce((s, x) => s + x, 0))}건` +
+  ` · RDS CPU 평균 ${cwIn('rds_cpu', f, avg)}% · 연결 최대 ${cwIn('rds_conn', f, max)} · 여유 메모리 최소 ${cwIn('rds_freemem', f, (v) => min(v) / 2 ** 20)}MB · CPU 크레딧 최소 ${cwIn('rds_credit', f, min)}`;
+
 const fmtMs = (ms) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`);
 const rows = floors.map((f) => {
   const sec = (f.to - f.from) / 1000;
@@ -71,7 +88,7 @@ const rows = floors.map((f) => {
   const why = [rate > ERROR_LIMIT && `에러율 ${(rate * 100).toFixed(1)}%`, p95 > P95_LIMIT_MS && `p95 ${fmtMs(p95)}`].filter(Boolean);
   return {
     vus: f.vus, sec, n: inFloor.length, rps: inFloor.length / sec, rate, p95, p99: pct(waits, 0.99),
-    slow: `${slowName} ${fmtMs(slowP95)}`, verdict: why.length ? '무너짐' : '버팀', why, server,
+    slow: `${slowName} ${fmtMs(slowP95)}`, verdict: why.length ? '무너짐' : '버팀', why, server, cloud: cw && cloud(f),
   };
 });
 
@@ -83,6 +100,10 @@ for (const r of rows) {
 if (hosts.length) {
   console.log('\n서버 (층마다 CPU 평균·최대·steal, 여유 메모리 최저 = free + buff + cache)');
   for (const r of rows) console.log(`- ${r.vus}명: ${r.server.join(' / ')}`);
+}
+if (cw) {
+  console.log('\n서울 서버 (CloudWatch 1분. ECS 평균 = 서비스 전체 사용량 ÷ 예약량, 최대 = 가장 바쁜 태스크)');
+  for (const r of rows) console.log(`- ${r.vus}명: ${r.cloud}`);
 }
 const first = rows.findIndex((r) => r.verdict === '무너짐');
 console.log(

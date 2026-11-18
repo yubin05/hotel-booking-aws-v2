@@ -13,15 +13,11 @@ set -Eeuo pipefail # -E: 함수 안 실패에도 되돌림 안내(ERR)가 뜨게
 cd "$(dirname "$0")"
 export MSYS_NO_PATHCONV=1 # SSM 이름 · 로그 그룹(/로 시작)을 Git Bash가 윈도 경로로 바꾸지 않게
 
+source lib.sh # admin() · run_task() · REGION · CLUSTER
 LEGACY_DIR=${LEGACY_DIR:-../../hotel-booking-app/legacy} # 옛 환경 IP는 고객사 저장소 legacy state에서 (run-baseline.sh와 같음)
-REGION=ap-northeast-2
 NEW=https://hotel.vundle34.cloud
-CLUSTER=hotel-booking-aws-v2 # ECS 클러스터 · 태스크 정의 패밀리 앞부분 (ADR-030)
-LOG_GROUP=/ecs/hotel-booking-aws-v2
 KEY_PARAM=/hotel-booking/migration-key
 MARKER=results/marker-email # prep이 가입시킨 표지 손님 (run이 읽음)
-# 관리자 권한은 명령 앞에만. 윈도 aws.exe 출력의 \r을 지움(키 끝에 \r이 붙으면 PC와 태스크의 키가 달라짐)
-admin() { AWS_PROFILE=admin aws --region "$REGION" "$@" | tr -d '\r'; }
 stamp() { echo "$(date +%T) $*" | tee -a "$OUT/steps.log"; }
 
 cmd=${1:-}
@@ -74,24 +70,6 @@ CONF
   node marker.mjs register "$OLD" "$email"
   echo "$email" >"$MARKER"
   echo "준비 끝. 다음: bash migration/cutover.sh run"
-}
-
-# ECS 일회성 태스크를 띄워 끝날 때까지 기다리고 로그를 출력. 종료 코드가 0이 아니면 실패
-run_task() { # $1 컨테이너 이름(restore · migrate), $2 덮어쓰기 JSON
-  local net task exit_code logs
-  net=$(admin ecs describe-services --cluster "$CLUSTER" --services app --query 'services[0].networkConfiguration' --output json)
-  task=$(admin ecs run-task --cluster "$CLUSTER" --task-definition "$CLUSTER-$1" --launch-type FARGATE \
-    --network-configuration "$net" --overrides "$2" --query 'tasks[0].taskArn' --output text)
-  admin ecs wait tasks-stopped --cluster "$CLUSTER" --tasks "$task"
-  exit_code=$(admin ecs describe-tasks --cluster "$CLUSTER" --tasks "$task" --query 'tasks[0].[containers[0].exitCode, stoppedReason]' --output text)
-  for _ in $(seq 10); do # 로그가 몇 초 늦게 올 수 있음
-    logs=$(admin logs get-log-events --log-group-name "$LOG_GROUP" --log-stream-name "$1/$1/${task##*/}" --start-from-head \
-      --query 'events[*].[message]' --output text 2>/dev/null || true)
-    [ -n "$logs" ] && break
-    sleep 3
-  done
-  echo "$logs"
-  [ "${exit_code%%[[:space:]]*}" = 0 ] || { echo "$1 태스크 실패: $exit_code" >&2; return 1; }
 }
 
 run() {

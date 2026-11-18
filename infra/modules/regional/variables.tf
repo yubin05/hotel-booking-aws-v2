@@ -44,8 +44,8 @@ variable "scale_events" {
   }
 }
 
-variable "migration_restore" {
-  description = "덤프 이관 복원 태스크 정의를 만들지 (3단계, migration.tf). 이관은 서울로만 해서 서울만 true"
+variable "migration_tasks" {
+  description = "3단계 이관 · 검증용 일회성 태스크 정의(restore · sql)를 만들지 (migration.tf). 이관은 서울로만 해서 서울만 true"
   type        = bool
   default     = false
 }
