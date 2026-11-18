@@ -38,6 +38,10 @@
         "wafv2:UpdateWebACL",
         "wafv2:DeleteWebACL",
         "wafv2:GetWebACL",
+        "wafv2:CreateIPSet",
+        "wafv2:UpdateIPSet",
+        "wafv2:DeleteIPSet",
+        "wafv2:GetIPSet",
         "wafv2:TagResource",
         "wafv2:UntagResource",
         "wafv2:ListTagsForResource"
