@@ -4,6 +4,7 @@
 # 순서(고객사 저장소 hotel-booking-app/legacy에서): terraform apply -var is_load_test=true → start-db.sh → start-app.sh <이미지:태그> → 이 스크립트
 #
 #   bash run-baseline.sh                         본 실행 (약 37분)
+#   TARGET=aws bash run-baseline.sh              3단계: 이관 뒤 새 주소로 같은 시험 (이름 baseline-aws-*, 옛 서버 기록 · 정합성 검사 없음)
 #   bash run-baseline.sh --stage 30s:5 --stage 10s:0   뒤에 붙인 k6 옵션으로 짧게 (스모크 점검, 이름에 -try)
 #   bash run-baseline.sh collect <이름>          SSH가 끊겼을 때: k6는 발생기에서 계속 도니, 끝난 뒤 결과만 가져온다
 #
@@ -41,13 +42,14 @@ collect() {
   mkdir -p "$out"
   # 시험 직후에는 앱 서버의 연결 추적 표가 아직 차 있어 SSH 새 연결도 버려질 수 있다(1.5단계: db.vmstat를 못 가져옴).
   # 닫힌 연결 기록은 120초 뒤 사라지므로 앱·DB에 접속될 때까지 최대 약 3분 기다린다
-  for i in $(seq 12); do ssh -o ConnectTimeout=10 "ec2-user@$APP" true 2>/dev/null && ssh -o ConnectTimeout=10 -J "ec2-user@$APP" "ec2-user@$DB" true 2>/dev/null && break; echo "서버 접속 대기 중 ($i/12)" >&2; sleep 15; done
+  [[ $name == baseline-aws-* ]] || for i in $(seq 12); do ssh -o ConnectTimeout=10 "ec2-user@$APP" true 2>/dev/null && ssh -o ConnectTimeout=10 -J "ec2-user@$APP" "ec2-user@$DB" true 2>/dev/null && break; echo "서버 접속 대기 중 ($i/12)" >&2; sleep 15; done
   "${ON_LOAD[@]}" 'sudo docker logs k6' >"$out/k6.txt" 2>&1
   scp -q "ec2-user@$LOAD:load/results/$name.*" "$out/"
   # 기록을 멈추고 가져온다 (pkill은 이미 멈췄으면 실패하므로 무시)
+  "${ON_LOAD[@]}" 'pkill vmstat; cat ~/vmstat.log' >"$out/load.vmstat" || true
+  if [[ $name != baseline-aws-* ]]; then # 옛 환경 서버(앱 · DB)의 기록 · 정합성 검사. 3단계 서버 지표는 CloudWatch에서 (migration.md 2절)
   "${ON_APP[@]}" 'pkill vmstat; cat ~/vmstat.log' >"$out/app.vmstat" || true
   "${ON_DB[@]}" 'pkill vmstat; cat ~/vmstat.log' >"$out/db.vmstat" || true
-  "${ON_LOAD[@]}" 'pkill vmstat; cat ~/vmstat.log' >"$out/load.vmstat" || true
   "${ON_APP[@]}" "$STOP_SNAP" >"$out/app.snap" || true
   "${ON_DB[@]}" "$STOP_SNAP" >"$out/db.snap" || true
   # 부하 중 앱·DB가 죽었다 다시 떴는지(재시작 횟수, 메모리 부족 종료)와 커널의 OOM 기록
@@ -60,11 +62,12 @@ collect() {
   } >"$out/containers.txt" 2>&1
   "${ON_DB[@]}" "sudo docker exec -i hotel-db sh -c 'mysql -uapp -p\"\$MYSQL_PASSWORD\" --default-character-set=utf8mb4 -t hotel_booking' 2>/dev/null" \
     <../scripts/check-consistency.sql >"$out/consistency.txt"
+  fi
   "${ON_LOAD[@]}" 'sudo docker rm k6 >/dev/null'
   echo "결과: load/results/$name/"
   ls -1 "$out"
   grep -E 'http_reqs\.|http_req_failed|bookings_created|vus_max' "$out/k6.txt" || true
-  cat "$out/containers.txt" "$out/consistency.txt"
+  cat "$out/containers.txt" "$out/consistency.txt" 2>/dev/null || true
 }
 
 if [ "${1:-}" = collect ]; then
@@ -72,8 +75,11 @@ if [ "${1:-}" = collect ]; then
   exit 0
 fi
 
-name=baseline-$(date +%Y%m%d-%H%M%S)
-[ $# -gt 0 ] && name=baseline-try-$(date +%Y%m%d-%H%M%S)
+# 3단계(이관 뒤): TARGET=aws bash run-baseline.sh → 새 주소를 부르고 옛 서버 기록은 건너뜀.
+# 발생기 IP는 global apply 때 -var 'loadtest_ips=["<발생기 IP>/32"]'로 WAF 요청 수 한도에서 빼 둔다 (infra/README.md 5-4)
+if [ "${TARGET:-legacy}" = aws ]; then pre=baseline-aws; base=https://hotel.vundle34.cloud; else pre=baseline; base=http://$APP; fi
+name=$pre-$(date +%Y%m%d-%H%M%S)
+[ $# -gt 0 ] && name=$pre-try-$(date +%Y%m%d-%H%M%S)
 
 # 발생기는 매일 새 서버라 같은 IP에 다른 서버 키가 올 수 있음 → 예전 기록 삭제 (앱·DB는 start-db.sh가 지움)
 ssh-keygen -R "$LOAD" >/dev/null 2>&1 || true
@@ -86,26 +92,28 @@ scp -q baseline.js "ec2-user@$LOAD:load/"
 
 # 5초마다 CPU·메모리(MB) 기록 시작. SSH가 끊겨도 서버에서 계속 돈다
 START_VMSTAT='pkill vmstat; nohup vmstat -t -S M 5 >~/vmstat.log 2>&1 </dev/null &'
+"${ON_LOAD[@]}" "$START_VMSTAT"
+if [ "$pre" = baseline ]; then # 옛 환경 서버(앱 · DB)만. 3단계 서버 지표는 CloudWatch에서
 "${ON_APP[@]}" "$START_VMSTAT"
 "${ON_DB[@]}" "$START_VMSTAT"
-"${ON_LOAD[@]}" "$START_VMSTAT"
 
 # 30초마다 연결 상태 스냅샷(앱 입구 · DB 처리 목록). 무너지는 순간을 사람이 지켜보며 찍지 않아도 되게 한다
 # 프로세스 번호를 파일에 적어 두고 그 번호로 멈춘다 (pkill -f로 이름을 찾으면 같은 명령줄의 snap.sh 글자에 걸려 자기 자신을 죽임)
 START_SNAP='[ -f ~/snap.pid ] && kill "$(cat ~/snap.pid)" 2>/dev/null; chmod +x ~/snap.sh; nohup ~/snap.sh >~/snap.log 2>&1 </dev/null & echo $! >~/snap.pid'
 "${ON_APP[@]}" 'cat > ~/snap.sh' <snap-app.sh && "${ON_APP[@]}" "$START_SNAP"
 "${ON_DB[@]}" 'cat > ~/snap.sh' <snap-db.sh && "${ON_DB[@]}" "$START_SNAP"
+fi
 
 # k6는 발생기에서 따로 띄운다(-d): PC와의 SSH가 끊겨도 시험은 끝까지 간다.
 # --network host: 컨테이너 네트워크 변환 없이 발생기 네트워크를 그대로 씀. --user: 결과 폴더(ec2-user 소유)에 쓸 수 있게
-"${ON_LOAD[@]}" bash -s -- "$name" "$APP" "$@" <<'REMOTE'
+"${ON_LOAD[@]}" bash -s -- "$name" "$base" "$@" <<'REMOTE'
 set -euo pipefail
-name=$1; app=$2; shift 2
+name=$1; base=$2; shift 2
 sudo docker run -d --name k6 --network host --user "$(id -u):$(id -g)" -v ~/load:/load \
-  -e BASE_URL="http://$app" -e K6_WEB_DASHBOARD=true -e K6_WEB_DASHBOARD_EXPORT="/load/results/$name.html" \
+  -e BASE_URL="$base" -e K6_WEB_DASHBOARD=true -e K6_WEB_DASHBOARD_EXPORT="/load/results/$name.html" \
   grafana/k6:1.0.0 run --out "json=/load/results/$name.json.gz" "$@" /load/baseline.js >/dev/null
 REMOTE
-echo "시작: $name (앱 http://$APP, 발생기 $LOAD). 진행을 따라 보여 줌. Ctrl+C로 빠져나와도 시험은 계속됨"
+echo "시작: $name (대상 $base, 발생기 $LOAD). 진행을 따라 보여 줌. Ctrl+C로 빠져나와도 시험은 계속됨"
 # 무너진 뒤에는 Request Failed 경고가 초당 수백 줄이라 Git Bash의 SSH가 끊긴 적이 있음(2회차) → 화면에서만 거른다. 전체 로그는 collect가 k6.txt로 받음
 "${ON_LOAD[@]}" 'sudo docker logs -f k6 2>&1 | grep --line-buffered -v "Request Failed"' || {
   echo "연결이 끊김. 시험은 발생기에서 계속 돎. 끝난 뒤: bash run-baseline.sh collect $name" >&2

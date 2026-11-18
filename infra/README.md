@@ -201,7 +201,11 @@ bash start-db.sh && bash start-app.sh yubin05/hotel-booking-aws-v2:<태그>
 cd /c/dev/hotel-booking-aws-v2/infra/seoul
 terraform plan                      # 47 to add (1번 매일 올리기와 같음, 복원 태스크 정의 포함)
 date; terraform apply; date
-cd ../global && date; terraform apply; date
+cd ../global
+# k6 발생기 IP를 WAF 요청 수 한도에서만 뺌 (관리형 규칙은 그대로). 평소 apply에는 안 붙임
+LOAD_IP=$(terraform -chdir=/c/dev/hotel-booking-app/legacy output -raw load_test_instance_1_public_ip | tr -d '\r')
+terraform plan -var "loadtest_ips=[\"$LOAD_IP/32\"]"      # 14 to add (매일 13 + 발생기 IP 세트. 허용 규칙은 웹 ACL 안)
+date; terraform apply -var "loadtest_ips=[\"$LOAD_IP/32\"]"; date
 
 # 2) 사전 (손님 영향 없음). 관리자 세션은 1시간이라 여기서 새로 로그인
 aws login --profile admin
@@ -219,7 +223,8 @@ bash migration/cutover.sh cleanup   # 되돌렸을 때 덤프 · 키 지우기
 
 - 결과는 `migration/results/cutover-<시각>/`(git에 안 올라감): `steps.log` 단계 시각, `poll.log` 1초 기록, `legacy.sum` · `rds.sum` 체크섬. 결과 표는 03에 적습니다.
 - 처음 접속하는 서버 지문을 물으면 `yes`(prep에서 한 번).
-- 이관 뒤 옛 주소는 점검 페이지(503)로 남습니다. 옛 환경은 2절 k6 비교 발생기 때문에 그날 끝까지 둡니다.
+- 이관 뒤 옛 주소는 점검 페이지(503)로 남습니다. 옛 환경은 k6 발생기 때문에 그날 끝까지 둡니다.
+- 이관 뒤 1단계와 같은 k6: `cd load && TARGET=aws bash run-baseline.sh` × 3(37분씩, 대상만 새 주소). 계획은 [3단계 계획](../docs/experiments/migration.md) 2절.
 
 ## 6. 자주 만난 문제
 

@@ -12,6 +12,17 @@ locals {
   ]
 }
 
+# 부하 시험 발생기 IP (3단계, docs/experiments/migration.md): 시험 날만 -var로 넣음. 기본은 빈 목록이라 만들지 않음
+resource "aws_wafv2_ip_set" "loadtest" {
+  count              = length(var.loadtest_ips) > 0 ? 1 : 0
+  name               = "${local.name}-loadtest"
+  scope              = "CLOUDFRONT"
+  ip_address_version = "IPV4"
+  addresses          = var.loadtest_ips
+}
+
+# 규칙 순서: 관리형(10 ~ 13) → 발생기 허용(15, 시험 날만) → 요청 수 한도(20 ~ 22)
+# 발생기 요청은 관리형 검사를 받고(손님과 같은 WAF 검사 시간) 한도에서만 빠진다. 허용에 걸리면 그 뒤 규칙은 보지 않음
 resource "aws_wafv2_web_acl" "app" {
   name  = local.name
   scope = "CLOUDFRONT"
@@ -23,7 +34,7 @@ resource "aws_wafv2_web_acl" "app" {
   # 로그인 · 가입: 비밀번호 대입 + 비밀번호 확인(scrypt)이 비싸 낮은 한도
   rule {
     name     = "auth-rate-limit"
-    priority = 0
+    priority = 20
 
     action {
       block {}
@@ -73,7 +84,7 @@ resource "aws_wafv2_web_acl" "app" {
   # 앱 전체: 폭주 · 긁어 가기. 통신사 모바일은 여러 손님이 IP 하나를 나눠 써서 여유 있게. 사진 요청은 빼고 셈
   rule {
     name     = "all-rate-limit"
-    priority = 1
+    priority = 21
 
     action {
       block {}
@@ -117,7 +128,7 @@ resource "aws_wafv2_web_acl" "app" {
   # 사진: 한 화면에 사진이 많아(검색 목록 · 숙소 상세) 앱보다 높게. 폭주는 요청 · 전송 요금으로 이어짐 (ADR-035)
   rule {
     name     = "photo-rate-limit"
-    priority = 2
+    priority = 22
 
     action {
       block {}
@@ -176,6 +187,31 @@ resource "aws_wafv2_web_acl" "app" {
         cloudwatch_metrics_enabled = true
         metric_name                = rule.value
         sampled_requests_enabled   = true # 콘솔에서 막힌 요청 표본을 보고 오탐을 확인
+      }
+    }
+  }
+
+  # 부하 시험 발생기: 요청 수 한도에서만 뺌. IP 하나로 손님 수천 명을 흉내 내 한도(IP당 5분 2,000건)에 바로 걸리므로
+  dynamic "rule" {
+    for_each = aws_wafv2_ip_set.loadtest
+    content {
+      name     = "loadtest-allow"
+      priority = 15
+
+      action {
+        allow {}
+      }
+
+      statement {
+        ip_set_reference_statement {
+          arn = rule.value.arn
+        }
+      }
+
+      visibility_config {
+        cloudwatch_metrics_enabled = true
+        metric_name                = "loadtest-allow"
+        sampled_requests_enabled   = false
       }
     }
   }
