@@ -213,6 +213,9 @@ eval "$(ssh-agent -s)"; ssh-add ~/.ssh/hotel-legacy
 cd /c/dev/hotel-booking-aws-v2
 bash migration/cutover.sh prep      # 키를 SSM에, 점검 페이지 준비, 표지 손님 가입. 끝에 "준비 끝"
 
+# 2-1) 리허설 (손님 영향 없음, 5 ~ 10분): 점검 페이지 없이 덤프 → S3 → 복원 태스크 → 체크섬. AWS 쪽을 진짜 이관 전에 시험
+bash migration/cutover.sh rehearse  # 끝에 "리허설 끝". 막히면 고치고 다시 (RDS는 run이 덮어씀)
+
 # 3) 중단 구간 ⑤ → ⑩ (점검 페이지 → 덤프 · 잠가 올리기 → 복원 → 체크섬 → migrate → 새 주소 예약)
 bash migration/cutover.sh run       # 끝에 "중단 시간 N분 N초", 덤프 · 키는 자동으로 지움
 

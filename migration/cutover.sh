@@ -2,6 +2,8 @@
 # 덤프 이관 (3단계, ADR-008, docs/experiments/migration.md 1절): 옛 환경(IDC 역할) DB → 서울 RDS
 #
 #   bash migration/cutover.sh prep       사전 ②③: 새 주소 · 관리자 확인, 1회용 키를 SSM에, 점검 페이지 준비, 표지 손님 가입 (손님 영향 없음)
+#   bash migration/cutover.sh rehearse   리허설 ⑥ ~ ⑧만: 점검 페이지 없이 덤프 · 잠가 올리기 → 복원 태스크 → 체크섬 비교 (손님 영향 없음)
+#                                        AWS 쪽(S3 · 미리 서명 주소 · Fargate · RDS TLS · SSM 키)을 진짜 이관 전에 시험. 덤프가 테이블을 지우고 다시 만들어 run이 그대로 덮어씀
 #   bash migration/cutover.sh run        중단 ⑤ ~ ⑩: 점검 페이지 → 덤프 · 잠가 올리기 → 복원 태스크 → 체크섬 비교 → migrate → 새 주소 예약
 #   bash migration/cutover.sh rollback   되돌림: 점검 페이지를 내리고 옛 앱을 다시 켬 (검증 실패 · 40분 초과)
 #   bash migration/cutover.sh cleanup    S3 덤프 · SSM 키 지우기 (run이 성공하면 자동)
@@ -21,7 +23,8 @@ MARKER=results/marker-email # prep이 가입시킨 표지 손님 (run이 읽음)
 stamp() { echo "$(date +%T) $*" | tee -a "$OUT/steps.log"; }
 
 cmd=${1:-}
-case "$cmd" in prep | run | rollback | cleanup) ;; *) sed -n '4,7p' "$0" >&2; exit 1 ;; esac
+REHEARSAL=0
+case "$cmd" in prep | run | rollback | cleanup) ;; rehearse) REHEARSAL=1 cmd=run ;; *) sed -n '4,9p' "$0" >&2; exit 1 ;; esac
 ssh-add -l >/dev/null 2>&1 || { echo '먼저 실행: eval "$(ssh-agent -s)"; ssh-add ~/.ssh/hotel-legacy' >&2; exit 1; }
 APP=$(terraform -chdir="$LEGACY_DIR" output -raw web_instance_1_public_ip | tr -d '\r')
 DB=$(terraform -chdir="$LEGACY_DIR" output -raw db_instance_1_private_ip | tr -d '\r')
@@ -76,7 +79,7 @@ run() {
   [ -s "$MARKER" ] || { echo "prep 먼저" >&2; exit 1; }
   local email name key t5 t10 sum_pid poll_pid
   email=$(cat "$MARKER")
-  name=cutover-$(date +%m%d-%H%M)
+  name=$([ "$REHEARSAL" = 1 ] && echo rehearsal || echo cutover)-$(date +%m%d-%H%M)
   OUT=results/$name
   mkdir -p "$OUT"
   key=$(admin ssm get-parameter --name "$KEY_PARAM" --with-decryption --query Parameter.Value --output text)
@@ -86,8 +89,12 @@ run() {
   trap 'echo "실패(위 단계). 40분 안에 다시 하거나 되돌림: bash migration/cutover.sh rollback" >&2' ERR
 
   t5=$(date +%s)
-  stamp "⑤ 점검 시작: 옛 앱 멈춤 → 503 점검 페이지"
-  "${ON_APP[@]}" 'sudo docker stop hotel-app >/dev/null && sudo docker run -d --name maintenance -p 80:80 -v "$HOME/maintenance.conf:/etc/nginx/conf.d/default.conf:ro" nginx:1.27-alpine >/dev/null'
+  if [ "$REHEARSAL" = 1 ]; then
+    stamp "리허설 시작: 옛 앱은 그대로 (점검 페이지 · migrate 없이 ⑥ ~ ⑧만)"
+  else
+    stamp "⑤ 점검 시작: 옛 앱 멈춤 → 503 점검 페이지"
+    "${ON_APP[@]}" 'sudo docker stop hotel-app >/dev/null && sudo docker run -d --name maintenance -p 80:80 -v "$HOME/maintenance.conf:/etc/nginx/conf.d/default.conf:ro" nginx:1.27-alpine >/dev/null'
+  fi
 
   # 옛 DB 체크섬은 덤프와 같이 돌림(쓰기가 멈춘 뒤라 둘이 같은 상태를 봄)
   { echo 'q() { MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot --default-character-set=utf8mb4 -N "$MYSQL_DATABASE" -e "$1"; }'; cat checksum.sh; } |
@@ -117,6 +124,12 @@ run() {
   grep -q "^MARK $email " "$OUT/legacy.sum" || { stamp "⑧ 옛 DB에 표지 손님이 없음"; exit 1; }
   if ! diff "$OUT/legacy.sum" "$OUT/rds.sum"; then stamp "⑧ 체크섬 불일치 (위 diff)"; exit 1; fi
   stamp "⑧ 체크섬 일치: 테이블 $(grep -c '^SUM' "$OUT/rds.sum")개, 표지 손님 이름 HEX 같음"
+  if [ "$REHEARSAL" = 1 ]; then
+    admin s3 rm --quiet "s3://$BUCKET/$name.sql.gz.enc" # 덤프는 지우고 키는 진짜 이관용으로 남김
+    trap - ERR
+    stamp "리허설 끝 ($(($(date +%s) - t5))초). 다음: bash migration/cutover.sh run"
+    return
+  fi
 
   stamp "⑨ migrate (app 계정 · 시연 계정, 숙소가 있어 시드는 건너뜀)"
   run_task migrate '{}' >"$OUT/migrate.log"
