@@ -14,4 +14,7 @@ module "regional" {
 
   # 시연용 호스트 · 관리자 계정 (ADR-060). SSM 파라미터 3개를 먼저 만들어야 migrate가 뜸 (런북 5-3)
   demo_accounts = true
+
+  # 덤프 이관 복원 태스크 정의 (3단계, docs/experiments/migration.md). 태스크 정의는 무료
+  migration_restore = true
 }

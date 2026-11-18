@@ -44,6 +44,12 @@ variable "scale_events" {
   }
 }
 
+variable "migration_restore" {
+  description = "덤프 이관 복원 태스크 정의를 만들지 (3단계, migration.tf). 이관은 서울로만 해서 서울만 true"
+  type        = bool
+  default     = false
+}
+
 variable "demo_accounts" {
   description = "시연용 호스트 · 관리자 계정 비밀번호를 SSM에서 migrate 태스크로 넣을지 (ADR-060). 파라미터는 서울에만 있어 서울만 true. 없는 파라미터를 참조하면 태스크가 못 뜰 수 있어 도쿄 복원은 false"
   type        = bool

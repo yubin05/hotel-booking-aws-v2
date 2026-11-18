@@ -4,7 +4,7 @@
 
 | 루트 | 들어 있는 것 | 수명 |
 |---|---|---|
-| `bootstrap` | state 버킷, IAM(평소 정책 · 역할), ECR, 금고, 예산, Route 53 영역 | 상시. 관리자만 |
+| `bootstrap` | state 버킷, IAM(평소 정책 · 역할), ECR, 금고, 예산, Route 53 영역, 사진 · 이관 버킷 | 상시. 관리자만 |
 | `seoul` · `tokyo` | `modules/regional`: VPC, NAT, ALB(HTTPS), ECS, RDS, **CloudFront 통로(VPC Origin)** | 쓸 때만. 도쿄는 전환 시험 · DR 때만 |
 | `global` | CloudFront, WAF, 인증서(us-east-1), ALB 입구 규칙, `hotel` 레코드 | 서울과 함께 매일 ([ADR-052](../docs/04-decisions.md#adr-052)) |
 | `security` | CloudTrail(감사 로그 버킷 90일), GuardDuty(서울 · 도쿄 · us-east-1), 점검(Config + Security Hub CSPM, `posture_check`) | 상시. 관리자만. 점검만 켜고 끔 ([ADR-057](../docs/04-decisions.md#adr-057)) |
@@ -24,7 +24,7 @@ aws sts get-caller-identity --query Arn --output text   # user/vundle34 (평소 
 
 ```bash
 cd /c/dev/hotel-booking-aws-v2/infra/seoul
-terraform plan                      # 46 to add (모듈 45: 오토스케일링 대상 · 목표 추적 · 비운 기본 보안 그룹 포함 + 통로 1, 예약 이벤트가 있으면 이벤트마다 +2)
+terraform plan                      # 47 to add (모듈 46: 오토스케일링 대상 · 목표 추적 · 비운 기본 보안 그룹 · 이관 복원 태스크 정의(11-18~) 포함 + 통로 1, 예약 이벤트가 있으면 이벤트마다 +2)
 date; terraform apply; date         # 약 9분. 이 동안 CloudFront가 서울 VPC에 보안 그룹을 만들어 둠
 
 cd ../global
@@ -58,7 +58,7 @@ terraform plan -destroy             # 13 to destroy (사진 버킷 · 사진은 
 date; terraform destroy; date       # 약 4~5분 (CloudFront 끄고 지우기)
 
 cd ../seoul
-terraform plan -destroy             # 46 to destroy (기본 보안 그룹은 state에서만 빠짐)
+terraform plan -destroy             # 47 to destroy (복원 태스크 정의 포함, 기본 보안 그룹은 state에서만 빠짐)
 date; terraform destroy; date       # 약 9분 (통로 삭제를 기다려 예전보다 3~4분 김, 2026-11-16 9분 26초)
 ```
 
@@ -184,6 +184,42 @@ MSYS_NO_PATHCONV=1 AWS_PROFILE=admin aws ssm get-parameters-by-path --region ap-
 
 - 이미 있는 계정의 비밀번호는 migrate가 바꾸지 않습니다. 값을 바꿨으면 서울을 내렸다 올려 DB가 새로 생길 때 반영됩니다.
 - 도쿄 복원(5단계)은 `demo_accounts = false`라 이 파라미터를 참조하지 않습니다.
+
+## 5-4. 덤프 이관 (3단계, 한 번)
+
+옛 환경(IDC 역할) DB를 서울 RDS로 옮깁니다([ADR-008](../docs/04-decisions.md#adr-008)). 덤프는 PC에서 잠가 S3에 잠깐 맡기고, 서울 일회성 태스크가 받아 풀어 넣습니다. 근거 · 단계 표 · 예측은 [3단계 실행 계획](../docs/experiments/migration.md) 1절. 점검 창은 고객사와 합의한 새벽 03:00 ~ 04:00로 가정하고, 시험은 같은 절차로 합니다.
+
+```bash
+# 0) 처음 한 번: 이관 버킷 (bootstrap, 4 to add: 버킷 · 공개 차단 · HTTPS만 정책 · 1일 뒤 삭제)
+cd /c/dev/hotel-booking-aws-v2/infra/bootstrap
+date; AWS_PROFILE=admin terraform apply; date
+
+# 1) 올리기: 옛 환경(+ 발생기) → 서울 → global. 서울 CD(migrate)는 돌리지 않음 (빈 RDS에 시드가 들어가 복원과 겹침)
+cd /c/dev/hotel-booking-app/legacy
+date; terraform apply -var is_load_test=true; date   # 19개
+bash start-db.sh && bash start-app.sh yubin05/hotel-booking-aws-v2:<태그>
+cd /c/dev/hotel-booking-aws-v2/infra/seoul
+terraform plan                      # 47 to add (1번 매일 올리기와 같음, 복원 태스크 정의 포함)
+date; terraform apply; date
+cd ../global && date; terraform apply; date
+
+# 2) 사전 (손님 영향 없음). 관리자 세션은 1시간이라 여기서 새로 로그인
+aws login --profile admin
+eval "$(ssh-agent -s)"; ssh-add ~/.ssh/hotel-legacy
+cd /c/dev/hotel-booking-aws-v2
+bash migration/cutover.sh prep      # 키를 SSM에, 점검 페이지 준비, 표지 손님 가입. 끝에 "준비 끝"
+
+# 3) 중단 구간 ⑤ → ⑩ (점검 페이지 → 덤프 · 잠가 올리기 → 복원 → 체크섬 → migrate → 새 주소 예약)
+bash migration/cutover.sh run       # 끝에 "중단 시간 N분 N초", 덤프 · 키는 자동으로 지움
+
+# 실패하면: 40분 안에 고쳐 다시 run, 아니면 되돌림 (옛 DB는 읽기만 해서 그대로)
+bash migration/cutover.sh rollback
+bash migration/cutover.sh cleanup   # 되돌렸을 때 덤프 · 키 지우기
+```
+
+- 결과는 `migration/results/cutover-<시각>/`(git에 안 올라감): `steps.log` 단계 시각, `poll.log` 1초 기록, `legacy.sum` · `rds.sum` 체크섬. 결과 표는 03에 적습니다.
+- 처음 접속하는 서버 지문을 물으면 `yes`(prep에서 한 번).
+- 이관 뒤 옛 주소는 점검 페이지(503)로 남습니다. 옛 환경은 2절 k6 비교 발생기 때문에 그날 끝까지 둡니다.
 
 ## 6. 자주 만난 문제
 
