@@ -1,0 +1,13 @@
+SUM booking_nights 0 0
+SUM bookings 100013 2263861286
+SUM coupons 3 3062028202
+SUM hotels 1010 3871403211
+SUM kakao_links 0 0
+SUM login_failures 0 0
+SUM payments 0 0
+SUM point_transactions 0 0
+SUM reviews 50013 2966530583
+SUM rooms 5030 3640882027
+SUM user_coupons 0 0
+SUM users 20004 1483726708
+MARK migration-1118-141321@example.com EC9DB4EAB48020ED9995EC9DB820EC8690EB8B98
