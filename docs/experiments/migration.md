@@ -60,7 +60,8 @@ legacy(+ 발생기) apply → 서울 apply → global apply(WAF 예외 포함) �
 - 대상만 바뀜: 1단계 `http://<앱 IP>` → 3단계 `https://hotel.vundle34.cloud`(CloudFront → WAF → 통로 → ALB → Fargate 2~4개 → RDS). `/api/*`는 캐시를 끈 경로라(global `cloudfront.tf`) 모든 요청이 서버까지 간다
 - 서버 지표는 SSH가 아니라 CloudWatch에서: ECS CPU · 메모리, RDS CPU · 연결 수, 태스크 수 변화 시각, 앱 1초 지표(ADR-061)
 - 비교표 각주: 0절 앱 변경 효과
-- 채울 것: `run-baseline.sh`를 3단계 대상으로 돌리는 방법(서버 지표 수집 부분), 예측(1단계는 1,000명 뒤 연결 추적 표가 차서 무너짐 → 새 구조에서 먼저 막히는 곳은 태스크 상한 4 × DB 연결 12 = 48인지)
+- 실행(11-18 추가): `TARGET=aws bash load/run-baseline.sh`. 대상만 새 주소로 바뀌고(이름 `baseline-aws-*`), 옛 서버 기록 · 정합성 검사는 건너뜀. 발생기 CPU 기록(`load.vmstat`)은 그대로 남겨 발생기가 병목이 아님을 보인다. 발생기 IP는 global `loadtest_ips`로 WAF 한도에서 뺀다(아래 WAF 절, 런북 5-4)
+- 남은 것: CloudWatch에서 층별 서버 지표(ECS CPU · 메모리, ALB 정상 태스크 수 · 5xx, RDS CPU · 연결 수)를 꺼내는 스크립트(4절 라이트사이징과 같이 씀), 정합성 검사를 RDS에 돌리는 방법(옛 환경은 SSH로 했음), 예측(1단계는 1,000명 뒤 연결 추적 표가 차서 무너짐 → 새 구조에서 먼저 막히는 곳은 태스크 상한 4 × DB 연결 12 = 48인지)
 
 ## 3. 쿠폰 오픈 스파이크
 
@@ -81,8 +82,9 @@ legacy(+ 발생기) apply → 서울 apply → global apply(WAF 예외 포함) �
 ## WAF 예외 (2 · 3 · 4 공통)
 
 - 문제: 발생기는 IP 1개라 "IP당 5분 2,000건"(`all-rate-limit`)을 몇 초 만에 넘어 403을 받는다. 서버가 아니라 WAF가 막은 것이 "무너짐"으로 잡힌다
-- 안: 요청 제한 규칙 3개(`auth` · `all` · `photo`)에만 "발생기 IP가 아니면 센다"는 범위 조건(scope-down + NOT IP set)을 넣고, 관리형 규칙 4개는 그대로 둔다(손님처럼 WAF 검사 시간을 포함해서 잼). 요청 제한 규칙은 범위 조건에 맞는 요청만 센다([WAF 요청 제한](https://docs.aws.amazon.com/waf/latest/developerguide/waf-rule-statement-type-rate-based-request-limiting.html), NOT IP set 모양은 [Bot Control 예시](https://docs.aws.amazon.com/waf/latest/developerguide/waf-bot-control-example-scope-down-ip.html))
-- 발생기 IP는 global apply 때 변수로 넣고 기본값은 빈 목록. global은 시험 날마다 지우므로 예외가 남지 않는다
+- 구현(11-18, [waf.tf](../../infra/global/waf.tf)): 규칙 순서를 **관리형 4개(10 ~ 13) → 발생기 허용(15, 시험 날만) → 요청 수 한도 3개(20 ~ 22)**로 둔다. 허용(Allow)에 걸리면 그 뒤 규칙은 보지 않으므로, 발생기 요청은 관리형 검사를 받고(손님과 같은 WAF 검사 시간) 한도에서만 빠진다. 처음 안(한도 규칙마다 범위 조건 안에 NOT IP set을 겹쳐 넣기)보다 단순하고, 공식 예시가 없던 모양을 쓰지 않는다
+- 순서를 바꾼 영향: 관리형 규칙에 막힌 공격 요청은 한도 횟수에 안 들어간다. 어느 쪽이든 막히는 결과는 같다
+- 발생기 IP는 global apply 때 `-var loadtest_ips`로 넣고 기본은 빈 목록(IP 세트 · 허용 규칙을 안 만듦). global은 시험 날마다 지우므로 예외가 남지 않는다
 
 ## 실험 설계 점검표 (2 · 3 · 4 공통)
 
