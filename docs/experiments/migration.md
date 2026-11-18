@@ -87,3 +87,16 @@ legacy(+ 발생기) apply → 서울 apply → global apply(WAF 예외 포함) �
 | ③ 전환 범위 | **새 구조(global 포함)를 미리 올리고**, 중단 시간 = 점검 페이지 켬 → 새 주소에서 예약 성공 | 자료: RDS 문서도 새 DB를 미리 만들어 데이터를 넣은 뒤, 마지막에 쓰기를 멈추고 앱을 옮긴다. 추론: 앱 · 입구도 같은 원리로, 옛 사이트가 평소대로 영업하는 동안 미리 만들어 둔다(손님에게 중단이 아님). 한계: 도메인이 처음부터 새 구조만 가리켜 DNS 전환 · 반영 시간은 재지 않는다 |
 | ④ 일정 | **하루에 1 → 4** | 사용자: 빨리 끝낸다. legacy를 한 번만 올림 |
 | ⑤ WAF | **요청 제한 규칙 3개만 발생기 IP 예외, 관리형 규칙은 그대로** | 위 WAF 절 |
+
+## 근거 조사 (2026-11-18)
+
+**덤프 하나에 VPN이 필요한가**
+- AWS가 만든 온프레미스 → RDS 경로도 S3를 거친다: 백업을 S3에 올려 새 RDS로 복원([RDS Restore from S3](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/MySQL.Procedural.Importing.html)), Aurora도 같은 방식([Aurora XtraBackup + S3](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/AuroraMySQL.Migrating.ExtMySQL.S3.html))
+- 계속 복제하는 DMS도 VPN · 전용선 말고 인터넷 경로(원본 방화벽에 NAT IP만 허용 + TLS)를 지원한다([DMS 네트워크](https://docs.aws.amazon.com/dms/latest/userguide/instance-profiles-network.html), [DMS 보안](https://docs.aws.amazon.com/dms/latest/userguide/CHAP_Security.html))
+- 국내 기준: 개인정보의 안전성 확보조치 기준 제7조는 인터넷으로 주고받을 때 **암호화**를 요구한다(2차 자료 [itwiki](https://itwiki.kr/w/%EA%B0%9C%EC%9D%B8%EC%A0%95%EB%B3%B4%EC%9D%98_%EC%95%88%EC%A0%84%EC%84%B1_%ED%99%95%EB%B3%B4%EC%A1%B0%EC%B9%98_%EA%B8%B0%EC%A4%80_%EC%A0%9C7%EC%A1%B0)로 확인, 국가법령정보센터 원문은 미확인). 전송 수단으로 VPN을 지정한다는 내용은 찾지 못했다
+- 추론: VPN · 전용선은 이미 있거나, 데이터가 크거나, 계속 복제할 때 쓴다. 덤프 한 번 때문에 새로 깔아야 한다는 자료는 없다 → S3 경유 + 올리기 전 암호화 유지
+
+**새벽 점검을 고객사가 허용하나**
+- AWS 이관 가이드는 중단 창(outage window)을 앱 소유자와 합의하고, 넘칠 때 되돌림 계획을 맞추는 것을 정해진 단계로 둔다([컷오버 단계](https://docs.aws.amazon.com/prescriptive-guidance/latest/best-practices-migration-cutover/cutover-stage.html))
+- 국내 예: 인터파크(NOL) 2026-03-17 03:00 ~ 07:30 · 2023-03-23 00:00 ~ 07:00 점검([점검 페이지](https://avis.interpark.com), [공지](http://m.shop.interpark.com/777.html)), 카카오뱅크 2024-05-12 01:00 ~ 08:00 금융거래 중단([기사](https://news.mtn.co.kr/news-detail/2024050709472686874)), 하나은행 2025-09-13 00:00 ~ 08:00([공지](https://www.kebhana.com/cont/news/news01/news0101/1509675_118324.jsp))
+- 못 찾은 것: "고객사가 얼마나 자주 허용하는가" 통계, 야놀자 · 여기어때 · 아고다의 점검 공지
