@@ -233,6 +233,33 @@ for f in load/results/baseline-aws-2*/*.json.gz; do node scripts/baseline-report
 bash migration/sql.sh scripts/check-consistency.sql       # 정합성 검사를 RDS에서 (서울 안 일회성 태스크 sql, 약 1분)
 ```
 
+## 5-5. 쿠폰 오픈 스파이크 (3단계)
+
+정해진 시각 T에 쿠폰 100장을 열고 1,000명이 함께 누릅니다([3단계 계획](../docs/experiments/migration.md) 3절). 이관 · k6 비교 뒤 같은 날, 옛 환경 발생기 · 서울 · global(WAF 예외)이 떠 있을 때 합니다. 관리자 로그인이 필요합니다.
+
+```bash
+cd /c/dev/hotel-booking-aws-v2
+# 1) 예약 스케일링 없이 3회: 태스크 2개 · 예약 0일 때(스크립트가 확인). T는 지금보다 5분 이상 뒤, 회차 사이 10분
+bash load/run-coupon.sh 14:00 none
+bash load/run-coupon.sh 14:10 none
+bash load/run-coupon.sh 14:20 none
+
+# 2) 있게 3회: 예약 하나로 묶음. infra/seoul/main.tf의 scale_events에 첫 T 5분 전 ~ 마지막 T + 10분 (한국 시간)
+#    { name = "coupon-1118", start = "2026-11-18T14:40:00", end = "2026-11-18T15:15:00", min = 4 },
+cd infra/seoul && date; terraform apply; date; cd ../..     # 예약 2개 추가
+bash load/run-coupon.sh 14:45 scheduled
+bash load/run-coupon.sh 14:55 scheduled
+bash load/run-coupon.sh 15:05 scheduled
+
+# 3) 서울 destroy 전에: CloudWatch 지표를 받고 보고서 (정상 태스크 수 · CPU 칸이 채워짐)
+bash load/cw-metrics.sh load/results/coupon-*
+node scripts/coupon-report.mjs load/results/coupon-*/coupon-*.json.gz
+```
+
+- k6 비교 뒤 태스크가 늘어 있으면, 목표 추적이 2개로 줄이기까지 15분 넘게 걸릴 수 있습니다(줄이기 경보: CPU 54% 미만 1분 × 15번, 11-16 시험). `run-coupon.sh none`이 태스크 수를 보고 멈추면 기다렸다 다시 합니다.
+- 끝나면 `scale_events`에서 이벤트를 지우고 apply합니다(5-1과 같음).
+- 회차 결과: `load/results/coupon-<조건>-<시각>/`. `verify.txt`는 발급 수 = 장 수(초과 0), 받은 줄 수 = 받은 사람 수(1인 1매)입니다.
+
 ## 6. 자주 만난 문제
 
 | 증상 | 원인 | 할 일 |

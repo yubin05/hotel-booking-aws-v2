@@ -2,7 +2,7 @@
 # 3단계 k6(baseline-aws-*) 동안의 서울 서버 지표를 CloudWatch에서 1분 단위로 받아 결과 폴더에 cw.json으로 둔다 (migration.md 2 · 4절)
 # baseline-report.mjs가 cw.json을 보면 층마다 붙인다. 1분 지표는 15일 남지만, ALB · 대상 그룹의 지표 차원(이름/id)은
 # 서울이 떠 있을 때만 찾을 수 있어 서울 destroy 전에 실행. 관리자 로그인 필요(평소 정책에 CloudWatch 읽기 없음)
-#   bash load/cw-metrics.sh load/results/baseline-aws-*
+#   bash load/cw-metrics.sh load/results/baseline-aws-* load/results/coupon-*
 # ECS 평균 = 서비스 전체 사용량 ÷ 예약량(목표 추적이 보는 값), 최대 = 가장 바쁜 태스크 하나 (ECS 서비스 사용률 문서)
 set -Eeuo pipefail
 [ $# -gt 0 ] || { echo '사용: bash load/cw-metrics.sh load/results/baseline-aws-*' >&2; exit 1; }
@@ -29,8 +29,7 @@ $(q rds_freemem AWS/RDS FreeableMemory Minimum "$RDS"),$(q rds_credit AWS/RDS CP
 
 for d in "$@"; do
   n=$(basename "$d")
-  ts=${n##*-aws-}
-  ts=${ts#try-} # 이름의 시작 시각 YYYYmmdd-HHMMSS (한국 시간)
+  ts=$(grep -oE '[0-9]{8}-[0-9]{6}$' <<<"$n") # 이름 끝의 시작 시각 YYYYmmdd-HHMMSS (한국 시간, baseline-aws-* · coupon-*)
   s=$(date -d "${ts:0:8} ${ts:9:2}:${ts:11:2}:${ts:13:2}" +%s)
   echo "$queries" >"$d/cw-queries.json"
   # 시험 37분 + 앞뒤 여유. "+45 minutes"는 시간대로 읽히는 함정이 있어 초로 계산
