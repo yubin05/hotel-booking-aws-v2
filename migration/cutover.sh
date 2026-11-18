@@ -120,7 +120,7 @@ run() {
   # 평문 덤프는 SSH 통로 안과 메모리 파이프로만 지나가고 디스크에 남지 않는다. PC에는 잠근 파일만 잠깐 생겼다가 올린 뒤 지움
   "${ON_DB[@]}" "sudo docker exec hotel-db sh -c 'MYSQL_PWD=\"\$MYSQL_ROOT_PASSWORD\" mysqldump -uroot --single-transaction --order-by-primary --hex-blob \
     --default-character-set=utf8mb4 --routines=0 --triggers=0 --events=0 --set-gtid-purged=OFF --no-tablespaces \"\$MYSQL_DATABASE\" | gzip'" |
-    MIGRATION_KEY="$key" openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -md sha256 -salt -pass env:MIGRATION_KEY -out "$OUT/dump.enc"
+    MIGRATION_KEY="$key" openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -md sha256 -salt -pass env:MIGRATION_KEY -out "$OUT/dump.enc" # 상대 경로로: 윈도 openssl은 MSYS_NO_PATHCONV 아래서 /c/... 를 못 엶
   stamp "⑥ 덤프 크기 $(wc -c <"$OUT/dump.enc") 바이트(압축 · 잠금 후)"
   admin s3 cp --quiet "$OUT/dump.enc" "s3://$BUCKET/$name.sql.gz.enc"
   rm "$OUT/dump.enc"
