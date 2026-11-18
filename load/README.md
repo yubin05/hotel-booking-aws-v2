@@ -7,6 +7,7 @@
 | [baseline.js](baseline.js) | 손님을 500명씩 늘려 3,000명까지 올리는 37분짜리 시나리오 |
 | [run-baseline.sh](run-baseline.sh) | 발생기에서 `baseline.js`를 돌리는 동안 서버 3대의 CPU · 메모리를 5초마다 남기고, 끝나면 결과와 정합성 검사를 가져옴 |
 | [snap-app.sh](snap-app.sh) · [snap-db.sh](snap-db.sh) | 부하 중 30초마다 앱 입구 · DB 연결 상태를 남김 (`run-baseline.sh`가 서버에 올려 실행) |
+| [run-local-ab.sh](run-local-ab.sh) | 로컬에서 옛 앱 · 지금 앱을 같은 DB로 번갈아 `baseline.js` 실행 (앱 변경 효과, [기록](../docs/experiments/app-change.md)) |
 
 서버(이전 환경과 부하 발생기)는 고객사 저장소의 [legacy/](https://github.com/yubin05/hotel-booking-app/tree/main/legacy)에서 올립니다. 부하 발생기는 우리 측정 장비지만 이전 환경의 네트워크를 같이 쓰므로 그 Terraform 안에 있습니다. `run-baseline.sh`는 서버 IP를 그 폴더의 state에서 읽으므로, 두 저장소를 `C:\dev` 아래 나란히 받아 둡니다(다르면 `LEGACY_DIR=<legacy 폴더>`).
 
