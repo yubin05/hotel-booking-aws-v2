@@ -226,6 +226,7 @@ bash migration/cutover.sh cleanup   # 되돌렸을 때 덤프 · 키 지우기
 
 - 결과는 `migration/results/cutover-<시각>/`(git에 안 올라감): `steps.log` 단계 시각, `poll.log` 1초 기록, `legacy.sum` · `rds.sum` 체크섬. 결과 표는 03에 적습니다.
 - 처음 접속하는 서버 지문을 물으면 `yes`(prep에서 한 번).
+- **다시 찍기(녹화 등):** 다른 날은 인프라를 올리면 DB가 새것이라 `prep` → `run`만 하면 됩니다. 같은 날 여러 번은 `bash migration/cutover.sh reset`(yes 확인: 옛 앱 되살리기 + 새 DB 비우기 + 앱 계정 삭제, 약 1분) → `prep` → `run`. 녹화 순서 · 화면 배치는 5-6.
 - 이관 뒤 옛 주소는 점검 페이지(503)로 남습니다. 옛 환경은 k6 발생기 때문에 그날 끝까지 둡니다.
 - 이관 뒤 1단계와 같은 k6: `cd load && TARGET=aws bash run-baseline.sh` × 3(37분씩, 대상만 새 주소). 계획은 [3단계 계획](../docs/experiments/migration.md) 2절. 끝나면 **서울 destroy 전에** 관리자로:
 

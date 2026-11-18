@@ -7,6 +7,7 @@
 #   bash migration/cutover.sh run        중단 ⑤ ~ ⑩: 점검 페이지 → 덤프 · 잠가 올리기 → 복원 태스크 → 체크섬 비교 → migrate → 새 주소 예약
 #   bash migration/cutover.sh rollback   되돌림: 점검 페이지를 내리고 옛 앱을 다시 켬 (검증 실패 · 40분 초과)
 #   bash migration/cutover.sh cleanup    S3 덤프 · SSM 키 지우기 (run이 성공하면 자동)
+#   bash migration/cutover.sh reset      다시 찍기: 옛 앱을 되살리고 새 DB를 비우고 앱 계정을 지워 이관 전 상태로 (yes 확인). 다음은 prep → run
 #
 # 결과: migration/results/<이름>/ steps.log(단계 시각), poll.log(1초마다 옛 주소 /api/health · 새 주소 /api/health/deep),
 #       legacy.sum · rds.sum(체크섬), restore.log · migrate.log(태스크 로그)
@@ -24,7 +25,7 @@ stamp() { echo "$(date +%T) $*" | tee -a "$OUT/steps.log"; }
 
 cmd=${1:-}
 REHEARSAL=0
-case "$cmd" in prep | run | rollback | cleanup) ;; rehearse) REHEARSAL=1 cmd=run ;; *) sed -n '4,9p' "$0" >&2; exit 1 ;; esac
+case "$cmd" in prep | run | rollback | cleanup | reset) ;; rehearse) REHEARSAL=1 cmd=run ;; *) sed -n '4,10p' "$0" >&2; exit 1 ;; esac
 ssh-add -l >/dev/null 2>&1 || { echo '먼저 실행: eval "$(ssh-agent -s)"; ssh-add ~/.ssh/hotel-legacy' >&2; exit 1; }
 APP=$(terraform -chdir="$LEGACY_DIR" output -raw web_instance_1_public_ip | tr -d '\r')
 DB=$(terraform -chdir="$LEGACY_DIR" output -raw db_instance_1_private_ip | tr -d '\r')
@@ -47,6 +48,19 @@ cleanup() {
 rollback() {
   "${ON_APP[@]}" 'sudo docker rm -f maintenance >/dev/null 2>&1; sudo docker start hotel-app >/dev/null'
   echo "옛 앱 다시 켬 ($(date +%T)), 옛 주소 /api/health: $(code "$OLD/api/health")"
+}
+
+# 같은 날 다시 찍기(녹화 등): 이관 뒤 상태를 이관 전으로 되돌림. 새 DB(서울 RDS)를 통째로 비우므로 확인을 받는다
+reset() {
+  local ok
+  read -rp "새 DB(서울 RDS)를 비우고 앱 계정을 지웁니다(되돌릴 수 없음). 옛 DB는 그대로. 계속하려면 yes: " ok
+  [ "$ok" = yes ] || { echo "멈춤" >&2; exit 1; }
+  rollback
+  mkdir -p results
+  # migrate가 만든 'app'@'%'를 지워야 새 주소 /api/health/deep가 이관 전처럼 실패한다. DB는 같은 이름 · utf8mb4로 다시 만듦
+  printf "DROP USER IF EXISTS 'app'@'%%';\nDROP DATABASE IF EXISTS hotel_booking;\nCREATE DATABASE hotel_booking CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;\n" >results/reset.sql
+  bash sql.sh results/reset.sql
+  echo "이관 전 상태로 되돌림 ($(date +%T)). 새 주소 /api/health/deep: $(code "$NEW/api/health/deep") (200이 아니면 맞음). 다음: prep → run"
 }
 
 prep() {
