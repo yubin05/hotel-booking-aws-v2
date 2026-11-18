@@ -31,7 +31,7 @@ resource "aws_ecs_task_definition" "restore" {
     image      = "mysql:8.4" # 옛 DB와 같은 이미지: mysql · curl · openssl · gzip이 다 있음 (2026-11-18 확인)
     essential  = true
     entryPoint = ["bash", "-c"]
-    command    = [local.restore_script]
+    command    = [replace(local.restore_script, "\r", "")] # 윈도에서 이 .tf가 CRLF로 받아져도 bash가 깨지지 않게
 
     environment = [
       { name = "DB_HOST", value = aws_db_instance.this.address },
