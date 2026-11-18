@@ -61,7 +61,9 @@ legacy(+ 발생기) apply → 서울 apply → global apply(WAF 예외 포함) �
 - 서버 지표는 SSH가 아니라 CloudWatch에서: ECS CPU · 메모리, RDS CPU · 연결 수, 태스크 수 변화 시각, 앱 1초 지표(ADR-061)
 - 비교표 각주: 0절 앱 변경 효과
 - 실행(11-18 추가): `TARGET=aws bash load/run-baseline.sh`. 대상만 새 주소로 바뀌고(이름 `baseline-aws-*`), 옛 서버 기록 · 정합성 검사는 건너뜀. 발생기 CPU 기록(`load.vmstat`)은 그대로 남겨 발생기가 병목이 아님을 보인다. 발생기 IP는 global `loadtest_ips`로 WAF 한도에서 뺀다(아래 WAF 절, 런북 5-4)
-- 남은 것: CloudWatch에서 층별 서버 지표(ECS CPU · 메모리, ALB 정상 태스크 수 · 5xx, RDS CPU · 연결 수)를 꺼내는 스크립트(4절 라이트사이징과 같이 씀), 정합성 검사를 RDS에 돌리는 방법(옛 환경은 SSH로 했음), 예측(1단계는 1,000명 뒤 연결 추적 표가 차서 무너짐 → 새 구조에서 먼저 막히는 곳은 태스크 상한 4 × DB 연결 12 = 48인지)
+- 서버 지표(11-18 추가): [load/cw-metrics.sh](../../load/cw-metrics.sh)가 회차마다 CloudWatch 1분 지표를 `cw.json`으로 받고, `baseline-report.mjs`가 층마다 붙인다. 태스크 CPU · 메모리(평균 = 서비스 전체 사용량 ÷ 예약량으로 목표 추적이 보는 값, 최대 = 가장 바쁜 태스크 하나, [ECS 문서](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/service_utilization.html)), 정상 태스크 수, 앱 5xx, RDS CPU · 연결 수 · 여유 메모리 · CPU 크레딧(t4g는 크레딧을 쓰는 버스트형). ALB 지표 차원을 찾으려고 서울 destroy 전에 관리자로 실행
+- 정합성 검사(11-18 추가): RDS가 비공개라 [migration/sql.sh](../../migration/sql.sh)가 서울 안 일회성 태스크(`sql`)로 같은 `check-consistency.sql`을 돌린다. 3절 쿠폰 발급 확인에도 쓴다
+- 남은 것: 예측(1단계는 1,000명 뒤 연결 추적 표가 차서 무너짐 → 새 구조에서 먼저 막히는 곳은 태스크 상한 4 × DB 연결 12 = 48인지)
 
 ## 3. 쿠폰 오픈 스파이크
 
