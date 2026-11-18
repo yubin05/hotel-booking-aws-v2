@@ -136,6 +136,12 @@
       "Resource": "*"
     },
     {
+      "Sid": "Dashboard",
+      "Effect": "Allow",
+      "Action": "cloudwatch:*Dashboard*",
+      "Resource": "arn:aws:cloudwatch::*:dashboard/hotel-booking-aws-v2-*"
+    },
+    {
       "Sid": "LoadBalancer",
       "Effect": "Allow",
       "Action": [

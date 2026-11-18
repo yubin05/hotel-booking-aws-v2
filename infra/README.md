@@ -260,6 +260,26 @@ node scripts/coupon-report.mjs load/results/coupon-*/coupon-*.json.gz
 - 끝나면 `scale_events`에서 이벤트를 지우고 apply합니다(5-1과 같음).
 - 회차 결과: `load/results/coupon-<조건>-<시각>/`. `verify.txt`는 발급 수 = 장 수(초과 0), 받은 줄 수 = 받은 사람 수(1인 1매)입니다.
 
+## 5-6. 관제 화면 · 녹화 (3단계)
+
+서울(또는 도쿄)을 apply하면 CloudWatch 대시보드 `hotel-booking-aws-v2-<리전>`이 같이 생깁니다([ADR-061](../docs/04-decisions.md#adr-061)). 녹화는 apply 직후 바로 할 수 있습니다.
+
+1. 콘솔 → CloudWatch → 대시보드 → `hotel-booking-aws-v2-ap-northeast-2`
+2. 시간 범위는 저장된 최근 15분 그대로, 새로고침은 10초(최소), 브라우저 전체 화면(F11)으로 한 화면에 3 × 3칸
+3. 1줄 손님 체감(1초) → 2줄 용량 → 3줄 DB. 칸마다 기준선(p95 1초 · 태스크 최소 2 / 최대 4 · CPU 늘리기 60% · RDS 한계 90% · 연결 예산 48)
+4. **회차가 끝날 때마다** `bash load/cw-metrics.sh load/results/<회차 폴더>`(관리자). 1초 지표는 3시간만 남아, 나중에 한 화면 페이지를 만들 원본을 그때 받아 둡니다
+
+- **미리 한 번(이관 날 전):** 대시보드 JSON에 1초 주기가 들어가는지 문서가 엇갈려(지표 개념 문서는 1초 조회 가능, 대시보드 본문 문서는 최소 60초), 거부되면 서울 apply가 실패합니다. 시험용 대시보드를 넣었다 지워 확인합니다(무료, 시간 비례).
+
+```bash
+MSYS_NO_PATHCONV=1 AWS_PROFILE=admin aws cloudwatch put-dashboard --region ap-northeast-2 --dashboard-name hotel-booking-aws-v2-period-test \
+  --dashboard-body '{"widgets":[{"type":"metric","x":0,"y":0,"width":8,"height":6,"properties":{"region":"ap-northeast-2","period":1,"metrics":[["HotelBooking/App","Requests","Service","app",{"stat":"Sum"}]]}}]}'
+# {"DashboardValidationMessages": []} 이면 통과. 오류면 dashboard.tf의 fast_period를 60으로 바꾸고 녹화 때 콘솔에서 주기를 1초로 고름
+AWS_PROFILE=admin aws cloudwatch delete-dashboards --region ap-northeast-2 --dashboard-names hotel-booking-aws-v2-period-test
+```
+
+- 대시보드를 만드는 권한은 평소 정책에 있습니다(이름 `hotel-booking-aws-v2-*`만). 이 권한을 넣는 bootstrap apply(1 to change)가 서울 apply보다 먼저입니다.
+
 ## 6. 자주 만난 문제
 
 | 증상 | 원인 | 할 일 |
