@@ -50,6 +50,9 @@ legacy(+ 발생기) apply → 서울 apply → global apply(WAF 예외 포함) �
 | 덤프 + 올리기 | ⑥ 시간 | 30초 이내 | Claude와 같음 |
 | 복원 태스크 | ⑦ 시작부터 끝까지(이미지 받기 포함) | 2 ~ 4분 | Claude와 같음 |
 | 중단 시간 | ⑤ → ⑩ | 8 ~ 15분(태스크 2번 시작 대기가 대부분) | Claude와 같음 |
+
+- **리허설 (2026-11-18 14:13:30, 사용자 실행, 점검 페이지 · migrate 없이 ⑥ ~ ⑧):** 전체 81초. 덤프 · 압축 · 잠금 · S3 올리기 5초(덤프 2.66MB, 예측 약 3MB 맞음), 복원 태스크 뜨기 34초, 받기 · 풀기 · RDS에 넣기 14초, 새 DB 체크섬 2초, 태스크 정리 · 로그 · 비교 26초. **12개 테이블 · 176,073행 체크섬 모두 일치, 한글 표지 손님 바이트 일치.** 로컬에서 못 본 AWS 쪽(S3 · 미리 서명한 주소 · Fargate의 Docker Hub 받기 · RDS TLS · SSM 키)이 처음으로 다 돎. 보고서: `node scripts/cutover-report.mjs migration/results/<이름>`(숫자 · 단계별 시간 · 정합성 표 + 그림 `figures.html`)
+- **리허설 뒤 수정 예측 (Claude, 진짜 이관 전):** 중단 시간 2분 30초 ~ 4분(리허설 81초 + migrate 약 1분 + 점검 페이지 · 예약 확인 몇 초). 처음 예측 8 ~ 15분은 태스크 시작 대기를 크게 잡았음
 | 체크섬 | 모든 테이블 일치 여부 | 일치, 한글 그대로 | Claude와 같음 |
 
 - 만든 것(2026-11-18): 이관 버킷 [bootstrap/migration.tf](../../infra/bootstrap/migration.tf)(공개 차단 · HTTPS만 · 버전 관리 없음 · 1일 뒤 삭제), 복원 태스크 정의 [regional/migration.tf](../../infra/modules/regional/migration.tf)(서울만), 스크립트 [migration/](../../migration/)(`cutover.sh` · 양쪽 공용 `checksum.sh` · 표지 손님 `marker.mjs`), 런북 [5-4](../../infra/README.md#5-4-덤프-이관-3단계-한-번). 키 읽기 권한은 실행 역할에 이미 있음(`/hotel-booking/*`)
