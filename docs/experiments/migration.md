@@ -51,7 +51,8 @@ legacy(+ 발생기) apply → 서울 apply → global apply(WAF 예외 포함) �
 | 중단 시간 | ⑤ → ⑩ | 8 ~ 15분(태스크 2번 시작 대기가 대부분) | |
 | 체크섬 | 모든 테이블 일치 여부 | 일치, 한글 그대로 | |
 
-- 만들 것: 이관 버킷(공개 차단 · HTTPS만 · 1일 뒤 삭제), 복원 태스크 정의, 실행 역할의 키 읽기 권한, 이관 스크립트, 런북(infra/README.md)
+- 만든 것(2026-11-18): 이관 버킷 [bootstrap/migration.tf](../../infra/bootstrap/migration.tf)(공개 차단 · HTTPS만 · 버전 관리 없음 · 1일 뒤 삭제), 복원 태스크 정의 [regional/migration.tf](../../infra/modules/regional/migration.tf)(서울만), 스크립트 [migration/](../../migration/)(`cutover.sh` · 양쪽 공용 `checksum.sh` · 표지 손님 `marker.mjs`), 런북 [5-4](../../infra/README.md#5-4-덤프-이관-3단계-한-번). 키 읽기 권한은 실행 역할에 이미 있음(`/hotel-booking/*`)
+- 잠금: AES-256-CBC, 키에서 PBKDF2(10만 번, SHA-256)로 암호 키를 만듦. 1회용 키는 SSM SecureString에만 있고 PC는 run 동안 메모리로만 들고 있음. openssl `enc`는 위조 검출(인증 암호)을 하지 않아, 내용이 바뀌었는지는 gzip 검사와 체크섬 비교로 잡는다
 
 ## 2. 1단계와 같은 k6 비교
 
