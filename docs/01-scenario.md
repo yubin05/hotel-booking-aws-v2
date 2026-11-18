@@ -57,7 +57,7 @@ v2의 1단계에서는 이 환경을 앱 구조에 맞게 줄여서(웹+앱 서�
 | 기존 사용자·데이터·MySQL 백엔드가 있다 | 재개발이 아닌 이관 → AWS ([ADR-002](04-decisions.md#adr-002)) |
 | 벤더 종속 탈피나 규제 요구는 없다 | 멀티클라우드 불필요 ([ADR-001](04-decisions.md#adr-001)) |
 | 사내 인프라 담당자는 1명이다 | 쿠버네티스 운영 부담 불가 → ECS Fargate ([ADR-003](04-decisions.md#adr-003)) |
-| 이관 시 새벽 점검 시간을 쓸 수 있다 | DMS 대신 덤프 이관 ([ADR-008](04-decisions.md#adr-008)) |
+| 이관 때 고객사와 합의하고 손님에게 미리 공지한 새벽 점검 시간(가정 03:00 ~ 04:00)을 쓸 수 있다. 근거: 이관 가이드는 중단 창을 앱 소유자와 합의하는 것을 정해진 단계로 두고([AWS](https://docs.aws.amazon.com/prescriptive-guidance/latest/best-practices-migration-cutover/cutover-stage.html)), 예약 서비스도 공지 후 새벽 점검을 한다(인터파크(NOL) 2026-03-17 03:00 ~ 07:30). 고객사가 거절하면 변경 복제(DMS · binlog)로 바꾼다 | DMS 대신 덤프 이관 ([ADR-008](04-decisions.md#adr-008)), 점검 중 503 안내 페이지([3단계 계획](experiments/migration.md)) |
 | 리전 장애 시 1시간 안 복구를 목표로 한다 (잠정, [ADR-036](04-decisions.md#adr-036)) | Backup & Restore 전략 ([ADR-009](04-decisions.md#adr-009)) |
 | 평소 동시 접속은 약 500명이다 (하루 사용자 약 2만 명, 1인 10분 이용, 하루 12시간 중 피크 2배: 2만 × 10분 ÷ 720분 × 2 ≈ 560명) | 부하 테스트의 평소 규모 ([07 E-01](07-experiments.md)), AWS 최소 태스크 수와 비용 추정의 기준 |
 | 개인정보를 다루며 서울 리전을 주 리전으로 쓴다 | 리전 간 백업은 국외(도쿄) 보관이 되므로, 실제 서비스라면 개인정보 국외 이전 요건을 검토해 고지해야 한다 |
