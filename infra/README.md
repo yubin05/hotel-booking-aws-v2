@@ -283,7 +283,9 @@ node scripts/coupon-report.mjs load/results/coupon-*/coupon-*.json.gz
 1. 콘솔 → CloudWatch → 대시보드 → `hotel-booking-aws-v2-ap-northeast-2`
 2. 시간 범위는 저장된 최근 15분 그대로, 새로고침은 10초(최소), 브라우저 전체 화면(F11)으로 한 화면에 3 × 3칸
 3. 1줄 손님 체감(1초) → 2줄 용량 → 3줄 DB. 칸마다 기준선(p95 1초 · 태스크 최소 2 / 최대 4 · CPU 늘리기 60% · RDS 한계 90% · 연결 예산 48)
-4. **회차가 끝날 때마다** `bash load/cw-metrics.sh load/results/<회차 폴더>`(관리자). 1초 지표는 3시간만 남아, 나중에 한 화면 페이지를 만들 원본을 그때 받아 둡니다
+4. **회차가 끝날 때마다** `bash load/cw-metrics.sh load/results/<회차 폴더>`(관리자, 묶음 스크립트는 자동). 1초 지표는 3시간만 남아, 재생 페이지를 만들 원본을 그때 받아 둡니다. 스케일링 결정(`scaling.json`) · ECS 이벤트(`ecs-service.json`, 최근 100개만 남음) · 태스크 크기(`task-def.json`) · 커밋도 같이 받습니다
+
+- 녹화 · 영상은 2026-12-01 이후로 미뤘습니다([ADR-063](../docs/03-plan.md#adr-063)). 이 화면은 시험 중 관제용입니다
 
 - 1초 주기: 대시보드 본문 문서는 최소 60초라고 적지만, 2026-11-18 시험용 대시보드에 `period: 1`을 넣어 보니 검증 메시지 없이 받아들여졌다(바로 지움). 실제로 1초 간격으로 그려지는지는 서울을 올린 날 화면으로 확인하고, 안 그려지면 녹화 때 콘솔에서 주기를 1초로 고릅니다.
 - 대시보드를 만드는 권한은 평소 정책에 있습니다(이름 `hotel-booking-aws-v2-*`만). 이 권한을 넣는 bootstrap apply(1 to change)가 서울 apply보다 먼저입니다.
