@@ -1,5 +1,5 @@
-# migration/ 스크립트 공용 (source로 읽음): 관리자 aws 호출, 서울 ECS 일회성 태스크 실행
-REGION=ap-northeast-2
+# migration/ · drill/ 스크립트 공용 (source로 읽음): 관리자 aws 호출, ECS 일회성 태스크 실행
+REGION=${REGION:-ap-northeast-2} # 도쿄 태스크(5단계 dump · sql)는 REGION=ap-northeast-1
 CLUSTER=hotel-booking-aws-v2 # ECS 클러스터 · 태스크 정의 패밀리 앞부분 (ADR-030)
 LOG_GROUP=/ecs/hotel-booking-aws-v2
 
