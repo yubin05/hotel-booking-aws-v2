@@ -45,9 +45,21 @@ variable "scale_events" {
 }
 
 variable "migration_tasks" {
-  description = "3단계 이관 · 검증용 일회성 태스크 정의(restore · sql)를 만들지 (migration.tf). 이관은 서울로만 해서 서울만 true"
+  description = "이관 · 검증용 일회성 태스크 정의(restore · sql · dump)를 만들지 (migration.tf). 3단계 이관(서울)과 5단계 되돌리기(도쿄 덤프 → 서울 복원)에 씀"
   type        = bool
   default     = false
+}
+
+variable "restore_backup_arn" {
+  description = "5단계 리전 복원: 이 리전에 복제된 자동 백업(ARN)으로 RDS를 만듦 (ADR-062). null이면 빈 DB"
+  type        = string
+  default     = null
+}
+
+variable "restore_time" {
+  description = "restore_backup_arn의 복원 시점(UTC, RFC3339). 장애 선언 때의 가장 최근 복원 가능 시각을 넣어 실제 장애처럼 그 뒤 변경을 잃게 함. null이면 가장 최근"
+  type        = string
+  default     = null
 }
 
 variable "demo_accounts" {

@@ -7,4 +7,9 @@ module "regional" {
 
   nat_count   = 1
   db_multi_az = false
+
+  # 5단계 리전 복원 (ADR-062): 서울에서 복제된 백업으로 DB를 살리고, 되돌릴 때 dump 태스크로 덤프를 서울에 넘김
+  restore_backup_arn = var.restore_backup_arn
+  restore_time       = var.restore_time
+  migration_tasks    = true
 }

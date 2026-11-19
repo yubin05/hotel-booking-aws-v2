@@ -3,9 +3,9 @@ module "regional" {
   vpc_cidr = "10.0.0.0/16" # ADR-033
   az_ids   = ["apne2-az1", "apne2-az3"]
 
-  # 평소 1개(비용). AZ 장애 테스트 때 2로 바꿔 apply (ADR-034, RDS Multi-AZ와 같은 방식)
-  nat_count   = 1
-  db_multi_az = false # AZ 장애 테스트 때 true
+  # 평소 NAT 1개 · RDS 한 AZ(비용). 4단계 RDS · AZ 장애 테스트 날만 -var multi_az=true (ADR-034 · ADR-042)
+  nat_count   = var.multi_az ? 2 : 1
+  db_multi_az = var.multi_az
 
   # 시각을 아는 급증(쿠폰 오픈 등)에 앱 태스크를 미리 늘려 둠 (ADR-015). 한국 시간, 끝난 이벤트는 지움
   # 준비까지 약 1분 반 + 예약 실행 지연(23~38초)이라 오픈 5분 전쯤 시작 (2026-11-16 시험)

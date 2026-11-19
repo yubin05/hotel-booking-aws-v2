@@ -59,8 +59,23 @@ resource "aws_db_instance" "this" {
   backup_retention_period  = 7    # 시점 복구 범위 · 리전 간 백업 복제의 전제 (끄면 그 기능들이 같이 꺼짐)
   delete_automated_backups = true # destroy 때 백업도 같이 지움 (남아서 요금이 쌓이지 않게)
 
+  # 5단계 리전 복원 (ADR-062): 서울에서 복제된 자동 백업으로 시점 복원. 관리자 비밀번호 금고는 복원 뒤 수정으로 붙음(공급자 6.73.0 소스 확인)
+  dynamic "restore_to_point_in_time" {
+    for_each = var.restore_backup_arn == null ? [] : [1]
+    content {
+      source_db_instance_automated_backups_arn = var.restore_backup_arn
+      restore_time                             = var.restore_time
+      use_latest_restorable_time               = var.restore_time == null ? true : null # 둘은 함께 쓸 수 없음(false도 '씀'으로 봄)
+    }
+  }
+
   # 데이터는 시드라 매번 새로 만듦 (ADR-042). 실운영이면 최종 스냅샷 · 삭제 방지를 켬
   skip_final_snapshot = true
   deletion_protection = false
   apply_immediately   = true
+
+  lifecycle {
+    # 복원 블록은 바뀌면 DB를 새로 만듦. 복원한 뒤 -var 없이 apply해도 복원한 DB를 지우지 않게
+    ignore_changes = [restore_to_point_in_time]
+  }
 }

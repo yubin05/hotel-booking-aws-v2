@@ -19,12 +19,13 @@ aws sts get-caller-identity --query Arn --output text   # user/vundle34 (평소 
 - 세션이 끝났으면 `aws login`(평소) / `aws login --profile admin`(관리자, 1시간).
 - **관리자 명령은 그 명령 앞에만 붙입니다:** `AWS_PROFILE=admin terraform apply`. `export AWS_PROFILE=admin`은 쓰지 않습니다. 남은 관리자 프로필로 긴 apply가 돌다 세션이 끝나면 state 저장이 실패합니다(2026-11-15 도쿄).
 - apply · destroy는 `date; terraform apply; date`로 시각을 남기고, plan 숫자를 먼저 예측합니다.
+- 측정 · 드릴 날은 먼저 `bash scripts/preflight.sh`(읽기만): 도구 · SSH 키 · `~/.hotel-legacy` · legacy tfvars의 IP = 지금 IP · 루트마다 `terraform init`을 확인하고 NG만 고칩니다.
 
 ## 1. 매일 올리기: seoul → global → CD
 
 ```bash
 cd /c/dev/hotel-booking-aws-v2/infra/seoul
-terraform plan                      # 49 to add (모듈 48: 관제 대시보드 · 오토스케일링 대상 · 목표 추적 · 비운 기본 보안 그룹 · 3단계 일회성 태스크 정의 restore · sql(11-18~) 포함 + 통로 1, 예약 이벤트가 있으면 이벤트마다 +2)
+terraform plan                      # 50 to add (모듈 49: 관제 대시보드 · 오토스케일링 대상 · 목표 추적 · 비운 기본 보안 그룹 · 3단계 일회성 태스크 정의 restore · sql(11-18~) · dump(11-19~) 포함 + 통로 1, 예약 이벤트가 있으면 이벤트마다 +2)
 date; terraform apply; date         # 약 9분. 이 동안 CloudFront가 서울 VPC에 보안 그룹을 만들어 둠
 
 cd ../global
@@ -58,7 +59,7 @@ terraform plan -destroy             # 13 to destroy (사진 버킷 · 사진은 
 date; terraform destroy; date       # 약 4~5분 (CloudFront 끄고 지우기)
 
 cd ../seoul
-terraform plan -destroy             # 49 to destroy (restore · sql 태스크 정의 · 관제 대시보드 포함, 기본 보안 그룹은 state에서만 빠짐)
+terraform plan -destroy             # 50 to destroy (restore · sql · dump 태스크 정의 · 관제 대시보드 포함, 기본 보안 그룹은 state에서만 빠짐)
 date; terraform destroy; date       # 약 9분 (통로 삭제를 기다려 예전보다 3~4분 김, 2026-11-16 9분 26초)
 ```
 
@@ -72,15 +73,15 @@ AWS_PROFILE=admin aws ec2 describe-addresses --region ap-northeast-2 --query 'le
 
 ## 3. 리전 전환(failover): 서울 → 도쿄
 
-CloudFront 원본만 바꾸고 DNS는 그대로 둡니다([ADR-012](../docs/04-decisions.md#adr-012) · [ADR-035](../docs/04-decisions.md#adr-035)). DB 복원은 5단계 드릴에서 절차를 정합니다.
+CloudFront 원본만 바꾸고 DNS는 그대로 둡니다([ADR-012](../docs/04-decisions.md#adr-012) · [ADR-035](../docs/04-decisions.md#adr-035)). 이 절은 빈 DB로 바꾸는 전환 PoC입니다. 백업으로 DB까지 살리고 되돌리는 드릴은 5-8(`drill/region.sh`)이 한 번에 합니다.
 
 ```bash
 # 1) 도쿄 올리기: 통로까지 같이 만들어짐(9분 남짓). 그 사이 CloudFront가 도쿄 VPC에 보안 그룹을 만들어 둠
 cd /c/dev/hotel-booking-aws-v2/infra/tokyo
-terraform plan                      # 47 to add (서울과 같은 모듈, 관제 대시보드 · 오토스케일링 · 기본 보안 그룹 포함)
+terraform plan                      # 50 to add (서울과 같은 모듈 + 일회성 태스크 정의 restore · sql · dump(11-19~), 관제 대시보드 · 오토스케일링 · 기본 보안 그룹 포함)
 date; terraform apply; date
 
-# 2) (5단계에서 정함) 도쿄 RDS 복원 · 기능 검증
+# 2) DB 복원 · 확인은 5-8 드릴에서 (tokyo apply에 -var restore_backup_arn · restore_time, ADR-062)
 
 # 3) 전환: 도쿄 입구 열기 → CloudFront 원본 교체 → 서울 입구 닫기
 cd ../global
@@ -95,7 +96,7 @@ date; terraform apply -var active_region=ap-northeast-1; date   # 2026-11-15: 1�
 ## 4. 되돌리기(failback): 도쿄 → 서울
 
 ```bash
-# 1) 서울이 내려가 있으면 올리기 (1절의 seoul apply). DB를 서울로 되돌리는 방법은 5단계에서 정함
+# 1) 서울이 내려가 있으면 올리기 (1절의 seoul apply). DB를 서울로 되돌리는 덤프 이관은 5-8 드릴이 함
 
 # 2) 전환: 서울 입구 열기 → 원본 교체 → 도쿄 입구 닫기
 cd /c/dev/hotel-booking-aws-v2/infra/global
@@ -104,7 +105,7 @@ date; terraform apply; date         # 2026-11-15: 1분 1초, 손님 오류 0
 
 # 3) 도쿄 내리기 (global이 서울을 가리킨 뒤에만)
 cd ../tokyo
-terraform plan -destroy             # 47 to destroy (관제 대시보드 포함)
+terraform plan -destroy             # 50 to destroy (관제 대시보드 포함)
 date; terraform destroy; date
 ```
 
@@ -199,7 +200,7 @@ cd /c/dev/hotel-booking-app/legacy
 date; terraform apply -var is_load_test=true; date   # 19개
 bash start-db.sh && bash start-app.sh yubin05/hotel-booking-aws-v2:<태그>
 cd /c/dev/hotel-booking-aws-v2/infra/seoul
-terraform plan                      # 49 to add (1번 매일 올리기와 같음)
+terraform plan                      # 50 to add (1번 매일 올리기와 같음)
 date; terraform apply; date
 cd ../global
 # k6 발생기 IP를 WAF 요청 수 한도에서만 뺌 (관리형 규칙은 그대로). 평소 apply에는 안 붙임
@@ -228,7 +229,7 @@ bash migration/cutover.sh cleanup   # 되돌렸을 때 덤프 · 키 지우기
 - 처음 접속하는 서버 지문을 물으면 `yes`(prep에서 한 번).
 - **다시 찍기(녹화 등):** 다른 날은 인프라를 올리면 DB가 새것이라 `prep` → `run`만 하면 됩니다. 같은 날 여러 번은 `bash migration/cutover.sh reset`(yes 확인: 옛 앱 되살리기 + 새 DB 비우기 + 앱 계정 삭제, 약 1분) → `prep` → `run`. 녹화 순서 · 화면 배치는 5-6.
 - 이관 뒤 옛 주소는 점검 페이지(503)로 남습니다. 옛 환경은 k6 발생기 때문에 그날 끝까지 둡니다.
-- 이관 뒤 1단계와 같은 k6: `cd load && TARGET=aws bash run-baseline.sh` × 3(37분씩, 대상만 새 주소). 계획은 [3단계 계획](../docs/experiments/migration.md) 2절. 끝나면 **서울 destroy 전에** 관리자로:
+- 이관 뒤 1단계와 같은 k6 3회는 묶음 하나로: `bash load/run-baseline-x3.sh`(약 2시간, 회차마다 태스크가 2개로 줄기를 기다리고, 끝나면 바로 `cw-metrics.sh` · 마지막에 층별 표 · 정합성 검사까지). 계획은 [3단계 계획](../docs/experiments/migration.md) 2절. 한 회차가 끊겨 따로 할 때는 아래를 **서울 destroy 전에** 관리자로:
 
 ```bash
 cd /c/dev/hotel-booking-aws-v2
@@ -240,6 +241,17 @@ bash migration/sql.sh scripts/check-consistency.sql       # 정합성 검사를 
 ## 5-5. 쿠폰 오픈 스파이크 (3단계)
 
 정해진 시각 T에 쿠폰 100장을 열고 1,000명이 함께 누릅니다([3단계 계획](../docs/experiments/migration.md) 3절). 이관 · k6 비교 뒤 같은 날, 옛 환경 발생기 · 서울 · global(WAF 예외)이 떠 있을 때 합니다. 관리자 로그인이 필요합니다.
+
+묶음 스크립트(2026-11-19): T를 10분 간격으로 잡고 회차마다 `cw-metrics.sh`까지 합니다.
+
+```bash
+cd /c/dev/hotel-booking-aws-v2
+bash load/run-coupon-x3.sh none                 # 없이 3회: 회차마다 태스크 2개를 기다린 뒤 T = 지금 + 6분
+bash load/run-coupon-x3.sh plan 15:00           # 있게 전에: scale_events 한 줄을 보여 줌 → seoul/main.tf에 넣고 서울 apply
+bash load/run-coupon-x3.sh scheduled 15:00      # 있게 3회 (15:00 · 15:10 · 15:20)
+```
+
+한 회차씩 직접 할 때:
 
 ```bash
 cd /c/dev/hotel-booking-aws-v2
@@ -275,6 +287,61 @@ node scripts/coupon-report.mjs load/results/coupon-*/coupon-*.json.gz
 
 - 1초 주기: 대시보드 본문 문서는 최소 60초라고 적지만, 2026-11-18 시험용 대시보드에 `period: 1`을 넣어 보니 검증 메시지 없이 받아들여졌다(바로 지움). 실제로 1초 간격으로 그려지는지는 서울을 올린 날 화면으로 확인하고, 안 그려지면 녹화 때 콘솔에서 주기를 1초로 고릅니다.
 - 대시보드를 만드는 권한은 평소 정책에 있습니다(이름 `hotel-booking-aws-v2-*`만). 이 권한을 넣는 bootstrap apply(1 to change)가 서울 apply보다 먼저입니다.
+
+## 5-7. 장애 테스트 (4단계)
+
+서울에 장애를 넣고 손님이 본 오류와 회복 시간을 잽니다([4단계 계획](../docs/experiments/faults.md)). 옛 환경 · 발생기는 필요 없습니다(손님 역할은 PC의 `drill/writer.mjs`, 초당 5건). 서울 · global과 관리자 로그인이 필요합니다.
+
+```bash
+# 태스크 종료 · 깨진 배포: 평소 서울. RDS · AZ: Multi-AZ로 (NAT 2 + RDS Multi-AZ, 시간당 비용이 늘어 그날만)
+cd /c/dev/hotel-booking-aws-v2/infra/seoul
+terraform plan -var multi_az=true          # 이미 떠 있으면 NAT · EIP · 경로 추가 + RDS 1 to change
+date; terraform apply -var multi_az=true; date
+
+cd /c/dev/hotel-booking-aws-v2
+aws login --profile admin
+BASELINE=10 TAIL=10 bash drill/fault.sh task   # 스모크(기록 안 함)
+bash drill/fault.sh task      # × 3 (회차 사이 태스크 2 · 정상 2를 스크립트가 확인)
+bash drill/fault.sh deploy    # × 3 (깨진 리비전은 끝나면 등록 해제)
+bash drill/fault.sh rds       # × 3 (multi_az=true)
+bash drill/fault.sh az        # × 3 (multi_az=true, 10분 막음 → 되돌림)
+```
+
+- 회차마다 `drill/results/fault-<종류>-<시각>/report.md`(손님 쪽 끊김 · 오류 · 중복 예약)와 `marks.log`(주입 · 감지 · 회복 시각).
+- **az가 중간에 끊기면** 서브넷이 막힌 채 남을 수 있습니다: `bash drill/fault.sh az-undo drill/results/fault-az-<시각>`. 스크립트는 끝날 때(Ctrl+C 포함) 스스로 되돌립니다.
+- Multi-AZ는 끝나면 `-var` 없이 apply(또는 destroy)해서 평소로 돌립니다. 3단계 비교는 Multi-AZ를 끈 채로 해야 1단계와 조건이 같습니다.
+
+## 5-8. 리전 복원 드릴 (5단계)
+
+서울 장애를 선언하고 도쿄에서 복제된 백업으로 DB까지 살린 뒤, 서울로 되돌립니다([5단계 계획](../docs/experiments/region-drill.md), [ADR-062](../docs/04-decisions.md#adr-062)). 한 회차 1시간 안팎.
+
+```bash
+# 처음 한 번: 평소 권한에 백업 복제 · 시점 복원 추가 (bootstrap, 0 to add · 1 to change)
+cd /c/dev/hotel-booking-aws-v2/infra/bootstrap
+date; AWS_PROFILE=admin terraform apply; date
+terraform -chdir=../tokyo init              # 이 PC에서 도쿄를 처음 쓰면
+
+# 1) 서울 + 백업 복제 → global. 서울은 51 to add (매일 50 + 복제 1, 이미 떠 있으면 1 to add)
+cd ../seoul
+terraform plan -var backup_replication=true
+date; terraform apply -var backup_replication=true; date
+cd ../global && date; terraform apply; date
+
+# 2) 드릴 (회차마다). 관리자 세션은 1시간이라 시작 직전에 로그인, 중간 멈춤에서 필요하면 다시
+cd /c/dev/hotel-booking-aws-v2
+aws login --profile admin
+bash drill/region.sh run      # 복제 따라오기 기다림 → 장애 선언 → 도쿄 plan · yes → 확인 SQL → global plan · yes → RTO
+                              # → Enter → 도쿄 멈춤 · 대조 · 덤프 이관 · 체크섬 → 서울 → global plan · yes
+cd infra/tokyo && date; terraform destroy; date; cd ../..   # 다음 회차 전에 도쿄를 비움
+
+# 3) 드릴을 다 마치면: 복제 끄기 → 남은 복제 백업 지우기 (안 지우면 요금)
+cd infra/seoul && date; terraform apply; date; cd ../..     # -var 없이 = 복제 중지
+bash drill/region.sh cleanup
+```
+
+- 첫 서울 apply에서 확인할 것(문서로 못 정한 가설): 받는 쪽 키로 도쿄 `aws/rds`(AWS 관리 키)를 쓸 수 있는지, 미리 서명 주소 없이 복제가 시작되는지, 보관 1일이 되는지. 거부되면 에러 문구를 그대로 기록하고 고칩니다.
+- 중간에 멈추면 서울로: `bash drill/region.sh seoul-up` → `cd infra/global && terraform apply`(-var 없이 = 서울). 도쿄는 destroy.
+- 결과: `drill/results/region-<시각>/` `steps.log`(단계 시각 · RTO), `report.md`(RPO · 끊김 · 중복), `lost-in-seoul.txt`(대조), `tokyo.sum` · `seoul.sum`(체크섬).
 
 ## 6. 자주 만난 문제
 

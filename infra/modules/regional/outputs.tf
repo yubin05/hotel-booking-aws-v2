@@ -10,3 +10,8 @@ output "vpc_id" {
 output "alb_security_group_id" {
   value = aws_security_group.alb.id
 }
+
+# 서울 루트가 도쿄로 백업 복제를 걸 때 원본으로 씀 (seoul/backup.tf)
+output "db_instance_arn" {
+  value = aws_db_instance.this.arn
+}

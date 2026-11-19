@@ -1,8 +1,12 @@
-# 3단계 이관 · 검증용 일회성 태스크 (ADR-008, docs/experiments/migration.md). 서울만 만든다(var.migration_tasks). 태스크 정의는 무료
+# 이관 · 검증용 일회성 태스크 (ADR-008, docs/experiments/migration.md). var.migration_tasks인 리전에 만든다. 태스크 정의는 무료
 #   restore: S3에 올린 잠긴 덤프를 받아 풀고 RDS에 넣은 뒤 체크섬을 찍고 끝남 (덤프 주소는 RunTask 덮어쓰기 DUMP_URL, 키는 SSM)
-#   sql:     덮어쓰기로 받은 SQL(SQL_B64)을 관리자 계정으로 돌리고 결과를 로그로 (정합성 검사 · 쿠폰 발급 확인. RDS가 비공개라 서울 안에서)
+#   sql:     덮어쓰기로 받은 SQL(SQL_B64)을 관리자 계정으로 돌리고 결과를 로그로 (정합성 검사 · 쿠폰 발급 확인. RDS가 비공개라 리전 안에서)
+#   dump:    5단계 되돌리기(ADR-062). 이 리전 RDS를 덤프 · 잠가 미리 서명한 PUT 주소(DUMP_PUT_URL)로 올리고 체크섬을 찍음 → 서울 restore가 받음
 # 덤프 주소가 새도 덤프는 잠겨 있어 읽을 수 없다(키는 실행 역할만 읽음: bootstrap ReadDemoAccountPasswords의 /hotel-booking/*)
 locals {
+  # 키는 서울 SSM에만 둔다: 실행 역할이 서울 /hotel-booking/*만 읽음(bootstrap iam.tf). 다른 리전 태스크는 전체 ARN이면 읽을 수 있음(ECS 문서)
+  migration_key_arn = "arn:aws:ssm:ap-northeast-2:${local.account_id}:parameter/hotel-booking/migration-key"
+
   # 두 태스크 공통: RDS 인증서와 주소까지 확인하는 접속. 비밀번호는 명령 인자 대신 MYSQL_PWD로(ps에 안 보이게)
   db_preamble = <<-EOT
     set -euo pipefail
@@ -25,14 +29,27 @@ locals {
       ${local.db_preamble}
       echo "$SQL_B64" | base64 -d | db -t "$DB_NAME"
     EOT
+    # S3 미리 서명 PUT은 길이를 알아야 해서(나눠 보내기 미지원) 잠근 파일을 먼저 만든 뒤 올림. 평문은 파이프로만 지나감
+    dump = <<-EOT
+      ${local.db_preamble}
+      echo "STEP dump-start $(date -u +%T)"
+      mysqldump -h "$DB_HOST" -u "$DB_ADMIN_USER" --ssl-mode=VERIFY_IDENTITY --ssl-ca=/tmp/rds-ca.pem --default-character-set=utf8mb4 \
+        --single-transaction --order-by-primary --hex-blob --routines=0 --triggers=0 --events=0 --set-gtid-purged=OFF --no-tablespaces "$DB_NAME" |
+        gzip | openssl enc -aes-256-cbc -pbkdf2 -iter 100000 -md sha256 -salt -pass env:MIGRATION_KEY -out /tmp/dump.enc
+      echo "STEP dump-size $(wc -c </tmp/dump.enc)"
+      curl -fsS -X PUT -T /tmp/dump.enc "$DUMP_PUT_URL"
+      rm /tmp/dump.enc
+      echo "STEP upload-end $(date -u +%T)"
+      ${file("${path.module}/../../../migration/checksum.sh")}
+      echo "STEP checksum-end $(date -u +%T)"
+    EOT
   }
 
   migration_secrets = {
-    restore = [
-      # cutover.sh가 이관 날 만들고 끝나면 지움. 없을 때 RunTask하면 태스크가 못 뜸
-      { name = "MIGRATION_KEY", valueFrom = "arn:aws:ssm:${local.region}:${local.account_id}:parameter/hotel-booking/migration-key" },
-    ]
-    sql = []
+    # cutover.sh · drill/region.sh가 쓰는 날 만들고 끝나면 지움. 없을 때 RunTask하면 태스크가 못 뜸
+    restore = [{ name = "MIGRATION_KEY", valueFrom = local.migration_key_arn }]
+    sql     = []
+    dump    = [{ name = "MIGRATION_KEY", valueFrom = local.migration_key_arn }]
   }
 }
 

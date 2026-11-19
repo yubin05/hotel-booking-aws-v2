@@ -249,7 +249,11 @@
         "rds:DescribeDBParameters",
         "rds:AddTagsToResource",
         "rds:RemoveTagsFromResource",
-        "rds:ListTagsForResource"
+        "rds:ListTagsForResource",
+        "rds:StartDBInstanceAutomatedBackupsReplication",
+        "rds:StopDBInstanceAutomatedBackupsReplication",
+        "rds:DescribeDBInstanceAutomatedBackups",
+        "rds:RestoreDBInstanceToPointInTime"
       ],
       "Resource": "*",
       "Condition": {
