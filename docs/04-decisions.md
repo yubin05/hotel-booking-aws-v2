@@ -1367,3 +1367,31 @@
 
 - **결과:** 앱 EMF 1초 지표는 2026-11-18 구현(앱 `src/metrics.ts`, `/api` 요청 수 · 5xx · p95, 헬스 체크 제외, 요청 0인 초도 0을 남김)하고 서울 앱 태스크에 `METRICS_EMF=1`로 켰다. 다음에 서울을 올리면 CloudWatch에 `HotelBooking/App` 지표가 1초로 생기는지 확인한다(awslogs 경로의 자동 추출은 [AWS 가이드](https://docs.aws.amazon.com/prescriptive-guidance/latest/implementing-logging-monitoring-cloudwatch/metrics-for-amazon-ecs.html) 기준, 실측 전). 도쿄 Grafana EC2 · 관제용 읽기 전용 역할(인프라 저장소)은 3단계 준비에서 한다. 경보 · SNS · 자동 대응은 보류. 실제 관제에서 알림을 누가 어떻게 받는지는 데이터센터 관제 경력 동료에게 물어 보완한다. 고해상도 사용자 지표 단가와 Grafana에서 1초 간격으로 그려지는지는 그때 확인한다(가설).
 
+
+## ADR-062 리전 복원은 RDS 자동 백업의 리전 간 복제 + 도쿄 apply 한 번에 시점 복원, 되돌리기는 덤프 이관 도구 재사용 (2026-11-19)
+
+- **상황:** 5단계 리전 복원 드릴을 만들려는데 02 8절 "RDS 백업이 도쿄로 복제됨"을 만드는 코드가 없었고, 런북 3 · 4절에 "DB 복원 · 되돌리는 방법은 5단계에서 정함"이 남아 있었다. 2026-11-19 사용자와 정함.
+- **결정:**
+
+  | 항목 | 고른 것 |
+  |---|---|
+  | 백업을 도쿄로 | RDS 자동 백업 리전 간 복제(스냅샷 + 변경 로그, 서울 → 도쿄 지원 [RDS 문서](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReplicateBackups.html)). 서울 루트 `backup.tf`, 드릴 날만 `-var backup_replication=true`. 받는 리전에서 만들어야 해서 서울 루트에 도쿄 공급자 별칭. 보관 1일 |
+  | 도쿄 DB 살리기 | `modules/regional` RDS에 `restore_to_point_in_time`(복제된 백업 ARN + 시각). 도쿄 apply 한 번에 인프라 + DB. 관리자 비밀번호 금고는 공급자가 복원 뒤 수정으로 붙인다(공급자 6.73.0 소스 확인). 복원 블록은 바뀌면 DB를 새로 만들어 `ignore_changes`로 막음 |
+  | 복원 시점 | 장애 선언 순간의 "가장 최근 복원 가능 시각"으로 고정. 드릴에선 서울 DB가 살아 복제가 계속 따라오므로, 고정하지 않으면 실제보다 RPO가 좋게 나온다 |
+  | 되돌리기 | 3단계 이관 도구 재사용: 도쿄 dump 태스크(덤프 · 잠금 → 미리 서명 PUT) → 서울 이관 버킷 → 서울 restore 태스크 → 체크섬. 덮기 전에 서울 옛 DB에서 잃은 쓰기를 뽑아 대조. 서울 RDS는 그대로 두고 내용만 바꿔 Terraform을 건드리지 않음. 덮기 전 상태는 서울 자동 백업(7일 시점 복원)이 있어 수동 스냅샷은 만들지 않음 |
+  | 키 | 이관 키는 서울 SSM 한 곳. 도쿄 태스크는 전체 ARN으로 읽는다(다른 리전 파라미터는 전체 ARN, [ECS 문서](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/secrets-envvar-ssm-paramstore.html)). 실행 역할 권한을 늘리지 않음 |
+  | PUT 주소 | AWS CLI `s3 presign`은 GET만 만들어 `drill/presign-put.mjs`가 SigV4로 서명(AWS 문서 예시 서명으로 자체 점검). 관리자 임시 자격 증명, 15분 |
+  | 평소 권한 | 복제 시작 · 중지 · 조회, 시점 복원 4개를 `operator-v2`에 추가(공백 뺀 6,067 / 6,144자). bootstrap 관리자 apply 필요 |
+  | 되돌릴 때 데이터 맞추기 | 합치지 않는다. 도쿄를 정답으로 서울을 통째로 덮어 도쿄의 추가 · 변경 · 삭제가 모두 그대로 간다(체크섬으로 확인). 복제가 못 따라온 서울만의 몇 분(복원 시점 ~ 장애 선언)은 덮기 전에 예약의 `updated_at`(앱 스키마의 대조용 색인)으로 새 예약 · 날짜 변경 · 취소를 목록으로 뽑아 고객사가 업무로 처리(연락 · 환불 · 재예약, 결제는 결제사 기록과 맞춤). 기계적으로 다시 넣으면 도쿄에서 같은 객실 · 날짜를 받은 예약, 쿠폰 수량과 충돌한다(2026-11-19 사용자 질문). 이 충돌은 이 방식으로 막을 수 없고 찾아서 처리할 뿐이다. 줄이려면 RPO를 초 단위로(도쿄 상시 복제본) = 비용 결정. **2026-11-19 사용자: 비용 때문에 Backup & Restore 유지.** 도쿄 상시 복제본(Pilot Light)은 db.t4g.micro 시간당 $0.025 + gp3 GB당 월 $0.138로 상시 월 약 $21 + 전송(서울 → 도쿄 GB당 $0.08, AWS 가격 목록 2026-11-01 단가). 목표는 AZ 10분 · 리전 1시간 그대로(ADR-036, 드릴 뒤 확정). "기다렸다 전환"(RTO를 늘리고 RPO 0을 노림)은 채택하지 않음. 공식 자료에서 Backup & Restore의 되돌리기 데이터 맞추기 방법은 찾지 못해 우리 설계로 둠 |
+
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | 스냅샷 수동 복사 | 마지막 스냅샷 뒤 데이터를 모두 잃어 RPO가 시간 단위, 02 설계와 다름 |
+  | 도쿄 읽기 복제본(Pilot Light) | 도쿄 DB가 늘 켜져 비용. 실측 RTO가 1시간을 넘으면 검토(02 9절) |
+  | CLI로 복원한 DB를 Terraform 밖에 두기 | 앱 태스크의 DB 주소를 따로 넘겨야 하고 destroy로 안 지워짐 |
+  | 되돌리기를 스냅샷 복사 → 서울 RDS 교체 | 서울 RDS를 Terraform으로 갈아 끼워 오래 걸리고(가설), 옛 서울 DB가 지워져 대조 전에 따로 뽑아야 함 |
+  | 도쿄 태스크에 S3 쓰기 역할 | bootstrap에 역할 · 정책이 늘어남. 한 번 쓰는 미리 서명 주소가 범위가 더 좁음 |
+
+- **받아들인 위험 · 확인할 것:** 복제된 백업은 서울 DB를 지워도 남아 요금이 쌓인다([RDS 문서](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_DeleteInstance.html)) → 드릴 뒤 `drill/region.sh cleanup`. 첫 apply에서 확인할 가설: 받는 쪽 키로 AWS 관리 키(`aws/rds`) 허용 여부(문서에 없음), 암호화 복제에 미리 서명 주소가 필요한지(API 문서는 GovCloud만, 사용 설명서는 필요로 엇갈림), 보관 1일 허용 여부.

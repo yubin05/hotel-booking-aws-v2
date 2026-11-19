@@ -1,0 +1,61 @@
+# 4단계 장애 테스트 — 실행 계획 (2026-11-19, 실행 전)
+
+로컬 예행연습([07](../07-experiments.md) E-04 ~ E-06)에서 "AWS에서 볼 것"으로 남긴 장애를 새 구조(서울)에서 넣고, **손님이 본 오류**와 **회복까지 걸린 시간**을 잰다. 실행은 [런북 5-7](../../infra/README.md#5-7-장애-테스트-4단계), 스크립트는 [drill/fault.sh](../../drill/fault.sh).
+
+## 범위 (2026-11-19 사용자)
+
+| 장애 | 넣는 방법 | 회복 기준 | 서울 조건 |
+|---|---|---|---|
+| 태스크 강제 종료 | `ecs stop-task`로 앱 태스크 1개 | 새 태스크가 대상 그룹에서 정상 → 정상 2 | 평소 |
+| RDS 강제 장애 조치 | `rds reboot-db-instance --force-failover` | 장애 조치 완료 이벤트(RDS-EVENT-0015 · 0049) 뒤 available | `-var multi_az=true` |
+| 깨진 버전 배포 | 같은 레시피에서 명령만 "뜨자마자 종료"로 바꾼 리비전을 배포 | circuit breaker가 배포를 FAILED로 보고 원래 리비전으로 돌아가 배포 1개 | 평소 |
+| AZ 하나 장애 | 주 DB가 있는 AZ의 서브넷(공개 · 앱 · DB)을 규칙 없는 네트워크 ACL로 10분 막고, 주 DB를 장애 조치 | 막는 동안 다른 AZ로 정상 2가 되는 시각, 푼 뒤 정상 2 · available | `-var multi_az=true` (NAT 2 · RDS Multi-AZ) |
+| 오토스케일링 상한 | 따로 돌리지 않음: 3단계 k6(3,000명까지, 최대 태스크 4)에서 4개에 닿은 뒤 구간을 분석 | 상한 뒤 거절 · 지연, 비용이 상한 안 | 3단계 결과 재사용 |
+
+- **AZ 장애를 넣은 이유:** 03 계획은 "밀리면 뺀다"였지만, 사용자가 "리전 장애까지 시험하는데 AZ 장애를 빼면 안 맞다"고 판단(2026-11-19). 근거로 찾은 것: 우리 백업 리전인 도쿄에서 한 AZ만 멈춘 사례가 있다([AWS 사후 보고 2019-08-23](https://aws.amazon.com/message/56489/), "a single Availability Zone in the Tokyo (AP-NORTHEAST-1) Region"). AWS 설계 지침은 운영 워크로드를 AZ 2개 이상에 두라고 하고, 여러 AZ로 충분한데 여러 리전으로 가는 것을 피할 방식으로 꼽는다([REL10-BP01](https://docs.aws.amazon.com/wellarchitected/latest/reliability-pillar/rel_fault_isolation_multiaz_region_system.html)). 즉 AZ 장애가 리전 장애보다 먼저 확인할 기본기
+- **AWS FIS를 쓰지 않은 이유:** FIS의 "AZ Availability: Power Interruption" 시나리오는 Fargate ECS 태스크를 지원하지 않고 RDS는 클러스터(Aurora · Multi-AZ DB 클러스터)만 대상으로 한다([FIS 문서](https://docs.aws.amazon.com/fis/latest/userguide/az-availability-scenario.html)). 그래서 같은 동작(서브넷 연결 끊기 = `aws:network:disrupt-connectivity`가 하는 일, DB 장애 조치)을 CLI로 직접 한다. 현업 용어로는 게임 데이 · 장애 주입([REL12-BP05](https://docs.aws.amazon.com/wellarchitected/latest/framework/rel_testing_resiliency_game_days_resiliency.html))
+- **AZ 장애에서 DB도 넘기는 이유:** 네트워크 ACL은 손님 쪽 연결만 막아서, RDS는 주 DB가 멀쩡하다고 볼 수 있다(가설). 실제 AZ 정전이면 주 DB도 멈추므로 FIS 시나리오처럼 장애 조치를 같이 넣는다
+
+## 재는 것
+
+| 지표 | 뜻 | 어디서 |
+|---|---|---|
+| 첫 오류 · 끊김(초) | 장애를 넣은 뒤 손님이 처음 오류를 받은 시각, 첫 오류부터 마지막 오류 다음 첫 성공까지 | [drill/writer.mjs](../../drill/writer.mjs): 1초마다 예약 1건 · 0.25초마다 목록 조회 1건 (초당 5건, WAF 한도 안) |
+| 손님 오류 수 | 장애 뒤 2xx가 아닌 응답(응답 없음 포함) | writer.log |
+| 감지 · 회복 시각 | 정상 대상이 줄어든 시각(감지), 회복 기준을 만족한 시각 | marks.log · state.log(2 ~ 5초마다 태스크 · 대상 · DB 상태) |
+| 중복 예약 | 실패한 쓰기를 같은 재전송 키로 다시 보냈을 때 예약이 둘 생기는지 | 같은 순번에 예약 번호가 둘이면 중복 |
+| 이벤트 | ECS 서비스 이벤트, RDS 이벤트 | events.txt |
+
+분석: [scripts/drill-report.mjs](../../scripts/drill-report.mjs) (회차마다 표 하나, 자체 점검 `--self-test`)
+
+## 실험 설계 점검표
+
+| 점검 | 어떻게 |
+|---|---|
+| 1. 응답 시간 = 손님이 기다린 시간 | writer는 요청을 보낸 순간부터 응답 본문까지(연결 포함)를 잼 |
+| 2. 기대 결과 · 숨은 기준을 미리 | 아래 예측 표, 회복 기준은 위 범위 표. 중복 예약 1건이라도 있으면 실패 |
+| 3. 같은 조건 3회 | 종류마다 3회. 회차 사이 태스크 2 · 정상 2로 돌아온 뒤(스크립트가 확인) |
+| 4. 손 조작은 스크립트로 | 평소 구간 120초 → 주입 → 회복 뒤 120초를 스크립트가 고정. AZ는 10분 막음(잠정 목표 10분보다 길게) |
+| 5. 환경 한계 | 손님은 PC 한 대(IP 1개, 초당 5건). 상태 기록은 aws CLI라 2 ~ 5초 간격(손님 쪽 1초 · 0.25초 기록이 기준). 부하가 거의 없는 상태의 장애 |
+| 6. 분석 스크립트를 미리 | drill-report.mjs, 가짜 서버로 writer → 보고서까지 확인(2026-11-19) |
+| 7. 회귀 테스트 | 앱을 고치게 되면 상태 확인 기반으로 |
+| 8. 스모크 | Claude가 가짜 서버로 확인(기록 안 함). AWS에서는 첫 회차 전에 `BASELINE=10 TAIL=10 bash drill/fault.sh task`로 짧게 한 번(기록 안 함) |
+
+## 예측 (실행 전)
+
+근거: ALB 상태 확인 10초 간격 · 2번 연속(정상 · 비정상 모두 약 20초), 빠지는 태스크 대기 10초(`alb.tf`), circuit breaker 실패 기준은 원하는 수 2 × 50% = 1이 최소 3으로 올라가 **실패 3번**([ECS 문서](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/deployment-circuit-breaker.html)). RDS 장애 조치 시간은 공식 문서에서 숫자를 찾지 못해 가설.
+
+| 예측 | 뜻 | Claude (가설) | 사용자 |
+|---|---|---|---|
+| 태스크 종료: 회복 | 새 태스크가 정상이 되기까지 | 60 ~ 120초 (뜨기 30 ~ 60초 + 상태 확인 20초) | 실행 전에 받음 |
+| 태스크 종료: 손님 오류 | 남은 태스크 1개가 받으므로 | 0 ~ 수 건 (멈춘 태스크에 가 있던 요청) | |
+| RDS: 쓰기 끊김 | 대기 DB로 넘어가 앱이 다시 연결하기까지 | 60 ~ 150초. 읽기도 DB를 써서 같이 끊김 | |
+| RDS: 중복 예약 | 끊긴 사이 다시 보낸 예약 | 0 (재전송 키) | |
+| 깨진 배포: FAILED까지 | 실패 3번 | 1 ~ 3분 | |
+| 깨진 배포: 손님 오류 | 이전 버전이 계속 받음 | 0 | |
+| AZ: 정상 2 회복 | 막힌 AZ 대신 다른 AZ에서 | 10분 안에 못 할 수도 있음 (ECS가 막힌 AZ에 다시 띄우려 할 수 있음, 가설) | |
+| AZ: 손님 오류 | 막힌 AZ의 ALB 노드로 간 요청 + DB 장애 조치 | 처음 1 ~ 3분 일부 오류, 그 뒤 거의 0 | |
+
+## 결과
+
+(실행 뒤 회차마다 drill-report 표를 붙임)

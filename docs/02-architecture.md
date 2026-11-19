@@ -144,7 +144,7 @@ terraform apply는 사람이 실행 (인프라 변경은 자동 적용하지 않
 
 장애   1. 서울 장애 확인 (모니터링 알림 + 사람의 판단)
        2. infra/tokyo 를 apply (modules/regional 호출: VPC, ALB, ECS, CloudFront 통로(VPC Origin))
-       3. 복제된 백업으로 도쿄에 RDS 시점 복원
+       3. 복제된 백업으로 도쿄에 RDS 시점 복원 (2와 같은 apply 한 번, ADR-062)
        4. 기능 검증 (로그인, 예약 생성·변경·취소)
        5. infra/global 을 -var active_region=ap-northeast-1 로 apply
           → 도쿄 ALB 입구를 열고 CloudFront 앱 원본을 도쿄 VPC Origin으로 전환 (DNS는 그대로)
@@ -152,7 +152,8 @@ terraform apply는 사람이 실행 (인프라 변경은 자동 적용하지 않
           사진은 CloudFront 원본 장애 조치로 이미 도쿄 S3에서 나가는 중
 
 복귀   1. 서울 복구 확인 → 서울 ECS 태스크를 0으로 (옛 DB에 쓰기 방지)
-       2. 도쿄를 점검 모드로 (쓰기 중지) → 덤프 → 서울 RDS 스냅샷을 남긴 뒤 로드 → 검증
+       2. 도쿄를 점검 모드로 (쓰기 중지) → 대조할 변경분을 먼저 뽑음 → 덤프 → 서울 RDS에 로드 → 체크섬 검증
+          (덮기 전 상태는 서울 자동 백업 7일로 되돌릴 수 있어 수동 스냅샷 없음, ADR-062)
        3. CloudFront 원본을 서울로 전환 → 도쿄 리소스 destroy
        4. 대조: 서울 옛 DB에서 마지막 복제 시각 이후 변경분을 뽑아 현재 데이터와 비교
 ```
