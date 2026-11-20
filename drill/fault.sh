@@ -41,7 +41,9 @@ healthy() { aws_t elbv2 describe-target-health --target-group-arn "$TG" --query 
 running() { aws_t ecs describe-services --cluster "$CLUSTER" --services app --query 'services[0].runningCount' --output text; }
 db() { aws_t rds describe-db-instances --db-instance-identifier "$CLUSTER" --query "DBInstances[0].$1" --output text; }
 
-[ "$(running)" = 2 ] && [ "$(healthy)" = 2 ] || { echo "태스크 2 · 정상 2가 아님: 앞 회차 회복을 기다린 뒤 다시" >&2; exit 1; }
+# 앞 회차 직후엔 대체된 태스크가 정리 중일 수 있어 준비될 때까지 기다림(5초마다, 최대 5분). 측정은 준비된 뒤부터 (11-20 연속 실행이 여기서 멈춤)
+for _ in $(seq 60); do [ "$(running)" = 2 ] && [ "$(healthy)" = 2 ] && break; echo "$(date +%T) 태스크 2 · 정상 2를 기다림"; sleep 5; done
+[ "$(running)" = 2 ] && [ "$(healthy)" = 2 ] || { echo "5분 기다려도 태스크 2 · 정상 2가 아님" >&2; exit 1; }
 if [[ $kind == rds || $kind == az ]]; then
   [ "$(db MultiAZ)" = True ] || { echo "RDS가 Multi-AZ가 아님: 서울 apply -var multi_az=true 먼저" >&2; exit 1; }
 fi
