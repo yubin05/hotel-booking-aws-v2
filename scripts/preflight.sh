@@ -38,7 +38,7 @@ echo "[자체 점검]"
 chk "drill/presign-put.mjs 서명 (AWS 문서 예시)" "코드 확인" node drill/presign-put.mjs --self-test
 chk "scripts/drill-report.mjs 계산" "코드 확인" node scripts/drill-report.mjs --self-test
 
-echo "[저장소] 커밋 안 한 변경 (legacy/iam/main.tf의 attach는 시험 날 일부러 바꾼 것)"
+echo "[저장소] 커밋 안 한 변경 (legacy/iam 권한 붙이기는 terraform.tfvars라 여기 안 나옴)"
 git status --short
 git -C "$APP" status --short
 [ $fail = 0 ] && echo "모두 OK" || { echo "NG 항목을 고친 뒤 다시"; exit 1; }
