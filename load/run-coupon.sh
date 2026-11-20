@@ -48,10 +48,10 @@ bash ../migration/sql.sh "$out/coupon.sql" | tee "$out/coupon.txt"
 scp -q coupon-spike.js "ec2-user@$LOAD:load/"
 # Grafana Cloud(실험 관제실, ADR-064)로 실시간 전송: PC에 쓰기 토큰 파일이 있을 때만. 토큰은 명령줄에 안 나오게 파일(--env-file)로 넘기고 끝나면 지움
 rw=0
-if [ -f ~/.hotel-legacy/grafana.env ]; then
+if grep -q '^K6_PROMETHEUS_RW_PASSWORD=.' ~/.hotel-legacy/grafana.env 2>/dev/null; then # 토큰 칸이 비어 있으면 끔
   scp -q ~/.hotel-legacy/grafana.env "ec2-user@$LOAD:load/grafana.env" && "${ON_LOAD[@]}" 'chmod 600 ~/load/grafana.env' && rw=1
 fi
-echo "Grafana 전송: $([ $rw = 1 ] && echo 켬 || echo '끔 (~/.hotel-legacy/grafana.env 없음)')"
+echo "Grafana 전송: $([ $rw = 1 ] && echo 켬 || echo '끔 (~/.hotel-legacy/grafana.env 없음 또는 토큰 빈칸)')"
 # 조회는 시나리오 시작(가입이 끝난 뒤)부터 T + 30초 넘어까지 이어지게
 "${ON_LOAD[@]}" bash -s -- "$name" "$BASE" "$id" "$((open * 1000))" "$COUPONS" "$CLAIMERS" "$((open - $(date +%s) + 30))" "$rw" <<'REMOTE'
 set -euo pipefail
