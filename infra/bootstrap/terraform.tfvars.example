@@ -1,2 +1,5 @@
 # terraform.tfvars로 복사해 실제 값을 넣는다 (terraform.tfvars는 .gitignore로 커밋되지 않음)
 budget_alert_email = "you@example.com"
+# Grafana Cloud → Connections → CloudWatch 데이터 소스 → Settings 탭 "How to create an IAM role for grafana to assume"
+grafana_account_id  = "000000000000"
+grafana_external_id = "<External ID>"

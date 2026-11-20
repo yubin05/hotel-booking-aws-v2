@@ -9,3 +9,8 @@ output "photos_bucket" {
 output "route53_name_servers" {
   value = aws_route53_zone.main.name_servers
 }
+
+# Grafana CloudWatch 데이터 소스의 Assume Role ARN 칸에 넣는 값
+output "grafana_read_role_arn" {
+  value = one(aws_iam_role.grafana_read[*].arn)
+}
