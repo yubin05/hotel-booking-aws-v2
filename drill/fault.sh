@@ -138,6 +138,7 @@ az)
   deny=$(admin ec2 create-network-acl --vpc-id "$vpc" --tag-specifications 'ResourceType=network-acl,Tags=[{Key=Name,Value=drill-az-block}]' --query NetworkAcl.NetworkAclId --output text)
   echo "$deny" >"$OUT/nacl-deny.txt"
   mark inject "$az 서브넷 $(wc -l <"$OUT/nacl-orig.tsv")개"
+  az_deadline=$((SECONDS + HOLD_AZ))
   BLOCKED=1
   while read -r subnet orig assoc; do
     echo "$subnet $orig $(admin ec2 replace-network-acl-association --association-id "$assoc" --network-acl-id "$deny" --query NewAssociationId --output text)"
@@ -147,11 +148,11 @@ az)
     admin rds reboot-db-instance --db-instance-identifier "$CLUSTER" --force-failover >/dev/null
     mark db_failover
   fi
-  dropped() { [ "$(healthy)" -lt 2 ]; }
-  wait_until capacity_drop dropped
-  restored() { [ "$(healthy)" -ge 2 ] || ((SECONDS - t_inject >= HOLD_AZ)); }
-  wait_until capacity_check restored # 막힌 동안 다른 AZ에서 정상 2가 되면 그 시각, 아니면 막는 시간이 끝난 시각
-  sleep $((HOLD_AZ - (SECONDS - t_inject) > 0 ? HOLD_AZ - (SECONDS - t_inject) : 0))
+  # 차단 중 정상 대상 수는 state.log에 기록한다. 주입 때 정한 시각에 원복을 시작한다.
+  remaining=$((az_deadline - SECONDS))
+  if (( remaining > 0 )); then
+    sleep "$remaining"
+  fi
   mark undo
   undo_az "$OUT"
   BLOCKED=0
