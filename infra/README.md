@@ -229,7 +229,17 @@ bash migration/cutover.sh cleanup   # 되돌렸을 때 덤프 · 키 지우기
 - 처음 접속하는 서버 지문을 물으면 `yes`(prep에서 한 번).
 - **다시 찍기(녹화 등):** 다른 날은 인프라를 올리면 DB가 새것이라 `prep` → `run`만 하면 됩니다. 같은 날 여러 번은 `bash migration/cutover.sh reset`(yes 확인: 옛 앱 되살리기 + 새 DB 비우기 + 앱 계정 삭제, 약 1분) → `prep` → `run`. 녹화 순서 · 화면 배치는 5-6.
 - 이관 뒤 옛 주소는 점검 페이지(503)로 남습니다. 옛 환경은 k6 발생기 때문에 그날 끝까지 둡니다.
-- 이관 뒤 1단계와 같은 k6 3회는 묶음 하나로: `bash load/run-baseline-x3.sh`(약 2시간, 회차마다 태스크가 2개로 줄기를 기다리고, 끝나면 바로 `cw-metrics.sh` · 마지막에 층별 표 · 정합성 검사까지). 계획은 [3단계 계획](../docs/experiments/migration.md) 2절. 한 회차가 끊겨 따로 할 때는 아래를 **서울 destroy 전에** 관리자로:
+- 이관 뒤 1단계와 같은 k6 3회는 **한 회차씩** 합니다. 묶음(`bash load/run-baseline-x3.sh`, 약 2시간)은 관리자 세션(1시간)이 끝나 회차 사이에서 멈췄습니다(2026-11-20 `ExpiredTokenException`). 계획은 [3단계 계획](../docs/experiments/migration.md) 2절. 회차마다:
+
+```bash
+cd /c/dev/hotel-booking-aws-v2
+aws ecs describe-services --cluster hotel-booking-aws-v2 --services app --region ap-northeast-2 --query 'services[0].[desiredCount,runningCount]' --output text   # "2 2"일 때 시작 (앞 회차 뒤 줄기까지 15분 넘게 걸릴 수 있음)
+TARGET=aws bash load/run-baseline.sh                                  # 37분. 태스크 수 5초 기록(tasks.log)도 같이
+aws login --profile admin                                             # 끝나면 바로 (1초 지표는 시작부터 3시간만 남음)
+bash load/cw-metrics.sh "$(ls -td load/results/baseline-aws-2* | head -1)"
+```
+
+3회가 끝나면(또는 한 회차가 끊겨 따로 할 때) 아래를 **서울 destroy 전에** 관리자로:
 
 ```bash
 cd /c/dev/hotel-booking-aws-v2
