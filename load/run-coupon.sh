@@ -58,7 +58,9 @@ set -euo pipefail
 name=$1
 grafana=() out=(--out "json=/load/results/$name.json.gz")
 if [ "$8" = 1 ]; then # p95 · p99 · 최대를 1초마다 보냄(쏠림이 몇 초라 기본 5초는 거침), 회차 이름을 testid로
-  grafana=(--env-file "$HOME/load/grafana.env" -e 'K6_PROMETHEUS_RW_TREND_STATS=p(95),p(99),max' -e K6_PROMETHEUS_RW_PUSH_INTERVAL=1s -e K6_PROMETHEUS_RW_STALE_MARKERS=true)
+  # 요청 주소(url) 태그는 빼서 숙소 상세 50곳이 따로 시리즈가 되지 않게 (이름 태그 search · hotel · claim으로 구분, 분석 스크립트는 url을 안 씀)
+  grafana=(--env-file "$HOME/load/grafana.env" -e 'K6_PROMETHEUS_RW_TREND_STATS=p(95),p(99),max' -e K6_PROMETHEUS_RW_PUSH_INTERVAL=1s -e K6_PROMETHEUS_RW_STALE_MARKERS=true
+    -e K6_SYSTEM_TAGS=status,method,name,group,check,error,error_code,scenario,expected_response)
   out+=(-o experimental-prometheus-rw --tag "testid=$name")
 fi
 sudo docker run -d --name k6 --network host --user "$(id -u):$(id -g)" -v ~/load:/load "${grafana[@]}" \

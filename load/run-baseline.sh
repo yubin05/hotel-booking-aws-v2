@@ -106,12 +106,25 @@ fi
 
 # k6는 발생기에서 따로 띄운다(-d): PC와의 SSH가 끊겨도 시험은 끝까지 간다.
 # --network host: 컨테이너 네트워크 변환 없이 발생기 네트워크를 그대로 씀. --user: 결과 폴더(ec2-user 소유)에 쓸 수 있게
-"${ON_LOAD[@]}" bash -s -- "$name" "$base" "$@" <<'REMOTE'
+# Grafana Cloud(실험 관제실, ADR-064)로 실시간 전송: 3단계(aws)이고 PC의 토큰 칸이 채워져 있을 때만. 토큰은 파일(--env-file)로 넘기고 컨테이너가 뜨면 지움
+rw=0
+if [ "$pre" = baseline-aws ] && grep -q '^K6_PROMETHEUS_RW_PASSWORD=.' ~/.hotel-legacy/grafana.env 2>/dev/null; then
+  scp -q ~/.hotel-legacy/grafana.env "ec2-user@$LOAD:load/grafana.env" && "${ON_LOAD[@]}" 'chmod 600 ~/load/grafana.env' && rw=1
+fi
+[ "$pre" = baseline-aws ] && echo "Grafana 전송: $([ $rw = 1 ] && echo 켬 || echo '끔 (~/.hotel-legacy/grafana.env 없음 또는 토큰 빈칸)')"
+"${ON_LOAD[@]}" bash -s -- "$name" "$base" "$rw" "$@" <<'REMOTE'
 set -euo pipefail
-name=$1; base=$2; shift 2
-sudo docker run -d --name k6 --network host --user "$(id -u):$(id -g)" -v ~/load:/load \
+name=$1; base=$2; rw=$3; shift 3
+grafana=() out=(--out "json=/load/results/$name.json.gz")
+if [ "$rw" = 1 ]; then # 쿠폰과 같게 1초마다 p95 · p99 · 최대. 요청 주소(url) 태그는 빼서 숙소마다 시리즈가 늘지 않게 (이름 태그로 구분)
+  grafana=(--env-file "$HOME/load/grafana.env" -e 'K6_PROMETHEUS_RW_TREND_STATS=p(95),p(99),max' -e K6_PROMETHEUS_RW_PUSH_INTERVAL=1s -e K6_PROMETHEUS_RW_STALE_MARKERS=true
+    -e K6_SYSTEM_TAGS=status,method,name,group,check,error,error_code,scenario,expected_response)
+  out+=(-o experimental-prometheus-rw --tag "testid=$name")
+fi
+sudo docker run -d --name k6 --network host --user "$(id -u):$(id -g)" -v ~/load:/load "${grafana[@]}" \
   -e BASE_URL="$base" -e K6_WEB_DASHBOARD=true -e K6_WEB_DASHBOARD_EXPORT="/load/results/$name.html" \
-  grafana/k6:1.0.0 run --out "json=/load/results/$name.json.gz" "$@" /load/baseline.js >/dev/null
+  grafana/k6:1.0.0 run "${out[@]}" "$@" /load/baseline.js >/dev/null
+rm -f ~/load/grafana.env # docker는 컨테이너를 만들 때 읽어 이제 필요 없음
 REMOTE
 echo "시작: $name (대상 $base, 발생기 $LOAD). 진행을 따라 보여 줌. Ctrl+C로 빠져나와도 시험은 계속됨"
 if [ "$pre" = baseline-aws ]; then # 태스크 수 5초 기록 (이 스크립트가 끝나면 멈춤. 연결이 끊기면 그 뒤는 scaling.json · ECS 이벤트로)
