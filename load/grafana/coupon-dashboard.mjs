@@ -56,7 +56,7 @@ const panels = [
     cw('ECS/ContainerInsights', 'DesiredTaskCount', ecs, 'Average', 60, '목표 태스크 (Desired)'),
     cw('ECS/ContainerInsights', 'RunningTaskCount', ecs, 'Average', 60, '실행 태스크 (Running)'),
     cw('AWS/ApplicationELB', 'HealthyHostCount', { TargetGroup: '*', LoadBalancer: '*' }, 'Maximum', 60, '정상 대상 (ALB Healthy)')], { line: 4 }),
-  ts('CPU·메모리 사용률 (ECS · %)', 'ECS 서비스 CPU 평균, CPU 최대, 메모리 최대 사용률(1분 단위). 최대 통계값을 개별 태스크의 실측 사용률과 동일시하면 안 됨. 점선은 CPU 60% 스케일링 기준.', 'percent', [
+  ts('CPU·메모리 사용률 (ECS · %)', 'ECS 서비스 CPU 평균, CPU 최대, 메모리 최대 사용률(1분 단위). CPU 최대 · 메모리 최대 = 사용률이 가장 높은 태스크 하나의 값(20초 측정 중 최댓값, ECS 서비스 사용률 문서). 점선은 CPU 60% 스케일링 기준.', 'percent', [
     cw('AWS/ECS', 'CPUUtilization', ecs, 'Average', 60, 'CPU 평균'),
     cw('AWS/ECS', 'CPUUtilization', ecs, 'Maximum', 60, 'CPU 최대'),
     cw('AWS/ECS', 'MemoryUtilization', ecs, 'Maximum', 60, '메모리 최대')], { line: 60 }),
@@ -65,9 +65,9 @@ const panels = [
     cw('HotelBooking/App', 'Errors5xx', { Service: 'app' }, 'Sum', 1, '서버 오류')]),
   ts('앱 응답 시간 (p95 · 1초)', '서버마다 1초 동안의 p95 중 가장 큰 값. 손님 대기 시간과 달리 연결 · 입구를 지나는 시간은 빠짐. 점선 1초', 'ms', [
     cw('HotelBooking/App', 'LatencyP95', { Service: 'app' }, 'Maximum', 1, '앱 p95')], { line: 1000 }),
-  ts('5xx 오류 발생 위치 (ALB / 앱)', 'ALB 자체가 반환한 5xx(예: 502·503·504)와 앱 대상이 반환한 5xx를 구분. No data는 오류 0건이 아니라 조회된 데이터가 없다는 뜻.', 'none', [
+  ts('5xx 오류 발생 위치 (ALB / 앱)', 'ALB 자체가 반환한 5xx(예: 502·503·504)와 앱 대상이 반환한 5xx를 구분. ALB 5xx는 0이 아닐 때만 보고되므로(ALB 지표 문서) 실험 중 선이 없으면 0건. 인프라가 꺼져 있어도 비어 보임.', 'none', [
     cw('AWS/ApplicationELB', 'HTTPCode_ELB_5XX_Count', { LoadBalancer: '*' }, 'Sum', 60, 'ALB 5xx'),
-    cw('AWS/ApplicationELB', 'HTTPCode_Target_5XX_Count', { LoadBalancer: '*' }, 'Sum', 60, '서버 오류')], { w: 24, h: 6, noValue: '데이터 없음' }),
+    cw('AWS/ApplicationELB', 'HTTPCode_Target_5XX_Count', { LoadBalancer: '*' }, 'Sum', 60, '앱 5xx (Target)')], { w: 24, h: 6, noValue: '데이터 없음' }),
   row('③ 데이터베이스 · RDS MySQL'),
   ts('DB CPU 사용률 (RDS · %)', 'RDS MySQL CPU 사용률(CloudWatch 1분 평균).', 'percent', [cw('AWS/RDS', 'CPUUtilization', db, 'Average', 60, 'DB CPU')]),
   ts('DB 연결 수 (RDS)', '서버들이 DB에 열어 둔 연결 수 (1분 최대). 점선 48 = 서버 4대 × 12개, 우리가 정한 상한', 'none', [cw('AWS/RDS', 'DatabaseConnections', db, 'Maximum', 60, '연결')], { line: 48 }),

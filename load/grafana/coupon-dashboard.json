@@ -727,7 +727,7 @@
       "id": 13,
       "type": "timeseries",
       "title": "CPU·메모리 사용률 (ECS · %)",
-      "description": "ECS 서비스 CPU 평균, CPU 최대, 메모리 최대 사용률(1분 단위). 최대 통계값을 개별 태스크의 실측 사용률과 동일시하면 안 됨. 점선은 CPU 60% 스케일링 기준.",
+      "description": "ECS 서비스 CPU 평균, CPU 최대, 메모리 최대 사용률(1분 단위). CPU 최대 · 메모리 최대 = 사용률이 가장 높은 태스크 하나의 값(20초 측정 중 최댓값, ECS 서비스 사용률 문서). 점선은 CPU 60% 스케일링 기준.",
       "gridPos": {
         "w": 12,
         "h": 8,
@@ -1035,7 +1035,7 @@
       "id": 16,
       "type": "timeseries",
       "title": "5xx 오류 발생 위치 (ALB / 앱)",
-      "description": "ALB 자체가 반환한 5xx(예: 502·503·504)와 앱 대상이 반환한 5xx를 구분. No data는 오류 0건이 아니라 조회된 데이터가 없다는 뜻.",
+      "description": "ALB 자체가 반환한 5xx(예: 502·503·504)와 앱 대상이 반환한 5xx를 구분. ALB 5xx는 0이 아닐 때만 보고되므로(ALB 지표 문서) 실험 중 선이 없으면 0건. 인프라가 꺼져 있어도 비어 보임.",
       "gridPos": {
         "w": 24,
         "h": 6,
@@ -1087,7 +1087,7 @@
           "matchExact": false,
           "metricQueryType": 0,
           "metricEditorMode": 0,
-          "label": "서버 오류",
+          "label": "앱 5xx (Target)",
           "id": "",
           "expression": ""
         }
