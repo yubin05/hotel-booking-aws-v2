@@ -253,8 +253,13 @@ bash migration/sql.sh scripts/check-consistency.sql       # 정합성 검사를 
 정해진 시각 T에 쿠폰 100장을 열고 1,000명이 함께 누릅니다([3단계 계획](../docs/experiments/migration.md) 3절). 이관 · k6 비교 뒤 같은 날, 옛 환경 발생기 · 서울 · global(WAF 예외)이 떠 있을 때 합니다. 관리자 로그인이 필요합니다.
 
 - **Grafana 실시간 전송(2026-11-20, [ADR-064](../docs/04-decisions.md#adr-064)):** PC에 `~/.hotel-legacy/grafana.env`(Grafana Cloud 원격 쓰기 주소 · 사용자 · 쓰기 토큰, `chmod 600`)가 있으면 `run-coupon.sh`가 k6 지표를 Grafana Cloud로 1초마다 보냅니다(`testid` = 회차 이름). 시작할 때 `Grafana 전송: 켬/끔`이 나오고, 토큰 파일은 회차가 끝나면 발생기에서 지웁니다. CloudWatch 패널은 bootstrap의 `grafana_read` 역할(관리자 apply, `terraform.tfvars`에 Grafana 계정 ID · 외부 ID)
+- **서버 2대로 묶기 · 풀기 (fixed2 회차, 2026-11-20):** 최소 · 최대는 예약 스케일링이 바꾸므로 Terraform이 관리하지 않아(`ignore_changes`) 명령으로 묶고 풉니다(평소 사용자). 묶으면 몰려드는 동안에도 2대 그대로, fixed2 회차가 다 끝나면 꼭 풉니다
+  ```bash
+  aws application-autoscaling register-scalable-target --service-namespace ecs --resource-id service/hotel-booking-aws-v2/app --scalable-dimension ecs:service:DesiredCount --region ap-northeast-2 --min-capacity 2 --max-capacity 2   # 묶기
+  aws application-autoscaling register-scalable-target --service-namespace ecs --resource-id service/hotel-booking-aws-v2/app --scalable-dimension ecs:service:DesiredCount --region ap-northeast-2 --min-capacity 2 --max-capacity 4   # 풀기
+  ```
 - **관리자 세션(1시간):** 3회 묶음은 회차 사이 대기 중에 끊길 수 있어(11-20 k6 비교에서 겪음) 한 회차씩 하고 회차마다 먼저 `aws login --profile admin`
-- **Grafana 관제실 처음 준비(한 번):** ① bootstrap에 Grafana 값을 넣고(`terraform.tfvars`, [새 PC 설정](../docs/pc-setup.md)) `AWS_PROFILE=admin terraform apply` → `AWS_PROFILE=admin terraform output -raw grafana_read_role_arn` ② Grafana → Connections → CloudWatch 데이터 소스 → Settings의 Assume Role ARN에 붙이고 Default Region `ap-northeast-2` → Save & test ③ Dashboards → New → Import → [load/grafana/coupon-dashboard.json](../load/grafana/coupon-dashboard.json) 올리고 Prometheus · CloudWatch 고르기 ④ 대시보드 Share → Share externally → Anyone with the link(시간 범위 바꾸기는 끔). 실험 날이 아니면 Pause access. 만든 링크(LIVE, 2026-11-20): https://zestyjungle807.grafana.net/public-dashboards/1b3648fc085042bbb4c8174e095b7251
+- **Grafana 관제실 처음 준비(한 번):** ① bootstrap에 Grafana 값을 넣고(`terraform.tfvars`, [새 PC 설정](../docs/pc-setup.md)) `AWS_PROFILE=admin terraform apply` → `AWS_PROFILE=admin terraform output -raw grafana_read_role_arn` ② Grafana → Connections → CloudWatch 데이터 소스 → Settings의 Assume Role ARN에 붙이고 Default Region `ap-northeast-2` → Save & test ③ Dashboards → New → Import → [load/grafana/coupon-dashboard.json](../load/grafana/coupon-dashboard.json) 올리고 Prometheus · CloudWatch 고르기 ④ 대시보드 Share → Share externally → Anyone with the link(시간 범위 바꾸기는 끔). 실험 날이 아니면 Pause access. 만든 링크(LIVE, 2026-11-20): https://zestyjungle807.grafana.net/public-dashboards/15c00b34bed84915a1169bff946af122 (11-20 16:4x에 대시보드를 덮어써 다시 만듦. 덮어쓰면 공유가 지워져 새 링크가 생김)
 
 묶음 스크립트(2026-11-19): T를 10분 간격으로 잡고 회차마다 `cw-metrics.sh`까지 합니다.
 
