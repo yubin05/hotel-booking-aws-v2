@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 3단계 쿠폰 오픈 스파이크 1회 (docs/experiments/migration.md 3절): 새 쿠폰을 T에 열고, 발생기에서 1,000명이 T에 함께 누름
-#   bash load/run-coupon.sh <T: HH:MM> <none|scheduled>     T는 지금보다 5분 이상 뒤(1,000명 가입), 회차 사이 10분
+#   bash load/run-coupon.sh <T: HH:MM> <none|scheduled>     T는 지금보다 12분 이상 뒤(오픈 전 1,000명이 가입하며 모이는 데 약 7분, 11-20 실측), 회차 사이 15분
 #   scheduled(예약 스케일링 있게)는 먼저 infra/seoul/main.tf의 scale_events에 첫 T 5분 전 ~ 마지막 T + 10분, min 4를 넣고 apply (런북 5-1)
 # 결과: load/results/coupon-<조건>-<시작 시각>/ k6.txt · .json.gz · .html, coupon.txt(만든 쿠폰), verify.txt(발급 확인 SQL)
 # 필요: 옛 환경 발생기(legacy is_load_test=true) · 서울 · global(발생기 WAF 예외), 관리자 로그인(쿠폰 만들기 · 확인 · 태스크 수)
@@ -16,7 +16,7 @@ CLAIMERS=${CLAIMERS:-1000}
 t=${1:-}; cond=${2:-}
 [[ $t =~ ^[0-2][0-9]:[0-5][0-9]$ && ($cond == none || $cond == scheduled) ]] || { sed -n '3,4p' "$0" >&2; exit 1; }
 open=$(date -d "$t" +%s) # 오늘 그 시각 (한국 시간)
-[ $((open - $(date +%s))) -ge 300 ] || { echo "T($t)는 지금보다 5분 이상 뒤여야 함 (1,000명 가입 시간)" >&2; exit 1; }
+[ $((open - $(date +%s))) -ge 720 ] || { echo "T($t)는 지금보다 12분 이상 뒤여야 함 (오픈 전 1,000명 가입 약 7분, 11-20 실측)" >&2; exit 1; }
 ssh-add -l >/dev/null 2>&1 || { echo '먼저 실행: eval "$(ssh-agent -s)"; ssh-add ~/.ssh/hotel-legacy' >&2; exit 1; }
 LOAD=$(terraform -chdir="$LEGACY_DIR" output -raw load_test_instance_1_public_ip | tr -d '\r')
 ON_LOAD=(ssh "ec2-user@$LOAD")
