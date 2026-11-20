@@ -32,8 +32,21 @@ resource "aws_cloudwatch_log_group" "app" {
   retention_in_days = 7
 }
 
+# Container Insights 성능 로그가 쌓이는 곳 (이름은 AWS 문서 고정). 미리 만들어 destroy 때 같이 지워지게 한다 (2026-11-20, ADR-063)
+resource "aws_cloudwatch_log_group" "container_insights" {
+  name              = "/aws/ecs/containerinsights/${local.name}/performance"
+  retention_in_days = 1
+}
+
 resource "aws_ecs_cluster" "this" {
   name = local.name # ADR-030
+
+  # 목표 · 실행 · 대기 태스크 수를 CloudWatch 지표로 (재생 페이지 · 5초 기록과 함께). enhanced는 태스크 · 컨테이너 단위까지라 지표 요금이 커서 기본만
+  setting {
+    name  = "containerInsights"
+    value = "enabled"
+  }
+  depends_on = [aws_cloudwatch_log_group.container_insights]
 }
 
 # 레시피 카드: 설정(CPU · 메모리 · 비밀값 · 로그)은 여기, 이미지는 이후 CD가 바꿈 (ADR-039)

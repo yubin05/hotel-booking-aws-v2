@@ -29,7 +29,9 @@ queries="[$(q ecs_cpu_avg AWS/ECS CPUUtilization Average "$ECS"),$(q ecs_cpu_max
 $(q ecs_mem_avg AWS/ECS MemoryUtilization Average "$ECS"),$(q ecs_mem_max AWS/ECS MemoryUtilization Maximum "$ECS"),\
 $(q healthy AWS/ApplicationELB HealthyHostCount Maximum "$ALB_TG"),$(q alb_5xx AWS/ApplicationELB HTTPCode_Target_5XX_Count Sum "$ALB"),\
 $(q rds_cpu AWS/RDS CPUUtilization Average "$RDS"),$(q rds_conn AWS/RDS DatabaseConnections Maximum "$RDS"),\
-$(q rds_freemem AWS/RDS FreeableMemory Minimum "$RDS"),$(q rds_credit AWS/RDS CPUCreditBalance Minimum "$RDS")]"
+$(q rds_freemem AWS/RDS FreeableMemory Minimum "$RDS"),$(q rds_credit AWS/RDS CPUCreditBalance Minimum "$RDS"),\
+$(q ci_desired ECS/ContainerInsights DesiredTaskCount Average "$ECS"),$(q ci_running ECS/ContainerInsights RunningTaskCount Average "$ECS"),\
+$(q ci_pending ECS/ContainerInsights PendingTaskCount Average "$ECS")]" # Container Insights 태스크 수 (2026-11-20 켬)
 
 for d in "$@"; do
   n=$(basename "$d")
