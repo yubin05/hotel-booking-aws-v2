@@ -56,6 +56,8 @@
 | [055](#adr-055) | 숙소 사진은 숙소 · 객실마다 고유 파일을 640 · 1200 WebP로 미리 만들어 S3(상시, 도쿄 복제)에, 사진 CloudFront는 global, DB에는 크기 없는 주소 |
 | [057](#adr-057) | 계정 기본 보안: CloudTrail(90일) · GuardDuty(3개 리전)는 상시, Config + Security Hub CSPM은 하루 켜서 잰 뒤 예산 여유 안이면 상시 |
 | [061](#adr-061) | 관제 화면은 CloudWatch 고해상도 사용자 지표(앱이 EMF로 1초) + 도쿄(관찰 리전)의 비공개 Grafana, 바깥에는 스냅샷으로 보여 준다 |
+| [062](#adr-062) | 리전 복원은 RDS 자동 백업의 리전 간 복제 + 도쿄 apply 한 번에 시점 복원, 되돌리기는 덤프 이관 도구 재사용 |
+| [064](#adr-064) | 실험 관제는 Grafana Cloud 무료(k6 → Prometheus 원격 쓰기, CloudWatch는 키 없는 Assume Role), 공개 LIVE는 외부 공유 대시보드, REPLAY는 원본에서 만든 정적 JSON |
 
 ---
 
@@ -1395,3 +1397,29 @@
   | 도쿄 태스크에 S3 쓰기 역할 | bootstrap에 역할 · 정책이 늘어남. 한 번 쓰는 미리 서명 주소가 범위가 더 좁음 |
 
 - **받아들인 위험 · 확인할 것:** 복제된 백업은 서울 DB를 지워도 남아 요금이 쌓인다([RDS 문서](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_DeleteInstance.html)) → 드릴 뒤 `drill/region.sh cleanup`. 첫 apply에서 확인할 가설: 받는 쪽 키로 AWS 관리 키(`aws/rds`) 허용 여부(문서에 없음), 암호화 복제에 미리 서명 주소가 필요한지(API 문서는 GovCloud만, 사용 설명서는 필요로 엇갈림), 보관 1일 허용 여부.
+
+<a name="adr-064"></a>
+## ADR-064 실험 관제는 Grafana Cloud 무료(k6 → Prometheus 원격 쓰기, CloudWatch는 키 없는 Assume Role), 공개 LIVE는 외부 공유 대시보드, REPLAY는 원본에서 만든 정적 JSON (2026-11-20)
+
+- **상황:** 2026-11-20 사용자: Cloud Lab을 Grafana k6 스타일로 만들고, 측정 · 분석은 **실제 Grafana**로 한다. 상시 AWS 리소스는 만들지 않는다. [ADR-061](#adr-061)은 운영 관제 화면을 CloudWatch 대시보드로 정했고 "k6 → Prometheus → Grafana"를 "실제 운영에는 k6가 없다"는 이유로 버렸다. 이번 것은 운영 관제가 아니라 **실험 관제**(k6가 실험 도구)라 그 이유가 해당하지 않는다.
+- **결정:**
+
+  | 항목 | 고른 것 |
+  |---|---|
+  | 관제실 | Grafana Cloud 무료 스택(지표 1만 시리즈 · 14일 보관, 사용자 3명, [요금](https://grafana.com/pricing/)). 서버를 두지 않는다 |
+  | k6 | 발생기에서 `-o experimental-prometheus-rw`([k6 문서](https://grafana.com/docs/k6/latest/results-output/real-time/grafana-cloud-prometheus/)). 쓰기 전용 토큰(`metrics:write`)은 PC의 `~/.hotel-legacy/grafana.env`에 두고 회차 동안만 발생기에 파일로 넘긴 뒤 지운다. p95 · p99 · 최대를 1초마다, `testid` = 회차 이름. 쿠폰부터(`run-coupon.sh`) |
+  | CloudWatch | [Grafana Assume Role](https://grafana.com/docs/grafana/latest/datasources/aws-cloudwatch/aws-authentication/): bootstrap IAM 역할(`grafana.tf`)을 Grafana의 AWS 계정이 외부 ID 조건으로 맡는다. 키를 만들지 않고, `ListMetrics` · `GetMetricData`만, 서울 · 도쿄만 |
+  | 공개 LIVE | [외부 공유 대시보드](https://grafana.com/docs/grafana-cloud/visualizations/dashboards/share-dashboards-panels/shared-dashboards/): 링크가 있으면 읽기만, 저장된 쿼리만 돈다. 변수는 안 되고 Grafana Cloud는 패널 iframe을 막아 Cloud Lab에서는 링크로 연다. 실험 날만 켜고 평소에는 멈춘다(Pause access) |
+  | REPLAY | Grafana 보관(14일)에 기대지 않는다. 원본 → `scripts/replay-data.mjs` → 정적 JSON([ADR-063](03-plan.md#adr-063) 그대로) |
+  | 운영 관제 | ADR-061의 CloudWatch 대시보드 그대로(운영용). 실험 관제와 섞지 않는다 |
+
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | Amazon Managed Grafana + 관리형 Prometheus | 로그인에 IAM Identity Center가 필요해 Free 플랜 크레딧을 잃을 수 있다(ADR-061과 같은 이유) |
+  | AWS에 Grafana · Prometheus 직접 운영 | 상시 EC2 · 디스크 비용과 패치. 실험 날만 켜면 기록과 공개 링크가 그날만 산다 |
+  | Grafana Cloud k6(클라우드 실행) | 무료가 월 500 VUh, 3,000명 계단 1회가 약 950 VUh(추정)라 넘는다 |
+  | ADR-063 때 설계한 Vercel 함수 + Vercel OIDC 읽기 역할 | 화면을 직접 만들어야 하고 AWS 역할이 하나 더 는다. 실제 Grafana를 쓰는 공유 대시보드로 대신한다 |
+
+- **받아들인 위험 · 확인할 것:** k6 문서는 원격 쓰기 출력을 실험 기능이라고 적는다. Grafana의 p95는 보낸 주기(1초)마다 계산한 값이라 요청 원본으로 계산하는 REPLAY의 p95와 조금 다를 수 있어 화면에 정의를 적는다. 공유 링크는 볼 때마다 CloudWatch 조회 요금(지표 1,000개당 $0.01)이 생길 수 있다(Grafana 쪽 캐시 여부는 확인 못 함). 외부 공유 대시보드가 무료 플랜에서 되는지 문서에 없어 가입 뒤 확인한다. 무료 플랜 한도(1만 시리즈)는 k6 태그가 늘면 넘을 수 있어 첫 회차 뒤 시리즈 수를 본다.
