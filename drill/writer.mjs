@@ -48,23 +48,26 @@ async function login() {
 }
 assert.ok(await login(), '로그인 실패');
 const rooms = [];
-for (const hotel of (await call('GET', '/api/hotels?limit=12&guests=2')).json.data?.hotels ?? []) {
+// 회차마다 다른 숙소 묶음 · 날짜 구간: 같은 객실 · 날짜를 앞 회차가 이미 예약해 쓰기가 전부 409가 됐음(11-20 태스크 종료 2회차)
+const PAGE = 1 + Math.floor(Math.random() * 80); // 숙소 약 1,010곳 ÷ 12
+const DAY0 = 400 + Math.floor(Math.random() * 2600); // 약 1 ~ 8년 뒤 (예약 날짜 상한 없음, 한 회차는 객실 20개 × 최대 약 80일)
+for (const hotel of (await call('GET', `/api/hotels?limit=12&guests=2&page=${PAGE}`)).json.data?.hotels ?? []) {
   const r = await call('GET', `/api/hotels/${hotel.id}`);
   rooms.push(...(r.json.data?.rooms ?? []).filter((x) => x.capacity >= 2 && x.is_available).map((x) => x.id));
   if (rooms.length >= 20) break;
 }
 assert.ok(rooms.length > 0, '예약할 객실을 못 찾음');
-appendFileSync(out, `# run=${run} start=${now.toISOString()} base=${base} rooms=${rooms.length}\n`);
+appendFileSync(out, `# run=${run} start=${now.toISOString()} base=${base} rooms=${rooms.length} page=${PAGE} day0=${DAY0}\n`);
 console.log(`드릴 손님 ${email}, 객실 ${rooms.length}개, 기록 ${out}`);
 
-// 순번마다 다른 객실 · 날짜(400일 뒤부터, k6 · 표지 손님 날짜와 안 겹치게)라 409는 원래 없어야 함
+// 순번마다 다른 객실 · 날짜(DAY0일 뒤부터, k6 · 표지 손님 날짜와 안 겹치게)라 409는 원래 없어야 함
 const isoDate = (days) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let seq = 1;
 async function writeLoop() {
   for (;;) {
     const t = Date.now();
-    const day = 400 + Math.floor(seq / rooms.length);
+    const day = DAY0 + Math.floor(seq / rooms.length);
     const r = await call('POST', '/api/bookings',
       { room_id: rooms[seq % rooms.length], check_in_date: isoDate(day), check_out_date: isoDate(day + 1), guests: 2, special_requests: `drill ${run} #${seq}` },
       { Authorization: `Bearer ${token}`, 'Idempotency-Key': `drill-${run}-${seq}` });
