@@ -24,6 +24,10 @@ chk "~/.hotel-legacy/db.env" "legacy README 준비물" test -f ~/.hotel-legacy/d
 chk "~/.hotel-legacy/app.env" "legacy README 준비물" test -f ~/.hotel-legacy/app.env
 ip=$(curl -s -m 5 https://checkip.amazonaws.com | tr -d '\r\n')
 chk "legacy/terraform.tfvars SSH 허용 IP = 지금 IP(${ip:-?})" "web_app_ssh_ingress_cidrs = [\"$ip/32\"] (커밋 안 함)" grep -q "\"$ip/32\"" "$APP/legacy/terraform.tfvars"
+# 있으면 좋은 것 (없어도 시험은 됨, NG로 세지 않음): docs/pc-setup.md
+opt() { if "${@:3}" >/dev/null 2>&1; then echo "  OK  $1"; else echo "  --  $1 → $2"; fi; }
+opt "~/.hotel-legacy/grafana.env 토큰" "없으면 쿠폰 시험의 Grafana 실시간 전송만 꺼짐" grep -q '^K6_PROMETHEUS_RW_PASSWORD=.' ~/.hotel-legacy/grafana.env
+opt "infra/bootstrap/terraform.tfvars Grafana 값" "빈 채로 bootstrap apply하면 Grafana 출입증 역할이 지워짐" grep -q '^grafana_account_id *= *"[0-9]' infra/bootstrap/terraform.tfvars
 
 echo "[Terraform init]"
 for r in "$APP/legacy" "$APP/legacy/iam" infra/bootstrap infra/seoul infra/global infra/tokyo; do
