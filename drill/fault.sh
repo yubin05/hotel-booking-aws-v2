@@ -62,7 +62,7 @@ while :; do
 done >>"$OUT/state.log" 2>/dev/null &
 STATE_PID=$!
 BLOCKED=0
-trap 'kill $WRITER_PID $STATE_PID 2>/dev/null; [ $BLOCKED = 1 ] && undo_az "$OUT"' EXIT
+trap 'kill $WRITER_PID $STATE_PID 2>/dev/null; if [ $BLOCKED = 1 ]; then undo_az "$OUT"; fi; true' EXIT # 정리 코드가 끝 상태를 실패로 바꾸지 않게 (11-20 회차가 정상인데 종료 코드 1이라 && 연속 실행이 멈춤)
 
 sleep 8
 kill -0 $WRITER_PID 2>/dev/null || { cat "$OUT/writer.out" >&2; echo "손님 역할(writer)이 시작하지 못함" >&2; exit 1; }
@@ -171,3 +171,4 @@ since=$(date -u -d "@$(($(date +%s) - BASELINE - TAIL - (SECONDS - t_inject) - 3
 } >"$OUT/events.txt" 2>&1 || true
 node ../scripts/drill-report.mjs "$OUT" | tee "$OUT/report.md"
 echo "결과: drill/$OUT/"
+exit 0 # 여기까지 오면 회차는 정상 (정리 코드의 상태가 종료 코드가 되지 않게)
