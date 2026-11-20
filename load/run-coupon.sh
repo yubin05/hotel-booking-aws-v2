@@ -86,7 +86,10 @@ cat >"$out/verify.sql" <<SQL
 SELECT c.quantity, c.issued_count, COUNT(uc.id) AS user_coupons, COUNT(DISTINCT uc.user_id) AS users
   FROM coupons c LEFT JOIN user_coupons uc ON uc.coupon_id = c.id WHERE c.id = '$id' GROUP BY c.id;
 SQL
+# 회차가 18분쯤이라 관리자 세션(1시간)이 여기서 끝나 있을 수 있음(11-20 두 번) → 끊겼으면 이 자리에서 로그인(브라우저가 열림)하고 이어 감
+admin sts get-caller-identity >/dev/null 2>&1 || { echo "관리자 세션이 끝남 → 로그인 창을 엽니다"; aws login --profile admin; }
 bash ../migration/sql.sh "$out/verify.sql" | tee "$out/verify.txt"
 echo "지금 태스크 $(admin ecs describe-services --cluster "$CLUSTER" --services app --query 'services[0].runningCount' --output text)개"
+bash cw-metrics.sh "$out" # CloudWatch 원본(1초 지표는 3시간만 남음) · 스케일링 결정 · ECS 이벤트
 node ../scripts/coupon-report.mjs "$out/$name.json.gz"
-echo "결과: load/$out/"
+echo "결과: load/$out/ (발급 확인 verify.txt: quantity · issued_count · user_coupons · users가 모두 쿠폰 수와 같아야 정상)"
