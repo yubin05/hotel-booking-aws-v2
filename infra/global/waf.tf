@@ -19,6 +19,13 @@ resource "aws_wafv2_ip_set" "loadtest" {
   scope              = "CLOUDFRONT"
   ip_address_version = "IPV4"
   addresses          = var.loadtest_ips
+
+  # 시험 뒤 -var 없이 apply하면 IP 세트 삭제와 웹 ACL의 허용 규칙 삭제가 한 번에 일어나는데, 기본 순서로는 IP 세트를 먼저 지우려다
+  # "웹 ACL이 쓰는 중"(WAFAssociatedItemException)으로 실패함(2026-11-20). 이걸 켜면 참조하는 웹 ACL을 먼저 고치고 나중에 지움.
+  # 주의: 이름이 고정이라 IP 세트를 "교체"해야 하는 변경(이름 · 범위)은 같은 이름이 겹쳐 실패함 → 그때는 -var 없이 한 번 지운 뒤 다시
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 # 규칙 순서: 관리형(10 ~ 13) → 발생기 허용(15, 시험 날만) → 요청 수 한도(20 ~ 22)
