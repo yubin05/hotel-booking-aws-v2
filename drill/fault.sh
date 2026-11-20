@@ -62,7 +62,7 @@ while :; do
 done >>"$OUT/state.log" 2>/dev/null &
 STATE_PID=$!
 BLOCKED=0
-trap 'kill $WRITER_PID $STATE_PID 2>/dev/null; if [ $BLOCKED = 1 ]; then undo_az "$OUT"; fi; true' EXIT # 정리 코드가 끝 상태를 실패로 바꾸지 않게 (11-20 회차가 정상인데 종료 코드 1이라 && 연속 실행이 멈춤)
+trap 'kill $WRITER_PID $STATE_PID 2>/dev/null || true; if [ $BLOCKED = 1 ]; then undo_az "$OUT"; fi; true' EXIT # set -e라 이미 끝난 프로세스의 kill 실패에서 정리 코드가 멈추고 종료 코드 1이 됐음(11-20 재현): kill은 실패해도 계속, 그래야 undo_az도 돎
 
 sleep 8
 kill -0 $WRITER_PID 2>/dev/null || { cat "$OUT/writer.out" >&2; echo "손님 역할(writer)이 시작하지 못함" >&2; exit 1; }
@@ -117,7 +117,7 @@ deploy)
     td.containerDefinitions[0].command = ["node", "-e", "process.exit(1)"];
     console.log(JSON.stringify(td));' "$OUT/td.json" >"$OUT/td-broken.json"
   broken=$(admin ecs register-task-definition --cli-input-json "file://$OUT/td-broken.json" --query taskDefinition.taskDefinitionArn --output text)
-  trap 'kill $WRITER_PID $STATE_PID 2>/dev/null; admin ecs deregister-task-definition --task-definition "$broken" >/dev/null 2>&1 || true' EXIT
+  trap 'kill $WRITER_PID $STATE_PID 2>/dev/null || true; admin ecs deregister-task-definition --task-definition "$broken" >/dev/null 2>&1 || true' EXIT
   mark inject "${broken##*/}"
   admin ecs update-service --cluster "$CLUSTER" --service app --task-definition "$broken" >/dev/null
   deployments() { aws_t ecs describe-services --cluster "$CLUSTER" --services app --query 'services[0].deployments[].[status,taskDefinition,rolloutState]' --output text; }
