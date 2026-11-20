@@ -252,6 +252,9 @@ bash migration/sql.sh scripts/check-consistency.sql       # 정합성 검사를 
 
 정해진 시각 T에 쿠폰 100장을 열고 1,000명이 함께 누릅니다([3단계 계획](../docs/experiments/migration.md) 3절). 이관 · k6 비교 뒤 같은 날, 옛 환경 발생기 · 서울 · global(WAF 예외)이 떠 있을 때 합니다. 관리자 로그인이 필요합니다.
 
+- **Grafana 실시간 전송(2026-11-20, [ADR-064](../docs/04-decisions.md#adr-064)):** PC에 `~/.hotel-legacy/grafana.env`(Grafana Cloud 원격 쓰기 주소 · 사용자 · 쓰기 토큰, `chmod 600`)가 있으면 `run-coupon.sh`가 k6 지표를 Grafana Cloud로 1초마다 보냅니다(`testid` = 회차 이름). 시작할 때 `Grafana 전송: 켬/끔`이 나오고, 토큰 파일은 회차가 끝나면 발생기에서 지웁니다. CloudWatch 패널은 bootstrap의 `grafana_read` 역할(관리자 apply, `terraform.tfvars`에 Grafana 계정 ID · 외부 ID)
+- **관리자 세션(1시간):** 3회 묶음은 회차 사이 대기 중에 끊길 수 있어(11-20 k6 비교에서 겪음) 한 회차씩 하고 회차마다 먼저 `aws login --profile admin`
+
 묶음 스크립트(2026-11-19): T를 10분 간격으로 잡고 회차마다 `cw-metrics.sh`까지 합니다.
 
 ```bash

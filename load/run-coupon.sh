@@ -46,14 +46,25 @@ bash ../migration/sql.sh "$out/coupon.sql" | tee "$out/coupon.txt"
 
 "${ON_LOAD[@]}" 'cloud-init status --wait >/dev/null; mkdir -p ~/load/results; sudo docker rm k6 >/dev/null 2>&1 || true'
 scp -q coupon-spike.js "ec2-user@$LOAD:load/"
+# Grafana Cloud(실험 관제실, ADR-064)로 실시간 전송: PC에 쓰기 토큰 파일이 있을 때만. 토큰은 명령줄에 안 나오게 파일(--env-file)로 넘기고 끝나면 지움
+rw=0
+if [ -f ~/.hotel-legacy/grafana.env ]; then
+  scp -q ~/.hotel-legacy/grafana.env "ec2-user@$LOAD:load/grafana.env" && "${ON_LOAD[@]}" 'chmod 600 ~/load/grafana.env' && rw=1
+fi
+echo "Grafana 전송: $([ $rw = 1 ] && echo 켬 || echo '끔 (~/.hotel-legacy/grafana.env 없음)')"
 # 조회는 시나리오 시작(가입이 끝난 뒤)부터 T + 30초 넘어까지 이어지게
-"${ON_LOAD[@]}" bash -s -- "$name" "$BASE" "$id" "$((open * 1000))" "$COUPONS" "$CLAIMERS" "$((open - $(date +%s) + 30))" <<'REMOTE'
+"${ON_LOAD[@]}" bash -s -- "$name" "$BASE" "$id" "$((open * 1000))" "$COUPONS" "$CLAIMERS" "$((open - $(date +%s) + 30))" "$rw" <<'REMOTE'
 set -euo pipefail
 name=$1
-sudo docker run -d --name k6 --network host --user "$(id -u):$(id -g)" -v ~/load:/load \
+grafana=() out=(--out "json=/load/results/$name.json.gz")
+if [ "$8" = 1 ]; then # p95 · p99 · 최대를 1초마다 보냄(쏠림이 몇 초라 기본 5초는 거침), 회차 이름을 testid로
+  grafana=(--env-file "$HOME/load/grafana.env" -e 'K6_PROMETHEUS_RW_TREND_STATS=p(95),p(99),max' -e K6_PROMETHEUS_RW_PUSH_INTERVAL=1s -e K6_PROMETHEUS_RW_STALE_MARKERS=true)
+  out+=(-o experimental-prometheus-rw --tag "testid=$name")
+fi
+sudo docker run -d --name k6 --network host --user "$(id -u):$(id -g)" -v ~/load:/load "${grafana[@]}" \
   -e BASE_URL="$2" -e COUPON_ID="$3" -e OPEN_AT="$4" -e COUPONS="$5" -e CLAIMERS="$6" -e READ_SEC="$7" \
   -e K6_WEB_DASHBOARD=true -e K6_WEB_DASHBOARD_EXPORT="/load/results/$name.html" \
-  grafana/k6:1.0.0 run --out "json=/load/results/$name.json.gz" /load/coupon-spike.js >/dev/null
+  grafana/k6:1.0.0 run "${out[@]}" /load/coupon-spike.js >/dev/null
 REMOTE
 echo "시작: $name (T $t, 쿠폰 $COUPONS장, $CLAIMERS명). Ctrl+C로 빠져나와도 시험은 발생기에서 계속됨"
 bash record-tasks.sh "$out/tasks.log" & # 태스크 수 5초 기록, 이 스크립트가 끝나면 멈춤
@@ -63,7 +74,7 @@ trap 'kill $rec 2>/dev/null' EXIT
 
 "${ON_LOAD[@]}" 'sudo docker logs k6' >"$out/k6.txt" 2>&1
 scp -q "ec2-user@$LOAD:load/results/$name.*" "$out/"
-"${ON_LOAD[@]}" 'sudo docker rm k6 >/dev/null'
+"${ON_LOAD[@]}" 'sudo docker rm k6 >/dev/null; rm -f ~/load/grafana.env'
 # 발급 확인: 발급 수 = 장 수(초과 0), 받은 줄 수 = 받은 사람 수(1인 1매)
 cat >"$out/verify.sql" <<SQL
 SELECT c.quantity, c.issued_count, COUNT(uc.id) AS user_coupons, COUNT(DISTINCT uc.user_id) AS users
