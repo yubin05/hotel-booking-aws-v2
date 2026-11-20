@@ -114,6 +114,12 @@ sudo docker run -d --name k6 --network host --user "$(id -u):$(id -g)" -v ~/load
   grafana/k6:1.0.0 run --out "json=/load/results/$name.json.gz" "$@" /load/baseline.js >/dev/null
 REMOTE
 echo "시작: $name (대상 $base, 발생기 $LOAD). 진행을 따라 보여 줌. Ctrl+C로 빠져나와도 시험은 계속됨"
+if [ "$pre" = baseline-aws ]; then # 태스크 수 5초 기록 (이 스크립트가 끝나면 멈춤. 연결이 끊기면 그 뒤는 scaling.json · ECS 이벤트로)
+  mkdir -p "$RESULTS/$name"
+  bash record-tasks.sh "$RESULTS/$name/tasks.log" &
+  rec=$!
+  trap 'kill $rec 2>/dev/null' EXIT
+fi
 # 무너진 뒤에는 Request Failed 경고가 초당 수백 줄이라 Git Bash의 SSH가 끊긴 적이 있음(2회차) → 화면에서만 거른다. 전체 로그는 collect가 k6.txt로 받음
 "${ON_LOAD[@]}" 'sudo docker logs -f k6 2>&1 | grep --line-buffered -v "Request Failed"' || {
   echo "연결이 끊김. 시험은 발생기에서 계속 돎. 끝난 뒤: bash run-baseline.sh collect $name" >&2

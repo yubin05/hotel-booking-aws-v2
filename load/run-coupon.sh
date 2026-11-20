@@ -56,6 +56,9 @@ sudo docker run -d --name k6 --network host --user "$(id -u):$(id -g)" -v ~/load
   grafana/k6:1.0.0 run --out "json=/load/results/$name.json.gz" /load/coupon-spike.js >/dev/null
 REMOTE
 echo "시작: $name (T $t, 쿠폰 $COUPONS장, $CLAIMERS명). Ctrl+C로 빠져나와도 시험은 발생기에서 계속됨"
+bash record-tasks.sh "$out/tasks.log" & # 태스크 수 5초 기록, 이 스크립트가 끝나면 멈춤
+rec=$!
+trap 'kill $rec 2>/dev/null' EXIT
 "${ON_LOAD[@]}" 'sudo docker logs -f k6 2>&1 | grep --line-buffered -v "Request Failed"' || true
 
 "${ON_LOAD[@]}" 'sudo docker logs k6' >"$out/k6.txt" 2>&1
