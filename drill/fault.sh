@@ -170,6 +170,8 @@ since=$(date -u -d "@$(($(date +%s) - BASELINE - TAIL - (SECONDS - t_inject) - 3
   echo "## RDS 이벤트"
   admin rds describe-events --source-identifier "$CLUSTER" --source-type db-instance --start-time "$since" --query 'Events[].[Date,Message]' --output text
 } >"$OUT/events.txt" 2>&1 || true
+# CloudWatch 원본(앱 1초 지표는 3시간만 남음, ALB 지표는 ALB가 있어야 찾음) · 스케일링 결정 · ECS 이벤트 · 태스크 크기. 재생 화면용(11-20 추가)
+bash ../load/cw-metrics.sh "$OUT" >/dev/null 2>&1 || echo "CloudWatch 원본 받기 실패 → 시작 3시간 안에: bash load/cw-metrics.sh drill/$OUT" >&2
 node ../scripts/drill-report.mjs "$OUT" | tee "$OUT/report.md"
 echo "결과: drill/$OUT/"
 exit 0 # 여기까지 오면 회차는 정상 (정리 코드의 상태가 종료 코드가 되지 않게)
