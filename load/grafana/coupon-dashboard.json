@@ -50,13 +50,13 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "**선착순 쿠폰 오픈 실험** · 정해진 시각에 손님 1,000명이 쿠폰 100장을 동시에 누릅니다. 위에서 아래로 **① 손님이 몰림 → ② 서버의 반응 → ③ 데이터베이스** 순서로 읽습니다. 그래프가 비어 있으면 지금 실험하지 않는 것입니다.\n\n용어: **서버** = 앱이 도는 컴퓨터 한 대(AWS ECS Fargate 태스크) · **입구** = 손님 요청을 서버들에 나눠 주는 곳(ALB) · **데이터베이스** = 예약 · 쿠폰이 저장되는 곳(RDS MySQL) · **느린 쪽 5% 시간**(p95) = 100명 중 95번째로 오래 기다린 사람의 시간 · 범례의 `coupon-…` = 회차 이름"
+        "content": "**쿠폰 이벤트 부하 실험** · 가상 사용자 1,000명(k6)이 선착순 쿠폰 100장 발급을 시도합니다. **① 부하(k6) → ② 앱(ECS·ALB) → ③ DB(RDS)** 순서로 보세요. `No data`는 오류 0건이 아닙니다. 수집 상태와 조회 시간 범위를 확인해야 합니다.\n\n용어: **VU** = k6 가상 사용자 · **RPS** = 초당 요청 수 · **ECS 태스크** = 컨테이너 실행 단위(물리 서버 대수가 아님) · **ALB** = 요청 분배기 · **RDS** = 관리형 DB · **p95** = 95%의 요청이 해당 시간 이내에 완료됨 · `coupon-…` = 회차 이름"
       }
     },
     {
       "id": 2,
       "type": "row",
-      "title": "① 손님이 몰림 (부하 도구 k6가 1초마다 보냄)",
+      "title": "① 부하 테스트 · k6 (가상 사용자·쿠폰)",
       "collapsed": false,
       "gridPos": {
         "w": 24,
@@ -69,7 +69,7 @@
     {
       "id": 3,
       "type": "stat",
-      "title": "쿠폰 받음",
+      "title": "쿠폰 발급 성공 (201)",
       "description": "발급 성공(201) 누적. 100이 넘으면 초과 발급(실패)",
       "gridPos": {
         "w": 6,
@@ -126,7 +126,7 @@
     {
       "id": 4,
       "type": "stat",
-      "title": "품절 안내 (정상)",
+      "title": "쿠폰 품절 응답 (409 · 정상)",
       "description": "쿠폰이 다 나간 뒤 받은 \"품절\" 응답(409) 누적. 정상적인 거절",
       "gridPos": {
         "w": 6,
@@ -183,7 +183,7 @@
     {
       "id": 5,
       "type": "stat",
-      "title": "실패",
+      "title": "예상 밖 응답 (오류)",
       "description": "쿠폰 받음 · 품절 안내가 아닌 응답(오픈 전 거절, 서버 오류, 연결 실패 등) 누적. 0이어야 함",
       "gridPos": {
         "w": 6,
@@ -240,8 +240,8 @@
     {
       "id": 6,
       "type": "stat",
-      "title": "가상 손님 수",
-      "description": "부하 도구(k6)가 흉내 내는 손님(VU) 수, 지금 값",
+      "title": "가상 사용자 수 (k6 VU)",
+      "description": "k6가 생성한 가상 사용자(VU) 수. 실제 접속자 수와 다릅니다.",
       "gridPos": {
         "w": 6,
         "h": 4,
@@ -297,7 +297,7 @@
     {
       "id": 7,
       "type": "timeseries",
-      "title": "쿠폰이 나간 순간",
+      "title": "쿠폰 발급·품절 누적",
       "description": "받음 · 품절 안내 누적. 받음이 100(점선)에서 멈춰야 정상. 품절 안내가 오르기 시작한 때가 다 나간 순간",
       "gridPos": {
         "w": 12,
@@ -317,7 +317,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "expr": "max by (testid) (k6_coupons_issued_total)",
-          "legendFormat": "받음 {{testid}}",
+          "legendFormat": "발급 성공 {{testid}}",
           "range": true
         },
         {
@@ -327,7 +327,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "expr": "max by (testid) (k6_coupons_sold_out_total)",
-          "legendFormat": "품절 안내 {{testid}}",
+          "legendFormat": "정상 품절 {{testid}}",
           "range": true
         }
       ],
@@ -376,7 +376,7 @@
     {
       "id": 8,
       "type": "timeseries",
-      "title": "초당 요청 수 (손님 쪽)",
+      "title": "초당 요청 수 (RPS · k6)",
       "description": "손님이 1초에 보낸 요청 수(쿠폰 + 같은 때 숙소 조회)",
       "gridPos": {
         "w": 12,
@@ -441,8 +441,8 @@
     {
       "id": 9,
       "type": "timeseries",
-      "title": "손님 대기 시간 (느린 쪽 5%)",
-      "description": "p95. 쿠폰 누름 = 연결 대기 + 응답, 조회 = 숙소 검색 · 상세. 점선 1초 = 판정 기준. 1초 묶음마다 계산해 회차 보고서(요청 원본)와 조금 다를 수 있음",
+      "title": "쿠폰·조회 응답 시간 (p95)",
+      "description": "p95는 전체 요청의 95%가 이 시간 안에 완료된다는 뜻. 쿠폰은 연결 대기와 응답, 조회는 검색·상세 응답. 1초 구간별 값이므로 전체 회차 p95와 차이가 날 수 있음.",
       "gridPos": {
         "w": 12,
         "h": 8,
@@ -520,7 +520,7 @@
     {
       "id": 10,
       "type": "timeseries",
-      "title": "실패한 요청 (초당)",
+      "title": "실패 요청 수 (건/초 · k6)",
       "description": "정상(200 · 201 · 409) 밖의 응답. 0이어야 함",
       "gridPos": {
         "w": 12,
@@ -585,7 +585,7 @@
     {
       "id": 11,
       "type": "row",
-      "title": "② 서버의 반응 (AWS)",
+      "title": "② 애플리케이션 · ECS / ALB",
       "collapsed": false,
       "gridPos": {
         "w": 24,
@@ -598,8 +598,8 @@
     {
       "id": 12,
       "type": "timeseries",
-      "title": "서버 대수",
-      "description": "목표 = 오토스케일링이 정한 대수, 실행 = 실제로 켜진 대수(ECS Container Insights), 손님 받는 중 = 입구(ALB)가 정상으로 본 대수. 켜진 뒤 손님을 받기까지 수십 초 걸림. 점선 = 최대 4대. 1분 값이라 몇 초짜리 쏠림 안의 변화는 안 보임",
+      "title": "서버 수 (ECS 태스크)",
+      "description": "Desired = 목표 태스크, Running = 실제 실행 태스크, ALB Healthy = 트래픽을 받을 준비가 된 정상 대상. 태스크는 물리 서버가 아닌 컨테이너 실행 단위. 1분 단위 관측.",
       "gridPos": {
         "w": 12,
         "h": 8,
@@ -630,7 +630,7 @@
           "matchExact": true,
           "metricQueryType": 0,
           "metricEditorMode": 0,
-          "label": "목표",
+          "label": "목표 태스크 (Desired)",
           "id": "",
           "expression": ""
         },
@@ -653,7 +653,7 @@
           "matchExact": true,
           "metricQueryType": 0,
           "metricEditorMode": 0,
-          "label": "실행",
+          "label": "실행 태스크 (Running)",
           "id": "",
           "expression": ""
         },
@@ -676,7 +676,7 @@
           "matchExact": false,
           "metricQueryType": 0,
           "metricEditorMode": 0,
-          "label": "손님 받는 중",
+          "label": "정상 대상 (ALB Healthy)",
           "id": "",
           "expression": ""
         }
@@ -726,8 +726,8 @@
     {
       "id": 13,
       "type": "timeseries",
-      "title": "서버 바쁨 정도",
-      "description": "CPU 평균(오토스케일링이 보는 값, 점선 60%를 3분 넘으면 서버를 늘림) · 가장 바쁜 서버의 CPU · 가장 바쁜 서버의 메모리 (1분 값)",
+      "title": "CPU·메모리 사용률 (ECS · %)",
+      "description": "ECS 서비스 CPU 평균, CPU 최대, 메모리 최대 사용률(1분 단위). CPU 최대 · 메모리 최대 = 사용률이 가장 높은 태스크 하나의 값(20초 측정 중 최댓값, ECS 서비스 사용률 문서). 점선은 CPU 60% 스케일링 기준.",
       "gridPos": {
         "w": 12,
         "h": 8,
@@ -781,7 +781,7 @@
           "matchExact": true,
           "metricQueryType": 0,
           "metricEditorMode": 0,
-          "label": "가장 바쁜 서버 CPU",
+          "label": "CPU 최대",
           "id": "",
           "expression": ""
         },
@@ -804,7 +804,7 @@
           "matchExact": true,
           "metricQueryType": 0,
           "metricEditorMode": 0,
-          "label": "가장 바쁜 서버 메모리",
+          "label": "메모리 최대",
           "id": "",
           "expression": ""
         }
@@ -854,7 +854,7 @@
     {
       "id": 14,
       "type": "timeseries",
-      "title": "서버가 받은 요청 · 서버 오류 (1초)",
+      "title": "앱 요청·5xx 오류 (1초)",
       "description": "앱이 1초마다 직접 남기는 값(헬스 체크 제외). 서버 오류 = 5xx",
       "gridPos": {
         "w": 12,
@@ -953,7 +953,7 @@
     {
       "id": 15,
       "type": "timeseries",
-      "title": "서버 응답 시간 (느린 쪽 5%, 1초)",
+      "title": "앱 응답 시간 (p95 · 1초)",
       "description": "서버마다 1초 동안의 p95 중 가장 큰 값. 손님 대기 시간과 달리 연결 · 입구를 지나는 시간은 빠짐. 점선 1초",
       "gridPos": {
         "w": 12,
@@ -984,7 +984,7 @@
           "matchExact": true,
           "metricQueryType": 0,
           "metricEditorMode": 0,
-          "label": "느린 쪽 5%",
+          "label": "앱 p95",
           "id": "",
           "expression": ""
         }
@@ -1034,8 +1034,8 @@
     {
       "id": 16,
       "type": "timeseries",
-      "title": "오류가 난 곳 (1분)",
-      "description": "입구 오류 = 받을 서버가 없거나 서버가 응답하지 못해 입구(ALB)가 대신 낸 502 · 503 · 504. 서버 오류 = 서버가 낸 5xx. 오류가 없으면 비어 보임",
+      "title": "5xx 오류 발생 위치 (ALB / 앱)",
+      "description": "ALB 자체가 반환한 5xx(예: 502·503·504)와 앱 대상이 반환한 5xx를 구분. ALB 5xx는 0이 아닐 때만 보고되므로(ALB 지표 문서) 실험 중 선이 없으면 0건. 인프라가 꺼져 있어도 비어 보임.",
       "gridPos": {
         "w": 24,
         "h": 6,
@@ -1065,7 +1065,7 @@
           "matchExact": false,
           "metricQueryType": 0,
           "metricEditorMode": 0,
-          "label": "입구 오류",
+          "label": "ALB 5xx",
           "id": "",
           "expression": ""
         },
@@ -1087,7 +1087,7 @@
           "matchExact": false,
           "metricQueryType": 0,
           "metricEditorMode": 0,
-          "label": "서버 오류",
+          "label": "앱 5xx (Target)",
           "id": "",
           "expression": ""
         }
@@ -1096,7 +1096,7 @@
         "defaults": {
           "unit": "none",
           "min": 0,
-          "noValue": "오류 없음",
+          "noValue": "데이터 없음",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -1134,7 +1134,7 @@
     {
       "id": 17,
       "type": "row",
-      "title": "③ 데이터베이스 (AWS RDS MySQL)",
+      "title": "③ 데이터베이스 · RDS MySQL",
       "collapsed": false,
       "gridPos": {
         "w": 24,
@@ -1147,8 +1147,8 @@
     {
       "id": 18,
       "type": "timeseries",
-      "title": "데이터베이스 바쁨 정도",
-      "description": "DB 서버 CPU (1분 값). 오늘 k6 3,000명에서도 43%",
+      "title": "DB CPU 사용률 (RDS · %)",
+      "description": "RDS MySQL CPU 사용률(CloudWatch 1분 평균).",
       "gridPos": {
         "w": 12,
         "h": 8,
@@ -1224,7 +1224,7 @@
     {
       "id": 19,
       "type": "timeseries",
-      "title": "데이터베이스 연결 수",
+      "title": "DB 연결 수 (RDS)",
       "description": "서버들이 DB에 열어 둔 연결 수 (1분 최대). 점선 48 = 서버 4대 × 12개, 우리가 정한 상한",
       "gridPos": {
         "w": 12,
