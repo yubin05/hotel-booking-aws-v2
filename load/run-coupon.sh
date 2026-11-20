@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 3단계 쿠폰 오픈 스파이크 1회 (docs/experiments/migration.md 3절): 새 쿠폰을 T에 열고, 발생기에서 1,000명이 T에 함께 누름
-#   bash load/run-coupon.sh <T: HH:MM> <fixed2|scheduled|none>     T는 지금보다 12분 이상 뒤(오픈 전 1,000명이 가입하며 모이는 데 약 7분, 11-20 실측), 회차 사이 15분
+#   bash load/run-coupon.sh <T: HH:MM> <fixed2|scheduled|none>     T는 지금보다 12분 이상 뒤(오픈 전 1,000명이 가입하며 모이는 데 약 7분, 11-20 실측), 회차 사이 20분(한 회차 약 18분)
 #   fixed2(서버 최대 2대로 묶음, 옛 IDC처럼 못 늘림) · scheduled(예약 스케일링으로 미리 4대) · none(목표 추적만, 몰려드는 동안 늘어날 수 있음). fixed2는 먼저 런북 5-5의 "2대로 묶기"
 #   scheduled는 먼저 infra/seoul/main.tf의 scale_events에 첫 T 5분 전 ~ 마지막 T + 10분, min 4를 넣고 apply (런북 5-1)
 # 결과: load/results/coupon-<조건>-<시작 시각>/ k6.txt · .json.gz · .html, coupon.txt(만든 쿠폰), verify.txt(발급 확인 SQL)
