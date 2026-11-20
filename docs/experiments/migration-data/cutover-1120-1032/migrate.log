@@ -1,0 +1,7 @@
+스키마 완료
+데이터 있음, 시드 건너뜀
+앱 계정 완료
+host1@spongetrip.local: 만듦 (host)
+host2@spongetrip.local: 만듦 (host)
+admin@spongetrip.local: 만듦 (admin)
+행 수 {"hotels":1010,"rooms":5030,"users":20007,"bookings":100013,"reviews":50013}
