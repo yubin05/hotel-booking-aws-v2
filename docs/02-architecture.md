@@ -2,6 +2,12 @@
 
 목표 구조와 그 이유를 정리합니다. 각 선택의 대안 비교는 [04 설계 결정 기록](04-decisions.md)에 있습니다. "확인 필요" 표시가 있는 내용은 구현 전에 공식 문서나 PoC로 확인합니다([03 진행 계획](03-plan.md#구현-전에-확인할-것)).
 
+## 전체 아키텍처
+
+![호텔 예약 플랫폼 AWS v2 전체 아키텍처: 서울 운영과 도쿄 DR](diagrams/architecture-v2.png)
+
+위 이미지는 [포트폴리오에서 사용한 원본 AWS v2 구성도](https://yubin05-portfolio.vercel.app/projects/hotel-booking-aws-v2)와 동일하며, 서비스별 역할은 [00번 인터랙티브 아키텍처](https://cloud-lab-theta.vercel.app/adventure/?chapter=0)에서 아이콘에 마우스를 올리면 볼 수 있습니다.
+
 ## 1. 요청 경로
 
 ```
