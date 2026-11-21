@@ -6,13 +6,13 @@ import assert from 'node:assert/strict';
 
 // status: done | doing | todo
 const STAGES = [
-  { n: 0, title: '로컬 (docker compose)', cost: '$0', status: 'done', lines: ['앱 결함: 이중 예약 · 쿠폰 교착 · 멱등키 · 종료 처리 · DB 재연결', '로컬 실험 6개, 문제 2건 찾아 수정'] },
-  { n: 1, title: 'AWS 이전 환경 (EC2 · IDC 역할)', cost: '약 $10', status: 'done', lines: ['이관 전 기준선: 동시 접속 500명(초당 85건)까지 버팀', '1,000명에서 무너짐, DB가 먼저 한계 (3회 같음)'] },
-  { n: 2, title: 'AWS 목표 인프라 (Terraform + CD)', cost: '약 $42', status: 'doing', lines: ['배포 자동화, destroy 뒤 다시 apply로 같은 상태 재현', '기반 완료: state 저장소 · 키 없는 배포 권한 · 예산 알림'] },
-  { n: 3, title: '목표 인프라 + 덤프 이관', cost: '$42 + 부하', status: 'todo', lines: ['이관 중단 시간, 같은 부하로 이전 · 이후 비교', '오토스케일링, 쿠폰 오픈 재측정'] },
-  { n: 3.5, title: '운영 사건 대응 자동화 (장애 · 보안)', cost: '$42 + Multi-AZ', status: 'todo', lines: ['장애 3종 · 공격 2종을 같은 흐름으로 감지 · 조치 · 보고', '감지 · 복구 · 차단 시간 실측, 통합 대시보드 1장'] },
-  { n: 4, title: '목표 인프라 장애 테스트 (나머지)', cost: '$42 + Multi-AZ', status: 'todo', lines: ['AZ 하나 장애: 다른 AZ에서 대체 태스크가 뜨는 시간', '오토스케일링 상한에서의 동작과 비용'] },
-  { n: 5, title: '서울 + 도쿄 리전', cost: '+ 드릴 시간', status: 'todo', lines: ['리전 복원 드릴의 실측 RTO · RPO, Failback'] },
+  { n: 0, title: "로컬 앱 검증 (Docker Compose)", cost: "$0", status: "done", lines: ["로컬 장애·부하 6종, 앱 결함과 정합성 검증","이중 예약·쿠폰 교착·DB 장애 처리 수정"] },
+  { n: 1, title: "AWS 이전 환경 부하 기준선", cost: "약 $10", status: "done", lines: ["동시 500명까지 견디고 1,000명부터 장애","3회 재현, DB 병목과 오류율 실측"] },
+  { n: 1.5, title: "DB 병목 분석·개선", cost: "$0", status: "done", lines: ["같은 옛 환경에서 1,000명 오류율 64 → 1.5%","조회·연결 풀 개선, 앱 효과 따로 확인"] },
+  { n: 2, title: "AWS 목표 인프라·CD", cost: "약 $42", status: "done", lines: ["CloudFront·ALB·ECS·RDS와 자동 배포 구축","Terraform 재현성과 예약 스케일링 검증"] },
+  { n: 3, title: "덤프 이관·성능·쿠폰 실측", cost: "+ 부하", status: "done", lines: ["12개 테이블·176,073행 체크섬 일치","3,000명 부하 3회·쿠폰 2대/4대 각 3회"] },
+  { n: 4, title: "AWS 장애 주입 드릴", cost: "+ Multi-AZ", status: "done", lines: ["태스크·깨진 배포·RDS·AZ 장애 주입 완료","AZ 오류율 14.6% 원인 분석은 후속"] },
+  { n: 5, title: "서울→도쿄 DR · Failback", cost: "+ DR 시간", status: "done", lines: ["실험 실행 완료(사용자 확인)","RTO/RPO·오류율 최종 집계는 후속 정리"] },
 ];
 const LABEL = { done: '완료', doing: '진행 중', todo: '예정' };
 const COLOR = {
