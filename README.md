@@ -36,27 +36,10 @@ v2는 같은 시나리오를 **요구사항 → 설계 → 실측** 순서로 �
 
 ## 목표 아키텍처
 
-```mermaid
-flowchart LR
-    user["사용자"] --> r53["Route 53"]
-    r53 --> cf["CloudFront + WAF"]
-    r53 --> cfimg["CloudFront (사진)"]
-    subgraph seoul["서울 리전 (운영)"]
-        alb["Internal ALB<br/>AZ 2개"]
-        ecs["ECS Fargate<br/>모듈러 모놀리스<br/>오토스케일링"]
-        rds[("RDS MySQL<br/>Multi-AZ")]
-        alb --> ecs --> rds
-        s3img[("S3 사진<br/>여러 크기")]
-    end
-    cf -- "VPC Origin" --> alb
-    cfimg --> s3img
-    subgraph tokyo["도쿄 리전 (평소에는 백업만)"]
-        bak[("복제된 백업")]
-        s3tk[("사진 복제본")]
-    end
-    rds -. "리전 간 백업 복제" .-> bak
-    s3img -. "복제 · 자동 전환" .-> s3tk
-```
+![SPONGE TRIP AWS v2 전체 아키텍처: Route 53, CloudFront, WAF, 서울 Multi-AZ ECS·RDS, S3 사진 전송 및 도쿄 DR](docs/diagrams/architecture-v2.png)
+
+[원본 아키텍처 이미지 크게 보기](docs/diagrams/architecture-v2.png) · [인터랙티브 아키텍처 00번 챕터](https://cloud-lab-theta.vercel.app/adventure/?chapter=0)
+
 
 | 대비하는 상황 | 방법 |
 |---|---|
