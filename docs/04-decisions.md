@@ -1460,6 +1460,7 @@
   | Aurora Global Database | RPO 초 단위 · 승격이 빠르지만(AWS 백서) MySQL → Aurora 엔진 이전과 상시 비용이 이 규모에 과하다 |
   | Warm Standby(도쿄에 앱 · ALB까지 상시) | [ADR-036](#adr-036)이 버린 이유 그대로(상시 비용) |
   | 도쿄도 쓰기를 받는 주 DB로 두고 서로 복제(active-active, 2026-11-22 사용자 질문) | 복제는 읽기 복제본으로도 똑같이 된다(서울 변경 → 도쿄, 초 단위). 차이는 도쿄가 평소에 쓰기를 받느냐뿐인데, 두 곳이 동시에 예약을 받으면 같은 객실 중복 판매 · ID 충돌을 맞춰야 한다([ADR-035](#adr-035) 결과의 "리전 확장", [ADR-012](#adr-012) 3번). 그래서 도쿄는 장애 선언 전까지 읽기 전용, 승격해야 쓰기를 받는다 |
+  | 되돌리기를 역방향 복제본으로: 도쿄 → 서울에 새 복제본 → 지연 0 → 쓰기 멈춤 → 서울 승격 (2026-11-22 사용자 질문) | RDS 표준 경로(승격 뒤 원래 리전으로 돌아가려면 새 복제본이 필요, [AWS DR 블로그](https://aws.amazon.com/blogs/database/implementing-a-disaster-recovery-strategy-with-amazon-rds/))이고 복제가 미리 따라와 점검 시간이 데이터 크기와 무관하다. 지금 데이터(예약 약 10만 건)는 덤프 · 복원 2분 47초(1회차)로 끝나는데, 역방향은 회차마다 서울 복제본 생성(standby처럼 약 20분)과 서울 DB를 Terraform으로 교체하는 코드 · 옛 DB 스냅샷이 늘어난다. **바꿀 조건:** 덤프 · 복원이 고객사가 허용한 점검 시간을 넘을 만큼 데이터가 커질 때. 덮기 전 서울 상태는 지금도 서울 자동 백업(7일 시점 복원)으로 남는다([ADR-062](#adr-062)) |
   | 자동 리전 전환 | [ADR-012](#adr-012) 이유 그대로. 게다가 승격은 되돌릴 수 없다("no longer a read replica", [RDS 문서](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.Promote.html)). 감지 · 알림은 자동, 결정은 사람 |
 
 - **결과 · 받아들인 위험:**
