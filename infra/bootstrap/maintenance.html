@@ -5,25 +5,83 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="refresh" content="30">
 <meta name="robots" content="noindex">
-<title>잠시 점검 중이에요 · SPONGE TRIP</title>
+<title>지금은 이용할 수 없어요 — Sponge Trip</title>
+<!-- 앱이 없을 때 CloudFront가 502 · 503 · 504 대신 보여 주는 페이지 (v2 ADR-070). 외부 파일 없이 이 파일 하나로 뜨게 둔다.
+     색 · 글꼴 · 모양은 앱(web/src/index.css, Layout.tsx)과 맞춤. 문구는 GOV.UK "Service unavailable pages" 패턴:
+     언제 돌아오는지, 진행 중이던 일은 어떻게 됐는지를 분명하게. -->
 <style>
-  :root { --bg: #f7f7f5; --card: #fff; --text: #1f2328; --muted: #59636e; --accent: #0b6bcb; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #16181b; --card: #1f2226; --text: #e6e8ea; --muted: #a3acb6; --accent: #6cb6ff; } }
+  :root {
+    --bg: #f8fafc; --card: #fff; --line: #e2e8f0; --text: #0f172a; --body: #475569; --muted: #64748b;
+    --brand: #0f766e; --brand-hover: #115e59; --brand-soft: #f0fdfa; --amber: #f59e0b; --amber-soft: #fffbeb; --amber-text: #92400e;
+  }
   * { box-sizing: border-box; }
-  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px;
-         background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; }
-  main { max-width: 480px; width: 100%; background: var(--card); border-radius: 16px; padding: 32px 24px; box-shadow: 0 1px 3px rgb(0 0 0 / 0.08); }
-  h1 { margin: 0 0 12px; font-size: 1.4rem; }
-  p { margin: 0 0 12px; color: var(--muted); }
-  a { color: var(--accent); }
+  html, body { margin: 0; }
+  body { min-height: 100dvh; display: flex; flex-direction: column; background: var(--bg); color: var(--text);
+         font: 16px/1.65 "Pretendard Variable", Pretendard, system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+         -webkit-font-smoothing: antialiased; word-break: keep-all; overflow-wrap: break-word; }
+  .wrap { width: 100%; max-width: 72rem; margin: 0 auto; padding: 0 16px; }
+  header { border-bottom: 1px solid var(--line); background: #fff; }
+  header .wrap { height: 56px; display: flex; align-items: center; }
+  .logo { color: var(--brand); font-weight: 800; font-size: 1.125rem; letter-spacing: -0.02em; text-decoration: none; }
+  main { flex: 1; display: grid; place-items: center; padding: 40px 16px; }
+  .card { width: 100%; max-width: 32rem; background: var(--card); border-radius: 16px; padding: 32px 24px;
+          box-shadow: 0 1px 2px rgb(15 23 42 / 0.05); outline: 1px solid rgb(226 232 240 / 0.7); }
+  @media (min-width: 640px) { .card { padding: 40px; } }
+  .icon { width: 56px; height: 56px; border-radius: 16px; background: var(--brand-soft); color: var(--brand); display: grid; place-items: center; }
+  .status { display: inline-flex; align-items: center; gap: 8px; margin-top: 24px; padding: 4px 12px; border-radius: 999px;
+            background: var(--amber-soft); color: var(--amber-text); font-size: 0.875rem; font-weight: 600; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.35; } }
+  @media (prefers-reduced-motion: reduce) { .dot { animation: none; } }
+  h1 { margin: 12px 0 8px; font-size: 1.5rem; line-height: 1.35; letter-spacing: -0.02em; }
+  .lead { margin: 0; color: var(--body); }
+  section { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--line); }
+  h2 { margin: 0 0 4px; font-size: 1rem; }
+  section p { margin: 0; color: var(--body); }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 28px; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 10px 16px; border-radius: 12px;
+         font-weight: 600; text-decoration: none; transition: background-color 0.15s; }
+  .btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+  .btn-primary { background: var(--brand); color: #fff; }
+  .btn-primary:hover { background: var(--brand-hover); }
+  .btn-outline { border: 1px solid #cbd5e1; background: #fff; color: #334155; }
+  .btn-outline:hover { background: var(--bg); }
+  footer { border-top: 1px solid var(--line); background: #fff; color: var(--muted); font-size: 0.875rem; }
+  footer .wrap { padding: 24px 16px; }
 </style>
 </head>
 <body>
+<header><div class="wrap"><a class="logo" href="/"><span aria-hidden="true">🧽</span> Sponge Trip</a></div></header>
+
 <main>
-  <h1>잠시 점검 중이에요</h1>
-  <p>서비스를 복구하고 있거나 접속이 몰려 지금은 요청을 처리할 수 없어요. 대부분 몇 분 안에 돌아옵니다.</p>
-  <p>진행 중이던 예약 · 결제가 있었다면, 다시 예약하기 전에 <strong>내 예약</strong>에서 먼저 확인해 주세요.</p>
-  <p>이 화면은 30초마다 다시 확인해요. <a href="/">지금 다시 시도</a></p>
+  <div class="card">
+    <div class="icon" aria-hidden="true">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+      </svg>
+    </div>
+
+    <p class="status" role="status"><span class="dot" aria-hidden="true"></span>복구 중</p>
+    <h1>죄송해요, 지금은 Sponge Trip을 이용할 수 없어요</h1>
+    <p class="lead">서버를 복구하고 있어요. 접속이 한꺼번에 몰렸을 때도 잠시 이 화면이 보일 수 있어요.</p>
+
+    <section>
+      <h2>언제 다시 열리나요?</h2>
+      <p>복구가 끝나는 대로 바로 열려요. 이 화면은 30초마다 스스로 다시 확인해요.</p>
+    </section>
+
+    <section>
+      <h2>진행 중이던 예약 · 결제는요?</h2>
+      <p>처리됐는지 아직 알 수 없어요. 다시 열리면 <strong>내 예약</strong>에서 먼저 확인하고, 없을 때만 다시 예약해 주세요. 같은 객실이 두 번 잡히지 않게 하기 위해서예요.</p>
+    </section>
+
+    <div class="actions">
+      <a class="btn btn-primary" href="/">다시 시도</a>
+      <a class="btn btn-outline" href="/me/bookings">내 예약 보기</a>
+    </div>
+  </div>
 </main>
+
+<footer><div class="wrap">포트폴리오용 시연 서비스입니다. 실제 결제와 숙박은 이뤄지지 않습니다.</div></footer>
 </body>
 </html>
