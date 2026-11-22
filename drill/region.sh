@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 5단계 리전 복원 드릴 1회 (docs/experiments/region-drill.md, 02 8 · 9절, ADR-066 Pilot Light): 서울 장애를 선언하고 도쿄 복제본을 승격해 손님을 받은 뒤 서울로 되돌린다
 #   bash drill/region.sh standby    도쿄에 서울 DB의 읽기 복제본과 그 네트워크만 만듦(평소 대기 상태, 7개). 회차마다 run 전에
-#   bash drill/region.sh run        전환(RTO · RPO) → Enter → 되돌리기. Terraform plan마다 yes 확인 (사람이 확인한 시간은 따로 셈)
+#   bash drill/region.sh run        전환(RTO · RPO) → Enter → 되돌리기. plan이 1회차 실측과 같으면 바로 apply, 다를 때만 yes 확인 (기다린 시간은 따로 셈)
 #   bash drill/region.sh stop <결과 폴더>   run이 중간에 멈췄을 때: 남은 단계를 손으로 끝낸 뒤 계속 도는 측정기 · DB 상태 기록기를 끝내고 보고서
 #   bash drill/region.sh seoul-up   중간에 멈췄을 때 서울 앱을 다시 2 ~ 4로 (global은 terraform apply로 서울에)
 # 결과: drill/results/region-<시각>/ writer.log(손님 쪽), marks.log · steps.log(단계 시각), db-state.log(도쿄 DB 상태 10초마다), tokyo-check.txt(승격 DB 확인),
@@ -40,18 +40,25 @@ wait_for() { # $1 설명, $2 최대 초, 나머지: 조건
   until "$@"; do ((SECONDS - t < max)) || { echo "$what: ${max}초 안에 안 됨" >&2; exit 1; }; sleep 3; done
 }
 
-tf_apply() { # $1 루트, $2 이름, 나머지 plan 인자(-target 등. 변수는 terraform.tfvars로). plan → 사람 확인 → 그 plan 그대로 apply
-  local root=$1 name=$2 ok t
-  shift 2
+tf_apply() { # $1 루트, $2 이름, $3 기대하는 plan 줄, 나머지 plan 인자(-target 등. 변수는 terraform.tfvars로). plan 확인 → 그 plan 그대로 apply
+  local root=$1 name=$2 want=$3 got ok t
+  shift 3
   mark "${name}_plan"
   # plan 파일은 결과 폴더에(git 제외). -chdir 기준 상대 경로: infra/<루트> → ../../drill/...
   terraform -chdir="$INFRA/$root" plan -input=false -no-color -out="../../drill/$OUT/$name.tfplan" "$@" >"$OUT/tf-$name-plan.log" 2>&1 ||
     { tail -20 "$OUT/tf-$name-plan.log" >&2; exit 1; }
-  grep -E '^Plan:|No changes' "$OUT/tf-$name-plan.log" | tee -a "$OUT/steps.log"
-  t=$SECONDS
-  read -rp "$root apply 할까요? (yes): " ok
-  HUMAN=$((HUMAN + SECONDS - t))
-  [ "$ok" = yes ] || { echo "멈춤" >&2; exit 1; }
+  got=$(grep -E '^Plan:|No changes' "$OUT/tf-$name-plan.log" | head -1 | tr -d '
+')
+  echo "$got" | tee -a "$OUT/steps.log"
+  # 장애 선언 뒤 사람 확인은 RTO를 늘려(1회차 24분) 기대한 plan(1회차 실측, 도쿄는 destroy 0 = DB 교체 없음)이면 바로 apply.
+  # 다르면 사람이 plan 로그를 보고 결정 (DR 백서: 사람이 시작하고 단계는 자동화)
+  if [ "$got" != "$want" ]; then
+    echo "    기대한 plan과 다름 (기대: $want) → $OUT/tf-$name-plan.log 확인" >&2
+    t=$SECONDS
+    read -rp "$root apply 할까요? (yes): " ok
+    HUMAN=$((HUMAN + SECONDS - t))
+    [ "$ok" = yes ] || { echo "멈춤" >&2; exit 1; }
+  fi
   mark "${name}_apply"
   terraform -chdir="$INFRA/$root" apply -input=false -no-color "../../drill/$OUT/$name.tfplan" >"$OUT/tf-$name-apply.log" 2>&1 ||
     { tail -20 "$OUT/tf-$name-apply.log" >&2; exit 1; }
@@ -144,7 +151,7 @@ run() {
   # ③ 도쿄: replica_source_arn을 빼면 공급자가 복제본을 승격하고, 나머지 인프라(ALB · ECS · NAT · 통로 · 태스크 정의)도 같은 apply로.
   #    관리자 비밀번호는 원본에서 물려받고 bootstrap 금고가 도쿄에 복제돼 있어 승격 뒤 따로 붙일 것이 없다 (ADR-069)
   tfvar tokyo replica_source_arn
-  tf_apply tokyo tokyo
+  tf_apply tokyo tokyo "Plan: 43 to add, 1 to change, 0 to destroy."
 
   # ④ 승격 DB 확인(도쿄 안 sql 태스크): 장애 선언 전 손님 쓰기가 몇 번까지 들어 있나 + 주요 표 행 수
   #    created_at < t0: 되돌리기 전에 다시 셀 때도 도쿄에서 새로 받은 예약이 섞이지 않게 (DB 시각은 UTC)
@@ -164,7 +171,7 @@ SQL
 
   # ⑤ CloudFront 원본을 도쿄로 (ADR-035)
   tfvar global active_region "\"$TOKYO\"" # 전환한 동안 손으로 하는 global apply도 도쿄를 유지
-  tf_apply global global_to_tokyo
+  tf_apply global global_to_tokyo "Plan: 1 to add, 1 to change, 1 to destroy."
   # ⑥ 손님 쓰기가 도쿄 앱에서 성공 = 복구 끝
   wait_for "도쿄에서 손님 쓰기 성공" 900 write_ok_in "$t0" "$TOKYO"
   mark rto_end
@@ -172,6 +179,7 @@ SQL
   local rto=$((($(mark_ms rto_end) - t0) / 1000))
   echo "    RTO ${rto}초 (사람 확인 ${HUMAN}초 포함, 빼면 $((rto - HUMAN))초)" | tee -a "$OUT/steps.log"
 
+  echo "    지금 실제 사이트(https://hotel.vundle34.cloud)에서 로그인 · 예약해 보고 예약 내용을 적어 두세요. 되돌린 뒤 서울에서도 보이면 데이터 이관까지 확인"
   read -rp "도쿄에서 운영 중. 확인 · 녹화 뒤 Enter로 되돌리기 (관리자 세션은 2시간, 필요하면 콘솔에서 역할을 새로 전환하고 다른 창에서 aws login --profile admin): " _
   [ -n "$max" ] || check || { echo "승격 DB에서 순번을 못 읽음 (tokyo-check.txt)" >&2; exit 1; }
 
@@ -217,7 +225,7 @@ SQL
   wait_for "서울 정상 2" 600 healthy_seoul
   mark seoul_healthy
   tfvar global active_region
-  tf_apply global global_to_seoul
+  tf_apply global global_to_seoul "Plan: 1 to add, 1 to change, 1 to destroy."
   wait_for "서울에서 손님 쓰기 성공" 900 write_ok_in "$(mark_ms failback_start)" "$SEOUL"
   mark failback_end
   echo "    되돌리기 중단 $((($(mark_ms failback_end) - $(mark_ms failback_start)) / 1000))초 (도쿄 멈춤 → 서울에서 쓰기 성공)" | tee -a "$OUT/steps.log"
@@ -227,7 +235,7 @@ SQL
   trap - ERR
   stop "$OUT"
   echo "결과: drill/$OUT/"
-  echo "다음: 도쿄 내리기 cd infra/tokyo && terraform destroy (51개). 다음 회차는 standby부터"
+  echo "다음: 도쿄 내리기 cd infra/tokyo && terraform destroy (50개). 다음 회차는 standby부터"
 }
 
 case "${1:-}" in
