@@ -64,6 +64,7 @@
 | 배포 환경 연결 | SES 도메인 인증(DKIM, Route 53) · 앱 태스크 역할(`ses:SendEmail`) · 앱 태스크에 키(SSM) · `MAIL_FROM` · `APP_URL`. 키를 넣기 전에는 결제 · 메일이 꺼진 채 지금처럼 동작 |
 
 - 3단계 부하 비교는 결제 · 알림이 꺼진 상태(1단계와 같은 동작)로 잰다. 켠 상태는 따로 잰다.
+- **배포 환경 연결은 v3 첫 주에 Slack 장애 알림([ADR-061](04-decisions.md#adr-061))과 함께 한다(2026-11-22 사용자 결정).** 둘 다 비밀 키 · IAM 최소 권한 · 알림 경로 작업이라 v3 보안 운영 주제와 맞고, 결제가 붙어야 Pilot Light의 RPO 1분([ADR-066](04-decisions.md#adr-066))이 의미를 가진다. SES는 샌드박스(인증한 주소만, 하루 200통)로 시연, 아무에게나 보내려면 프로덕션 승인 요청(첫 답변 최대 96시간, [SES 문서](https://docs.aws.amazon.com/ses/latest/dg/request-production-access.html))
 
 ## 3단계: 덤프 이관과 비교
 
@@ -588,3 +589,4 @@ v2 범위에는 넣지 않고, 끝난 뒤 이어서 할 수 있는 것만 적습
 | 4 · 5 재드릴 날 ⑧ 3회차 standby · 점검 페이지 업로드 | 2026-11-22 | standby 7 · 0 · 0 21:47:39 → 22:09:34(21분 55초, 네트워크 포함 처음부터). 그동안 bootstrap 관리자 apply 1 · 1 · 0 21:58:15 → 21:58:46(점검 안내 페이지를 사진 창고에 [ADR-070](04-decisions.md#adr-070), Grafana 성능 로그 읽기 권한 `98883e2`) | 도쿄 DB 복제본부터 | |
 | 4 · 5 재드릴 날 ⑨ Pilot Light 3회차 | 2026-11-22 | run 22:17:07 → 22:40:59(자동): 도쿄 apply 43 · 1 · 0 22:18:18 → 22:29:03, global 1 · 1 · 1 22:30:21 → 22:31:15, 되돌리기 global 1 · 1 · 1 22:39:05 → 22:39:59. 도쿄 destroy 22:4x 시작(사용자). RTO 748.2초, 예상 RPO 0.0초, 되돌리기 358초. **3회 종합: RTO 중앙 12분 28초 · RPO 0.0초, 목표 충족** | 도쿄 전체 22:18 ~ destroy | [리전 드릴](experiments/region-drill.md#결과--pilot-light) |
 | 4 · 5 재드릴 날 ⑩ 점검 안내 페이지 연결 · 확인 | 2026-11-22 | global apply 0 · 3 · 0 23:10:54 → 23:11:45(앱 배포 점검 경로 · 오류 페이지, 사진 버킷 정책 2). `seoul-down` → `/` · `/api` 모두 503 + 점검 페이지 → `seoul-up` 뒤 200([ADR-070](04-decisions.md#adr-070)). 디자인을 앱에 맞춰 다시 만들어 bootstrap 관리자 apply **시각 사용자 확인 대기** | $0 | |
+| 4 · 5 재드릴 날 ⑪ 앱 배포 · 하루 정리 | 2026-11-22 | 앱 화면 코드(`0ca94fc`, JSON 없는 502 · 503 · 504 문구) CI · CD 23:22:40 → 23:28:54 성공(서울 배포). global destroy 13 23:30:47 → 23:36:08, 서울 destroy 52 23:37:45 → 23:47:08, 서울 `multi_az` 줄 지움, `terraform.tfvars`에 `active_region` · `replica_source_arn` 없음 확인, Grafana 공유 링크 일시정지. 3회차 뒤 도쿄 destroy · 점검 페이지 새 디자인 bootstrap apply **시각 사용자 확인 대기**. **v2 실험 끝** | 상시 bootstrap만 | |
