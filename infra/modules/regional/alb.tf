@@ -47,6 +47,8 @@ resource "aws_lb" "this" {
   security_groups    = [aws_security_group.alb.id]
 
   drop_invalid_header_fields = true # 규격에 안 맞는 헤더는 앱에 넘기지 않고 버림 (Security Hub ELB.4, 11 점검 보고서)
+  # AZ 하나가 이상할 때 그 AZ 노드를 DNS에서 빼는 버튼(ARC zonal shift)을 쓸 수 있게. 기본 꺼짐, 추가 요금 없음 (ADR-067)
+  enable_zonal_shift = true
 }
 
 # 직원 명단: Fargate(awsvpc)는 태스크마다 IP를 받아서 대상 종류가 ip

@@ -4,7 +4,8 @@
 #   bash drill/fault.sh rds        RDS 강제 장애 조치(재부팅 + failover) → 장애 조치 완료 이벤트 · available까지 (서울 -var multi_az=true)
 #   bash drill/fault.sh deploy     일부러 깨진 버전(뜨자마자 종료) 배포 → circuit breaker가 실패로 보고 이전 버전으로 돌아갈 때까지
 #   bash drill/fault.sh az [AZ]    한 AZ(기본: RDS 주 DB가 있는 AZ)의 서브넷을 빈 네트워크 ACL로 10분 막고, 그 AZ의 DB면 강제 장애 조치 (multi_az=true)
-#   bash drill/fault.sh az-undo <결과 폴더>   az가 중간에 끊겼을 때 서브넷을 원래 ACL로 되돌림
+#                                  SHIFT_AFTER초(기본 60) 뒤 ALB zonal shift로 그 AZ 출입구(노드)를 뺌, SHIFT_AFTER=off면 11-21 기준선과 같은 조건 (ADR-067)
+#   bash drill/fault.sh az-undo <결과 폴더>   az가 중간에 끊겼을 때 서브넷을 원래 ACL로 되돌리고 zonal shift를 취소
 # 결과: drill/results/fault-<종류>-<시각>/ writer.log(손님 쪽), marks.log · steps.log(주입 · 감지 · 회복 시각), state.log(2 ~ 5초마다 태스크 · 대상 · DB),
 #       events.txt(ECS 서비스 · RDS 이벤트), report.md(scripts/drill-report.mjs)
 # 필요: 서울 · global이 떠 있음, 관리자 로그인(AWS_PROFILE=admin), 태스크 2 · 정상 2(회차 사이 회복된 뒤)
@@ -16,6 +17,7 @@ BASE=https://hotel.vundle34.cloud
 BASELINE=${BASELINE:-120} # 주입 전 평소 구간(초)
 TAIL=${TAIL:-120}         # 회복 뒤 더 지켜보는 구간(초)
 HOLD_AZ=${HOLD_AZ:-600}   # AZ를 막아 두는 시간: 잠정 목표 10분(ADR-036)을 넘겨야 그 안에 회복하는지 보임
+SHIFT_AFTER=${SHIFT_AFTER:-60} # AZ 차단 뒤 zonal shift까지(초) = 감지 · 판단 시간을 흉내. off면 하지 않음
 MAX_WAIT=${MAX_WAIT:-1200}
 
 kind=${1:-}
@@ -24,13 +26,18 @@ aws_t() { AWS_PROFILE=admin timeout 30 aws --region "$REGION" "$@" | tr -d '\r';
 now_ms() { echo $(($(date +%s%N) / 1000000)); }
 mark() { echo "$1 $(now_ms) ${2:-}" >>"$OUT/marks.log"; echo "$(date +%T) $*" | tee -a "$OUT/steps.log"; }
 
-undo_az() { # $1 결과 폴더
-  [ -s "$1/nacl-blocked.tsv" ] || return 0
-  while read -r subnet orig assoc; do
-    admin ec2 replace-network-acl-association --association-id "$assoc" --network-acl-id "$orig" >/dev/null && echo "되돌림 $subnet → $orig"
-  done <"$1/nacl-blocked.tsv"
-  mv "$1/nacl-blocked.tsv" "$1/nacl-undone.tsv"
-  admin ec2 delete-network-acl --network-acl-id "$(cat "$1/nacl-deny.txt")" && echo "막는 ACL 지움"
+undo_az() { # $1 결과 폴더. 서브넷을 먼저 되돌리고 zonal shift를 취소(먼저 취소하면 아직 막힌 AZ로 손님이 돌아감)
+  if [ -s "$1/nacl-blocked.tsv" ]; then
+    while read -r subnet orig assoc; do
+      admin ec2 replace-network-acl-association --association-id "$assoc" --network-acl-id "$orig" >/dev/null && echo "되돌림 $subnet → $orig"
+    done <"$1/nacl-blocked.tsv"
+    mv "$1/nacl-blocked.tsv" "$1/nacl-undone.tsv"
+    admin ec2 delete-network-acl --network-acl-id "$(cat "$1/nacl-deny.txt")" && echo "막는 ACL 지움"
+  fi
+  if [ -s "$1/zonal-shift.txt" ]; then
+    admin arc-zonal-shift cancel-zonal-shift --zonal-shift-id "$(cat "$1/zonal-shift.txt")" >/dev/null && echo "zonal shift 취소"
+    mv "$1/zonal-shift.txt" "$1/zonal-shift-cancelled.txt"
+  fi
 }
 if [ "$kind" = az-undo ]; then undo_az "${2:?사용: bash drill/fault.sh az-undo <결과 폴더>}"; exit 0; fi
 
@@ -62,8 +69,7 @@ while :; do
   sleep 2
 done >>"$OUT/state.log" 2>/dev/null &
 STATE_PID=$!
-BLOCKED=0
-trap 'kill $WRITER_PID $STATE_PID 2>/dev/null || true; if [ $BLOCKED = 1 ]; then undo_az "$OUT"; fi; true' EXIT # set -e라 이미 끝난 프로세스의 kill 실패에서 정리 코드가 멈추고 종료 코드 1이 됐음(11-20 재현): kill은 실패해도 계속, 그래야 undo_az도 돎
+trap 'kill $WRITER_PID $STATE_PID 2>/dev/null || true; undo_az "$OUT"; true' EXIT # set -e라 이미 끝난 프로세스의 kill 실패에서 정리 코드가 멈추고 종료 코드 1이 됐음(11-20 재현): kill은 실패해도 계속, 그래야 undo_az도 돎
 
 sleep 8
 kill -0 $WRITER_PID 2>/dev/null || { cat "$OUT/writer.out" >&2; echo "손님 역할(writer)이 시작하지 못함" >&2; exit 1; }
@@ -139,7 +145,6 @@ az)
   echo "$deny" >"$OUT/nacl-deny.txt"
   mark inject "$az 서브넷 $(wc -l <"$OUT/nacl-orig.tsv")개"
   az_deadline=$((SECONDS + HOLD_AZ))
-  BLOCKED=1
   while read -r subnet orig assoc; do
     echo "$subnet $orig $(admin ec2 replace-network-acl-association --association-id "$assoc" --network-acl-id "$deny" --query NewAssociationId --output text)"
   done <"$OUT/nacl-orig.tsv" >"$OUT/nacl-blocked.tsv"
@@ -148,6 +153,17 @@ az)
     admin rds reboot-db-instance --db-instance-identifier "$CLUSTER" --force-failover >/dev/null
     mark db_failover
   fi
+  # ALB는 막힌 태스크는 피하지만 막힌 AZ의 노드 IP는 DNS에 남겨 CloudFront 요청 일부가 시간 초과됐다(11-21, AZ별 RequestCount 0 · 대상 연결 오류 0).
+  # zonal shift는 그 AZ의 노드 IP를 DNS에서 빼고 그 AZ 대상으로 가는 트래픽을 막는다(ALB 문서). 만료는 안전장치, 취소는 undo_az
+  if [ "$SHIFT_AFTER" != off ]; then
+    wait_s=$((az_deadline - HOLD_AZ + SHIFT_AFTER - SECONDS))
+    if ((wait_s > 0)); then sleep "$wait_s"; fi
+    alb=$(admin elbv2 describe-load-balancers --names "$CLUSTER" --query 'LoadBalancers[0].LoadBalancerArn' --output text)
+    az_id=$(admin ec2 describe-availability-zones --zone-names "$az" --query 'AvailabilityZones[0].ZoneId' --output text)
+    admin arc-zonal-shift start-zonal-shift --resource-identifier "$alb" --away-from "$az_id" --expires-in "$((HOLD_AZ / 60 + 10))m" \
+      --comment "drill $OUT" --query zonalShiftId --output text >"$OUT/zonal-shift.txt"
+    mark zonal_shift "$az_id"
+  fi
   # 차단 중 정상 대상 수는 state.log에 기록한다. 주입 때 정한 시각에 원복을 시작한다.
   remaining=$((az_deadline - SECONDS))
   if (( remaining > 0 )); then
@@ -155,7 +171,6 @@ az)
   fi
   mark undo
   undo_az "$OUT"
-  BLOCKED=0
   all_ok() { [ "$(healthy)" = 2 ] && [ "$(db DBInstanceStatus)" = available ]; }
   wait_until recovered all_ok
   ;;
