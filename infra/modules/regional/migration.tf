@@ -75,7 +75,7 @@ resource "aws_ecs_task_definition" "migration" {
       { name = "DB_ADMIN_USER", value = aws_db_instance.this.username },
     ]
     secrets = concat([
-      { name = "DB_ADMIN_PASSWORD", valueFrom = "${aws_db_instance.this.master_user_secret[0].secret_arn}:password::" },
+      { name = "DB_ADMIN_PASSWORD", valueFrom = data.aws_secretsmanager_secret.db_admin.arn },
     ], local.migration_secrets[each.key])
 
     logConfiguration = {

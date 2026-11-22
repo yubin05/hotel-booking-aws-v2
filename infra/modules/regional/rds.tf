@@ -40,6 +40,12 @@ data "aws_kms_key" "rds" {
   key_id = "alias/aws/rds"
 }
 
+# 관리자 비밀번호 (ADR-069): bootstrap 금고(리전마다 원본 · 복제본)에서 apply 동안만 읽고 state에 남기지 않음. 복제본은 원본 비밀번호를 물려받아 읽지 않음
+ephemeral "aws_secretsmanager_secret_version" "db_admin" {
+  count     = var.replica_source_arn == null ? 1 : 0
+  secret_id = "${local.name}/db-admin-password"
+}
+
 resource "aws_db_instance" "this" {
   identifier     = local.name
   engine         = "mysql"
@@ -57,9 +63,10 @@ resource "aws_db_instance" "this" {
   # 복제본은 DB 이름 · 관리자 이름을 원본에서 받아 지정할 수 없음(공급자 문서). 앱 config의 기본 DB 이름
   db_name  = var.replica_source_arn == null ? "hotel_booking" : null
   username = var.replica_source_arn == null ? "admin" : null
-  # 관리자 비밀번호는 RDS가 직접 만들어 Secrets Manager에 넣음. Terraform · 사람 모두 모름 (ADR-041)
-  # 복제본은 원본 비밀번호를 쓰고(원본 금고는 서울), 승격 apply에서 도쿄 금고를 새로 붙임. shortcut: 승격과 같은 apply에서 붙는지는 첫 드릴에서 확인, 안 되면 apply 한 번 더
-  manage_master_user_password = var.replica_source_arn == null ? true : null
+  # RDS가 금고를 관리(manage_master_user_password)하면 MySQL 읽기 복제본을 못 만들어(RDS 문서) 우리 금고 값을 쓰기 전용으로 넣음.
+  # 승격한 도쿄 DB도 같은 비밀번호라 도쿄 금고 복제본으로 바로 관리 (ADR-069). 교체는 bootstrap 금고 버전과 함께 숫자를 올림
+  password_wo         = one(ephemeral.aws_secretsmanager_secret_version.db_admin[*].secret_string)
+  password_wo_version = var.replica_source_arn == null ? 1 : null
 
   multi_az               = var.db_multi_az # 설계는 켬, 포트폴리오는 평소 끔 (NAT와 같은 방식)
   parameter_group_name   = aws_db_parameter_group.this.name

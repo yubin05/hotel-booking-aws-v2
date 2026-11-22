@@ -264,15 +264,12 @@
       }
     },
     {
-      "Sid": "RdsManagedMasterSecret",
+      "Sid": "ReadDbAdminSecret",
       "Effect": "Allow",
-      "Action": [
-        "secretsmanager:CreateSecret",
-        "secretsmanager:TagResource"
-      ],
+      "Action": "secretsmanager:GetSecretValue",
       "Resource": [
-        "arn:aws:secretsmanager:ap-northeast-2:248563009287:secret:rds!*",
-        "arn:aws:secretsmanager:ap-northeast-1:248563009287:secret:rds!*"
+        "arn:aws:secretsmanager:ap-northeast-2:248563009287:secret:hotel-booking-aws-v2/db-admin-password-*",
+        "arn:aws:secretsmanager:ap-northeast-1:248563009287:secret:hotel-booking-aws-v2/db-admin-password-*"
       ]
     },
     {

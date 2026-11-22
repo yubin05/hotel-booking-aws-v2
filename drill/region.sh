@@ -141,11 +141,9 @@ run() {
   mark replica_lag_s "$lag"
   echo "    예상 RPO(장애 선언 때 복제 지연): ${lag}초"
 
-  # ③ 도쿄 DB 승격: replica_source_arn을 빼면 공급자가 승격하고 도쿄 금고를 붙인다. 이관 태스크 정의가 그 금고 주소를 써서 DB만 먼저(-target)
-  #    shortcut: 승격과 금고 붙이기가 한 apply에서 되는지는 첫 드릴에서 확인. 실패하면 같은 명령을 한 번 더(금고만 붙음)
+  # ③ 도쿄: replica_source_arn을 빼면 공급자가 복제본을 승격하고, 나머지 인프라(ALB · ECS · NAT · 통로 · 태스크 정의)도 같은 apply로.
+  #    관리자 비밀번호는 원본에서 물려받고 bootstrap 금고가 도쿄에 복제돼 있어 승격 뒤 따로 붙일 것이 없다 (ADR-069)
   tfvar tokyo replica_source_arn
-  tf_apply tokyo tokyo_promote -target=module.regional.aws_db_instance.this
-  # ③' 나머지 도쿄 인프라(ALB · ECS · NAT · 통로 · 태스크 정의)
   tf_apply tokyo tokyo
 
   # ④ 승격 DB 확인(도쿄 안 sql 태스크): 장애 선언 전 손님 쓰기가 몇 번까지 들어 있나 + 주요 표 행 수

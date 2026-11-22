@@ -228,24 +228,12 @@ resource "aws_iam_role_policy" "ecs_execution" {
         ]
         # 서울 금고 + 도쿄 복제본. 복제본 주소는 리전만 달라서 replace로 리전 글자만 바꿈
         Resource = flatten([
-          for s in [aws_secretsmanager_secret.jwt, aws_secretsmanager_secret.db_app] : [
+          # db_admin은 스키마 · 이관 태스크만 태스크 정의에 적음(ADR-044 · 069). 앱 태스크 정의에는 없음
+          for s in [aws_secretsmanager_secret.jwt, aws_secretsmanager_secret.db_app, aws_secretsmanager_secret.db_admin] : [
             s.arn,
             replace(s.arn, local.main_region, local.backup_region),
           ]
         ])
-      },
-      {
-        # 스키마 태스크가 DB 관리자 비밀번호를 받기 (ADR-044). 이 금고는 RDS가 만들고 이름이 rds!db-<무작위>라 미리 알 수 없어 *
-        # 실행 역할은 태스크 정의에 적힌 비밀값만 넣어 줌. 앱 태스크 정의에는 이 금고가 없고, 앱 컨테이너는 이 역할의 자격 증명을 받지 않음
-        Sid    = "ReadRdsMasterSecret"
-        Effect = "Allow"
-        Action = [
-          "secretsmanager:GetSecretValue"
-        ]
-        Resource = [
-          "arn:aws:secretsmanager:${local.main_region}:${local.account_id}:secret:rds!db-*",
-          "arn:aws:secretsmanager:${local.backup_region}:${local.account_id}:secret:rds!db-*",
-        ]
       },
       {
         # 스키마 태스크가 시연용 호스트 · 관리자 계정 비밀번호를 받기 (ADR-058 · 060). 값은 사용자가 SSM에 직접 넣고 서울에만 있음

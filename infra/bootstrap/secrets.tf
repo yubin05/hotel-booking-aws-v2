@@ -14,7 +14,18 @@ resource "aws_secretsmanager_secret" "jwt" {
 
 resource "aws_secretsmanager_secret" "db_app" {
   provider = aws.seoul
-  name     = "${local.project_name}/db-app-password" # 앱 전용 DB 계정 (관리자 비밀번호는 RDS가 따로 관리)
+  name     = "${local.project_name}/db-app-password" # 앱 전용 DB 계정
+
+  replica {
+    region = local.backup_region
+  }
+}
+
+# DB 관리자 비밀번호 (ADR-069). RDS가 금고를 관리하면 MySQL 읽기 복제본을 못 만들어(RDS 문서, 11-22 standby 거부) 여기로 옮김.
+# 도쿄로 복제돼 서울 장애 중에도 승격한 도쿄 DB를 관리할 수 있다
+resource "aws_secretsmanager_secret" "db_admin" {
+  provider = aws.seoul
+  name     = "${local.project_name}/db-admin-password"
 
   replica {
     region = local.backup_region
@@ -32,6 +43,11 @@ ephemeral "random_password" "db_app" {
   special = false
 }
 
+ephemeral "random_password" "db_admin" {
+  length  = 32
+  special = false
+}
+
 # ── 3. 금고에 값 넣기: 쓰기 전용 ─────────────────────────────────────
 resource "aws_secretsmanager_secret_version" "jwt" {
   provider                 = aws.seoul
@@ -45,4 +61,11 @@ resource "aws_secretsmanager_secret_version" "db_app" {
   secret_id                = aws_secretsmanager_secret.db_app.id
   secret_string_wo         = ephemeral.random_password.db_app.result
   secret_string_wo_version = 1 # 교체할 때는 DB 안의 앱 계정 비밀번호도 같이 바꿔야 함 (RDS 덩어리에서 절차)
+}
+
+resource "aws_secretsmanager_secret_version" "db_admin" {
+  provider                 = aws.seoul
+  secret_id                = aws_secretsmanager_secret.db_admin.id
+  secret_string_wo         = ephemeral.random_password.db_admin.result
+  secret_string_wo_version = 1 # 교체할 때 2로 올린 뒤 서울 apply(모듈의 password_wo_version도 같이 올림)
 }
