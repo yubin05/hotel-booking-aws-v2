@@ -98,6 +98,17 @@ resource "aws_s3_bucket_policy" "photos" {
         }
       },
       {
+        # 앱 배포는 점검 안내 페이지만 (ADR-070)
+        Sid       = "AllowAppCloudFrontMaintenancePage"
+        Effect    = "Allow"
+        Principal = { Service = "cloudfront.amazonaws.com" }
+        Action    = "s3:GetObject"
+        Resource  = "arn:aws:s3:::${each.value.name}/maintenance/*"
+        Condition = {
+          StringEquals = { "AWS:SourceArn" = aws_cloudfront_distribution.app.arn }
+        }
+      },
+      {
         # 암호화 안 된(HTTP) 요청은 누구든 거절 (Security Hub S3.5, 11 점검 보고서)
         Sid       = "DenyInsecureTransport"
         Effect    = "Deny"

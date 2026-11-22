@@ -40,6 +40,29 @@ resource "aws_cloudfront_distribution" "app" {
     }
   }
 
+  # 점검 안내 페이지 (ADR-070): 사진 창고의 maintenance/index.html. 앱이 죽어도 받을 수 있게 앱과 다른 곳(S3), 서울이 안 되면 도쿄
+  dynamic "origin" {
+    for_each = local.photos_buckets
+    content {
+      origin_id                = "maintenance-${origin.key}"
+      domain_name              = "${origin.value.name}.s3.${origin.value.region}.amazonaws.com"
+      origin_access_control_id = aws_cloudfront_origin_access_control.photos.id
+    }
+  }
+
+  origin_group {
+    origin_id = "maintenance"
+    failover_criteria {
+      status_codes = [403, 404, 500, 502, 503, 504]
+    }
+    member {
+      origin_id = "maintenance-seoul"
+    }
+    member {
+      origin_id = "maintenance-tokyo"
+    }
+  }
+
   # 화면 파일: 앱이 붙인 Cache-Control을 따름 (assets 1년, index.html은 매번 확인)
   default_cache_behavior {
     target_origin_id           = "app"
@@ -61,6 +84,29 @@ resource "aws_cloudfront_distribution" "app" {
     cache_policy_id            = data.aws_cloudfront_cache_policy.disabled.id
     origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
     response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
+  }
+
+  ordered_cache_behavior {
+    path_pattern               = "/maintenance/*"
+    target_origin_id           = "maintenance"
+    viewer_protocol_policy     = "redirect-to-https"
+    allowed_methods            = ["GET", "HEAD"]
+    cached_methods             = ["GET", "HEAD"]
+    cache_policy_id            = data.aws_cloudfront_cache_policy.optimized.id # 파일의 Cache-Control(5분)을 따름
+    response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
+    compress                   = true
+  }
+
+  # 앱 서버가 없을 때(ALB 대상 없음 503, 원본 연결 실패 502 · 504) 글자 대신 안내 페이지. 상태 코드는 그대로 둬 측정기 · 모니터링이 실패로 셈.
+  # 배포 전체에 걸려 앱이 일부러 보낸 503(DB 혼잡 등)의 본문도 바뀔 수 있음 (ADR-070). 500(앱 일반 오류)은 그대로
+  dynamic "custom_error_response" {
+    for_each = [502, 503, 504]
+    content {
+      error_code            = custom_error_response.value
+      response_code         = custom_error_response.value
+      response_page_path    = "/maintenance/index.html"
+      error_caching_min_ttl = 5 # 기본 10초. 복구 뒤 안내 페이지가 오래 남지 않게
+    }
   }
 
   restrictions {

@@ -46,8 +46,11 @@ curl -sI https://hotel.vundle34.cloud/ | grep -iE "^HTTP|x-cache"
 curl -s https://hotel.vundle34.cloud/api/health/deep            # {"status":"ok","db":"ok"}
 # 사진: 200 · image/webp, x-amz-replication-status가 COMPLETED면 서울 S3, REPLICA면 도쿄 S3에서 옴
 curl -sI https://img.hotel.vundle34.cloud/hotels/0001/1/640.webp | grep -iE "^HTTP|x-cache|replication"
+# 점검 안내 페이지(ADR-070): 200 · text/html. 앱 서버가 없을 때 502 · 503 · 504 응답 대신 이 내용이 나옴(상태 코드는 그대로)
+curl -sI https://hotel.vundle34.cloud/maintenance/index.html | grep -iE "^HTTP|content-type"
 ```
 
+- 점검 안내 페이지도 사진 창고(`maintenance/index.html`, bootstrap이 올림)에 상시로 있습니다. 문구는 `infra/bootstrap/maintenance.html`을 고친 뒤 bootstrap 관리자 apply.
 - 사진은 bootstrap 버킷에 상시로 있어 매일 올리지 않습니다. 사진을 바꿀 때만 [scripts/photos](../scripts/photos/README.md)로 올립니다.
 
 ## 2. 매일 내리기: global → seoul
