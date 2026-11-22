@@ -32,10 +32,14 @@ resource "aws_cloudwatch_log_group" "app" {
   retention_in_days = 7
 }
 
-# Container Insights 성능 로그가 쌓이는 곳 (이름은 AWS 문서 고정). 미리 만들어 destroy 때 같이 지워지게 한다 (2026-11-20, ADR-063)
-resource "aws_cloudwatch_log_group" "container_insights" {
-  name              = "/aws/ecs/containerinsights/${local.name}/performance"
-  retention_in_days = 1
+# Container Insights 성능 로그 그룹은 ECS가 직접 만들고 보관 1일을 건다(CloudTrail: ecs.amazonaws.com CreateLogGroup · PutRetentionPolicy 1).
+# 11-20부터 Terraform이 미리 만들었지만, destroy가 지운 지 약 40초 뒤 ECS가 다시 만들어(11-21 02:22 → 02:23, 20:19 → 20:20)
+# 다음 apply가 ResourceAlreadyExists로 멈췄다(11-21 13:18, 11-22 16:07). 그래서 Terraform 관리에서 빼고 지우지는 않는다
+removed {
+  from = aws_cloudwatch_log_group.container_insights
+  lifecycle {
+    destroy = false
+  }
 }
 
 resource "aws_ecs_cluster" "this" {
@@ -46,7 +50,6 @@ resource "aws_ecs_cluster" "this" {
     name  = "containerInsights"
     value = "enabled"
   }
-  depends_on = [aws_cloudwatch_log_group.container_insights]
 }
 
 # 레시피 카드: 설정(CPU · 메모리 · 비밀값 · 로그)은 여기, 이미지는 이후 CD가 바꿈 (ADR-039)

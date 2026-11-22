@@ -26,7 +26,7 @@ aws sts get-caller-identity --query Arn --output text   # user/vundle34 (평소 
 
 ```bash
 cd /c/dev/hotel-booking-aws-v2/infra/seoul
-terraform plan                      # 51 to add (모듈 50: Container Insights 성능 로그 그룹(11-20~) · 관제 대시보드 · 오토스케일링 대상 · 목표 추적 · 비운 기본 보안 그룹 · 3단계 일회성 태스크 정의 restore · sql(11-18~) · dump(11-19~) 포함 + 통로 1, 예약 이벤트가 있으면 이벤트마다 +2)
+terraform plan                      # 50 to add (모듈 49: 관제 대시보드 · 오토스케일링 대상 · 목표 추적 · 비운 기본 보안 그룹 · 3단계 일회성 태스크 정의 restore · sql(11-18~) · dump(11-19~) 포함 + 통로 1, 예약 이벤트가 있으면 이벤트마다 +2)
 date; terraform apply; date         # 약 9분. 이 동안 CloudFront가 서울 VPC에 보안 그룹을 만들어 둠
 
 cd ../global
@@ -79,7 +79,7 @@ CloudFront 원본만 바꾸고 DNS는 그대로 둡니다([ADR-012](../docs/04-d
 ```bash
 # 1) 도쿄 올리기: 통로까지 같이 만들어짐(9분 남짓). 그 사이 CloudFront가 도쿄 VPC에 보안 그룹을 만들어 둠
 cd /c/dev/hotel-booking-aws-v2/infra/tokyo
-terraform plan                      # 51 to add (서울과 같은 모듈 + Container Insights 로그 그룹(11-20~) · 일회성 태스크 정의 restore · sql · dump(11-19~), 관제 대시보드 · 오토스케일링 · 기본 보안 그룹 포함)
+terraform plan                      # 50 to add (서울과 같은 모듈 + 일회성 태스크 정의 restore · sql · dump(11-19~), 관제 대시보드 · 오토스케일링 · 기본 보안 그룹 포함)
 date; terraform apply; date
 
 # 2) DB까지 살리는 실제 전환(복제본 승격)은 5-8 드릴에서 (region.sh standby · run, ADR-066)
@@ -381,5 +381,5 @@ cd infra/tokyo && date; terraform destroy; date; cd ../..   # 51개. 다음 회�
 | `Value for undeclared variable "active_region"` | global이 아닌 폴더에서 실행 | 프롬프트의 폴더 확인 → `infra/global` |
 | 같은 PC에서 로그인 · 가입이 403 | WAF 로그인 한도(IP당 5분 100번)에 걸림 | 몇 분 뒤 풀림([10 보안 점검](../docs/10-security.md)) |
 | `ssm put-parameter`가 `Parameter name must be a fully qualified name` | Git Bash가 `/hotel-booking/...`를 `C:/Program Files/Git/hotel-booking/...`로 바꿔 넘김 (2026-11-18) | 명령 앞에 `MSYS_NO_PATHCONV=1` (런북 5-3) |
-| 서울 apply가 `creating CloudWatch Logs Log Group (/aws/ecs/containerinsights/hotel-booking-aws-v2/performance) ... ResourceAlreadyExistsException`로 멈춤 | 지난 destroy 뒤 같은 이름 로그 그룹이 AWS에 남음(2026-11-22, 11-21 20:20 생성분. 내릴 때 멈추는 태스크의 마지막 성능 로그로 ECS가 다시 만든 것으로 추정 = 가설) | 지우지 말고 가져오기: `MSYS_NO_PATHCONV=1 terraform import 'module.regional.aws_cloudwatch_log_group.container_insights' /aws/ecs/containerinsights/hotel-booking-aws-v2/performance` → plan(0 to destroy 확인) → apply |
+| 서울 apply가 `creating CloudWatch Logs Log Group (/aws/ecs/containerinsights/hotel-booking-aws-v2/performance) ... ResourceAlreadyExistsException`로 멈춤 (11-21 13:18 · 11-22 16:07) | **ECS가 다시 만듦(CloudTrail로 확인):** destroy가 로그 그룹을 지운 지 약 40초 뒤 `ecs.amazonaws.com`이 같은 이름으로 다시 만들고 보관 1일을 건다(11-21 02:22 → 02:23, 20:19 → 20:20) | 11-22부터 Terraform이 이 로그 그룹을 만들지 않는다(`removed` 블록, ECS 소유). 옛 state가 남아 같은 오류가 나면: `MSYS_NO_PATHCONV=1 terraform import 'module.regional.aws_cloudwatch_log_group.container_insights' /aws/ecs/containerinsights/hotel-booking-aws-v2/performance` → 최신 코드로 plan · apply |
 | 같은 이메일 로그인이 429 | 계정 잠금(15분 안에 5번 틀림, [ADR-054](../docs/04-decisions.md#adr-054)) | 15분 뒤 풀림 |
