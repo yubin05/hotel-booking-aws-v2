@@ -21,8 +21,7 @@
 | 대기 | `region.sh standby`: 도쿄에 서울 DB의 읽기 복제본 + 그 DB의 네트워크(VPC · DB 서브넷 · 보안 그룹 · 설정표, 7개). 설계는 상시, 포트폴리오는 드릴 날만 | 사용자(Terraform yes) |
 | ① 사전 | 도쿄 DB가 `available` + 원본 ARN인지 확인 → 손님 역할(writer) · 도쿄 DB 상태 기록기 시작(둘 다 스크립트와 따로 돎) → 60초 | 스크립트 |
 | ② 장애 선언 | 서울 앱을 0으로(멈춤 흉내), 그 순간의 복제 지연(CloudWatch `ReplicaLag`) = 예상 RPO | 스크립트 |
-| ③ 승격 | `infra/tokyo` plan(DB만, `-target`) → 확인 → apply: `replica_source_arn`을 빼서 승격 + 도쿄 관리자 금고 | 스크립트, 확인은 사용자 |
-| ③' 도쿄 인프라 | 나머지(ALB · ECS · NAT · 통로 · 태스크 정의) plan → 확인 → apply | 스크립트, 확인은 사용자 |
+| ③ 승격 + 도쿄 인프라 | `infra/tokyo` plan → 확인 → apply 한 번: `replica_source_arn`을 빼서 승격 + 나머지(ALB · ECS · NAT · 통로 · 태스크 정의). 관리자 비밀번호는 원본에서 물려받고 금고는 도쿄에 복제돼 있음([ADR-069](../04-decisions.md#adr-069)) | 스크립트, 확인은 사용자 |
 | ④ 데이터 확인 | 도쿄 안 sql 태스크: 장애 선언 전 손님 쓰기가 몇 번까지 있나. **실패해도 전환은 계속**(되돌리기 전에 다시 셈) | 스크립트 |
 | ⑤ 전환 · ⑥ 복구 끝 | global `active_region=ap-northeast-1` → 손님 쓰기가 도쿄 앱에서 성공한 시각 | 스크립트, 확인은 사용자 |
 | 되돌리기 | 도쿄 멈춤 → 서울 옛 DB에서 대조 목록 → 덤프 이관(도쿄 → 서울) · 체크섬 → 서울 앱 · global 서울로(ADR-062 그대로) | 스크립트, 확인은 사용자 |
@@ -37,7 +36,7 @@
 | 지표 | 뜻 | 계산 |
 |---|---|---|
 | RTO | 장애 선언부터 손님 쓰기가 도쿄에서 성공할 때까지 | 보고서 `RTO(측정기 원본)` = writer.log에서 t0 뒤 도쿄 앱이 처음 성공시킨 예약. marks의 `rto_end`와 같아야 함. **사람 확인(plan 보고 yes) 시간은 따로** |
-| 단계별 시간 | 판단 + DB 승격 + 인프라 + 검증 + CloudFront | `tokyo_promote_apply → tokyo_promote_done`, `tokyo_db_writable`(DB 상태 기록기, Terraform과 별개), `tokyo_apply → tokyo_done`, `check`, `global_to_tokyo_*` |
+| 단계별 시간 | 판단 + DB 승격 + 인프라 + 검증 + CloudFront | `tokyo_db_writable`(DB 상태 기록기가 본 승격 끝, Terraform과 별개), `tokyo_apply → tokyo_done`(승격 + 인프라), `check`, `global_to_tokyo_*` |
 | RPO | 장애 선언 − 도쿄에 남은 마지막 손님 쓰기 | `replica_lag_s`(선언 때 복제 지연 = 실제 장애의 예상치) + 보고서 RPO(드릴의 실제 잃은 쓰기, 한계 위) |
 | 대조 | 서울 옛 DB에서 도쿄에 남은 마지막 손님 쓰기 뒤 바뀐 예약(새 예약 · 날짜 변경 · 취소)을 덮기 전에 뽑음 = 고객사가 처리할 목록 | lost-in-seoul.txt에서 `drill_lost = 1`인 행 수 = 보고서의 잃은 쓰기 건수. **한계:** 예약 표만 본다 |
 | 되돌리기 중단 · 데이터 일치 · 멱등성 | ADR-062와 같음 | `failback_end − failback_start`, 12개 표 체크섬, 같은 순번에 예약 번호 하나 |
@@ -57,7 +56,8 @@
 
 **첫 드릴에서 확인할 가설 (문서로 확정 못 함)**
 - 도쿄 AWS 관리 키(`aws/rds`)로 다른 리전 복제본이 되는지: B&R 복제에서는 됐음(11-21), 복제본은 처음
-- 승격과 도쿄 관리자 금고 붙이기가 한 apply에서 되는지: 안 되면 같은 명령을 한 번 더(금고만 붙음)
+- 승격과 관리자 비밀번호(`password_wo_version`)가 한 apply에서 되는지: 오류면 같은 apply를 한 번 더(같은 비밀번호)
+- (11-22 첫 standby 거부: RDS가 관리자 금고를 관리하는 DB는 읽기 복제본을 못 만듦 → [ADR-069](../04-decisions.md#adr-069)로 해결 뒤 다시)
 - standby(복제본 만들기) 시간: RTO 밖이지만 회차 준비 시간이라 잼
 
 ## 예측 (Pilot Light, 실행 전)
@@ -69,8 +69,7 @@
 | standby | 복제본 + 네트워크 7개 | 15 ~ 40분 (RTO 밖) | - |
 | 예상 RPO (선언 때 ReplicaLag) | 실제 장애 때 잃는 시간 폭 | 0 ~ 5초 | |
 | 드릴 실제 잃은 쓰기 | 한계 위 | 0건 | |
-| DB 승격 (`tokyo_promote` apply) | 복제본 → 독립 DB + 금고 | 3 ~ 10분 | |
-| 나머지 도쿄 인프라 | 44개 | 8 ~ 12분 | |
+| 도쿄 apply (승격 + 나머지 44개) | 복제본 → 독립 DB와 ALB · ECS 등을 한 번에 | 8 ~ 12분 (승격은 그 안에서 3 ~ 10분, `tokyo_db_writable`로 따로 잼) | |
 | RTO (사람 확인 뺀 값) | 장애 선언 → 도쿄에서 쓰기 성공 | 15 ~ 25분, 목표 30분 안 | 숫자 없음: 손님이 불편을 못 느낄 만큼 최대한 빨리 (목표 30분) |
 | 되돌리기 중단 · 체크섬 · 대조 · 중복 | B&R 예측과 같음 | 8 ~ 15분 · 일치 · 일치 · 0 | |
 

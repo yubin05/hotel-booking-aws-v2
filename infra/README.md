@@ -345,9 +345,9 @@ bash drill/fault.sh az        # × 3 (multi_az = true, 10분 막음 · +60초 zo
 서울 장애를 선언하고 도쿄 복제본(Pilot Light)을 승격해 손님을 받은 뒤, 서울로 되돌립니다([5단계 계획](../docs/experiments/region-drill.md), [ADR-066](../docs/04-decisions.md#adr-066)). 한 회차 = standby(복제본 만들기) + run 1시간 안팎.
 
 ```bash
-# 처음 한 번: 평소 권한을 백업 복제 · 시점 복원에서 복제본 생성 · 승격으로 바꿈 (bootstrap, operator-v2 정책 1 to change)
+# 처음 한 번: 평소 권한(복제본 생성 · 승격 · 관리자 금고 읽기)과 관리자 비밀번호 금고 (bootstrap, ADR-066 · 069)
 cd /c/dev/hotel-booking-aws-v2/infra/bootstrap
-AWS_PROFILE=admin terraform plan
+AWS_PROFILE=admin terraform plan        # 2 to add(관리자 금고 · 값), 2 to change(평소 정책 · 실행 역할 정책)
 date; AWS_PROFILE=admin terraform apply; date
 terraform -chdir=../tokyo init              # 이 PC에서 도쿄를 처음 쓰면
 
@@ -361,13 +361,14 @@ cd ../global && date; terraform apply; date
 cd /c/dev/hotel-booking-aws-v2
 aws login --profile admin
 bash drill/region.sh standby  # 도쿄 7 to add(복제본 · VPC · DB 서브넷 2 · 보안 그룹 · 서브넷 그룹 · 설정표) → yes. 끝에 "available arn:..."
-bash drill/region.sh run      # 장애 선언 → 승격 plan · yes → 도쿄 plan · yes → 확인 SQL → global plan · yes → RTO
+bash drill/region.sh run      # 장애 선언 → 도쿄 plan(승격 + 나머지) · yes → 확인 SQL → global plan · yes → RTO
                               # → Enter → 도쿄 멈춤 · 대조 · 덤프 이관 · 체크섬 → 서울 → global plan · yes
 cd infra/tokyo && date; terraform destroy; date; cd ../..   # 51개. 다음 회차는 standby부터
 ```
 
 - **중간에 멈추면** 손님 측정기 · 도쿄 DB 상태 기록기는 계속 돕니다(11-21 시도 2 · 3은 같이 꺼져 RTO를 잃음). `region.sh`는 변수를 각 루트의 `terraform.tfvars`에 써 두므로(도쿄 `replica_source_arn`, global `active_region`) 손으로 이어 가도 같은 값이 쓰입니다. 남은 단계를 손으로 끝까지 한 뒤(예: `cd infra/tokyo && terraform apply` → global `terraform.tfvars`에 `active_region = "ap-northeast-1"` 확인 → `cd ../global && terraform apply`) `bash drill/region.sh stop drill/results/region-<시각>`으로 끝내면 보고서가 나옵니다. 서울로 되돌리려면 `bash drill/region.sh seoul-up`(global의 `active_region` 줄도 지움) → `cd infra/global && terraform apply`, 도쿄는 destroy.
-- 첫 회차에서 확인할 것(문서로 못 정한 가설): 도쿄 AWS 관리 키로 다른 리전 복제본이 되는지, 승격 apply에서 도쿄 관리자 금고까지 붙는지(안 되면 같은 승격 plan · apply를 한 번 더), standby 시간.
+- 첫 회차에서 확인할 것(문서로 못 정한 가설): 도쿄 AWS 관리 키로 다른 리전 복제본이 되는지, 승격과 관리자 비밀번호(`password_wo_version`)가 한 apply에서 되는지(오류면 같은 apply를 한 번 더), standby 시간.
+- 11-22 첫 standby는 RDS가 관리자 금고를 관리하는 서울 DB라 거부됨 → 관리자 비밀번호를 bootstrap 금고로 옮김([ADR-069](../docs/04-decisions.md#adr-069)). 바꾼 뒤 처음 서울 apply는 서울 DB 비밀번호 방식을 바꾸는 그 자리 수정(`~ update in-place`)이어야 함
 - 결과: `drill/results/region-<시각>/` `steps.log`(단계 시각), `db-state.log`(도쿄 DB 10초마다), `report.md`(RTO(측정기 원본) · RPO · 끊김 · 중복), `lost-in-seoul.txt`(대조), `tokyo.sum` · `seoul.sum`(체크섬).
 - 예전 Backup & Restore(서울 `-var backup_replication=true`, `region.sh cleanup`)는 2026-11-22에 뺐습니다([ADR-066](../docs/04-decisions.md#adr-066)). 11-21 시도 기록은 [region-drill](../docs/experiments/region-drill.md)에 있습니다.
 

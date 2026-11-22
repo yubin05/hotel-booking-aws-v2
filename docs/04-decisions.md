@@ -799,6 +799,8 @@
 <a name="adr-041"></a>
 ## ADR-041 비밀값은 쓰기 전용으로 넣어 state에 남기지 않고(금고는 bootstrap · 도쿄 복제), DB 관리자 비밀번호는 RDS가 관리
 
+> **2026-11-22 관리자 비밀번호 부분은 [ADR-069](#adr-069)로 대체:** RDS가 금고를 관리하면 MySQL 읽기 복제본을 만들 수 없어 Pilot Light([ADR-066](#adr-066))와 충돌. 관리자 비밀번호도 앱 비밀값과 같은 bootstrap 금고로 옮김.
+
 - **상황:** 앱은 시작할 때 `DB_PASSWORD`와 `JWT_SECRET` 환경 변수가 없으면 종료한다(`app/src/config.ts`). ECS는 태스크를 띄울 때 Secrets Manager에서 값을 꺼내 환경 변수로 넣고, 태스크 정의에는 값이 아니라 비밀의 주소(ARN)만 적는다. 값을 누가 만들고 Terraform state에 남는지를 정해야 한다(2026-11-13).
 - **검토한 대안:**
 
@@ -1442,7 +1444,7 @@
   | 항목 | 고른 것 |
   |---|---|
   | 평소 도쿄 | 서울 RDS의 다른 리전 읽기 복제본 + 그 DB의 네트워크(VPC · DB 서브넷 · 보안 그룹 · 설정표, 7개). 앱 · ALB · NAT · 통로는 없음. 코드: `modules/regional` `replica_source_arn`(넣으면 복제본, 빼고 apply하면 승격) |
-  | 장애 때 | 사람이 선언([ADR-012](#adr-012) 그대로) → 도쿄 DB 승격(`-target`으로 DB만 먼저: 이관 태스크 정의가 승격 뒤 생기는 도쿄 관리자 금고 주소를 씀) → 나머지 도쿄 인프라 → 확인 SQL → CloudFront 원본 전환 |
+  | 장애 때 | 사람이 선언([ADR-012](#adr-012) 그대로) → 도쿄 apply 한 번에 DB 승격 + 나머지 도쿄 인프라 → 확인 SQL → CloudFront 원본 전환. (처음엔 승격만 `-target`으로 먼저 했으나 [ADR-069](#adr-069)로 관리자 금고를 따로 붙일 일이 없어져 합침) |
   | 목표 | **리전 RTO 30분 · RPO 1분**(잠정, 다음 드릴 3회로 확정). AZ 10분 그대로 |
   | 포트폴리오 | 드릴 날만 `region.sh standby`로 대기 상태를 만든다(Multi-AZ · NAT 2와 같은 방식). 설계는 상시 |
   | 백업 | 서울 자동 백업 7일(시점 복구)은 유지: 복제본은 실수(잘못 지운 데이터)도 그대로 복제한다. 리전 간 백업 복제는 뺀다 |
@@ -1510,3 +1512,32 @@
 - **다시 볼 조건(우리가 정한 기준):** 목표 부하에서 RDS CPU가 계속 70% 이상이고, 그 부하가 대부분 조회일 때. 그 전에 싼 순서로: 숙소 목록 · 상세 캐시(CloudFront), 쿠폰 쪽 권고(서버별 소진 기억, READ COMMITTED), DB 인스턴스 크기.
 - **넣게 되면 할 일 · 위험:** 복제는 비동기라([RDS 문서](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html)) 방금 쓴 내용이 안 보일 수 있다(내 예약 목록, 남은 객실 · 쿠폰 수) → 이런 조회는 주 DB로 보내는 규칙과 연결 풀 2개, 복제본 장애 때 주 DB로 돌리는 처리가 필요하다.
 - **비슷한 질문:** 도쿄 복제본([ADR-066](#adr-066))을 서울 조회에 쓰기 → 서울 앱에서 리전을 건너가는 지연이 생겨 쓰지 않는다. 도쿄를 쓰기 가능한 주 DB로 두기 → ADR-066 대안 표.
+
+<a name="adr-069"></a>
+## ADR-069 DB 관리자 비밀번호를 RDS 관리 금고에서 bootstrap 금고(서울 원본 · 도쿄 복제)로 옮긴다 (2026-11-22)
+
+- **상황:** Pilot Light([ADR-066](#adr-066)) 첫 standby가 `InvalidParameterValue: Creating read replicas for source instance with engine mysql where ManageMasterUserPassword is enabled is not supported`로 거부됐다(2026-11-22 18:18). RDS 문서도 금고를 RDS가 관리하는 DB의 읽기 복제본 만들기를 제한 사항으로 적는다(*"Creating a read replica when the source DB or DB cluster manages credentials with Secrets Manager"*, MySQL 포함, [RDS 문서](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-secrets-manager.html)). [ADR-041](#adr-041)(11-13)이 관리자 비밀번호를 RDS 관리로 정했는데, ADR-066을 정할 때 이 제약을 확인하지 못했다(Claude). 사용자는 처음부터 금고(Secrets Manager)를 쓰자고 했었다.
+- **결정:**
+
+  | 항목 | 고른 것 |
+  |---|---|
+  | 금고 | bootstrap `hotel-booking-aws-v2/db-admin-password`, 서울 원본 + 도쿄 복제(앱 DB 비밀번호 · JWT 키와 같은 방식). 값은 Terraform이 apply 동안만 만든 임시 값을 쓰기 전용(`secret_string_wo`)으로 넣어 state에 없음 |
+  | RDS에 넣기 | 모듈이 리전의 금고를 apply 동안만 읽어(`ephemeral aws_secretsmanager_secret_version`) `password_wo`(쓰기 전용)로 넣음. state에 없음. 복제본은 원본 비밀번호를 물려받아 읽지 않음 |
+  | 서울 장애 때 | 승격한 도쿄 DB도 같은 비밀번호이고 금고가 도쿄에 복제돼 있어, 서울 없이 도쿄 이관 · 확인 태스크가 바로 동작(RDS 관리 금고는 서울에만 있어 DR 때 꺼낼 수 없던 빈틈도 메움) |
+  | 승격 절차 | 금고를 따로 붙일 일이 없어 도쿄 apply 한 번에 승격 + 나머지 인프라(사람 확인 1번 줄어듦) |
+  | 권한 | 실행 역할: 이 금고 읽기 추가, RDS가 만든 `rds!db-*` 금고 읽기는 뺌. 평소 사용자: RDS 관리 금고 만들기(`rds!*` CreateSecret)를 빼고 이 금고 읽기(GetSecretValue, ARN 한정)를 넣음 — Terraform이 apply 때 값을 읽어 RDS에 넣으려면 필요(공백 뺀 5,951 → 5,987 / 6,144자) |
+  | 비용 | 금고 1개 + 도쿄 복제 = 월 $0.8([09](09-cost-estimate.md) 단가) |
+
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | RDS 관리 금고 유지 + Backup & Restore로 돌아감 | ADR-066을 정한 이유(복원 시간 편차, RPO 10분대)가 그대로 남는다 |
+  | DMS 등 별도 복제 도구 | 이 규모에 과하고 운영할 것이 는다 |
+  | 서울 apply 때마다 새 비밀번호를 만들어 금고에 쓰기 | 평소 사용자가 금고 버전을 쓰고 지우는 권한까지 필요하고, 공급자가 버전을 다시 읽을 때 결국 읽기 권한도 필요(가설). 고정 값 하나를 bootstrap에서 넣는 쪽이 단순하다 |
+
+- **결과 · 받아들인 위험:**
+  - 평소 사용자가 관리자 금고를 읽을 수 있다(ADR-041의 "사람도 모름"보다 약함). 값이 state · 로그에는 남지 않고, 읽기는 CloudTrail에 남는다. 교체는 bootstrap 금고 `secret_string_wo_version`과 모듈 `password_wo_version`을 함께 올린다.
+  - 서울 DB를 RDS 관리에서 이 방식으로 바꾸는 서울 apply는 그 자리 수정이다(RDS가 관리 금고를 지우고 새 비밀번호를 씀, [ModifyDBInstance](https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_ModifyDBInstance.html)). plan에서 DB가 바뀌기만 하고(`~`) 다시 만들지(`-/+`) 않는지 확인한다.
+  - 첫 드릴에서 확인할 가설: 승격과 같은 apply에서 `password_wo_version`(null → 1)이 함께 바뀌어도 공급자가 승격을 먼저 해 오류가 없는지. 오류가 나면 같은 apply를 한 번 더 한다(값은 같은 비밀번호).
+
