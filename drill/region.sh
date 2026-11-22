@@ -4,6 +4,7 @@
 #   bash drill/region.sh run        전환(RTO · RPO) → Enter → 되돌리기. plan이 1회차 실측과 같으면 바로 apply, 다를 때만 yes 확인 (기다린 시간은 따로 셈)
 #   bash drill/region.sh stop <결과 폴더>   run이 중간에 멈췄을 때: 남은 단계를 손으로 끝낸 뒤 계속 도는 측정기 · DB 상태 기록기를 끝내고 보고서
 #   bash drill/region.sh seoul-up   중간에 멈췄을 때 서울 앱을 다시 2 ~ 4로 (global은 terraform apply로 서울에)
+#   bash drill/region.sh seoul-down 서울 앱만 0으로(점검 안내 페이지 확인, ADR-070). 되돌리기는 seoul-up
 # 결과: drill/results/region-<시각>/ writer.log(손님 쪽), marks.log · steps.log(단계 시각), db-state.log(도쿄 DB 상태 10초마다), tokyo-check.txt(승격 DB 확인),
 #       lost-in-seoul.txt(대조: 서울에만 있던 쓰기), dump.log · restore.log(되돌리기 체크섬), tf-*.log(plan · apply 출력), report.md
 # 필요: 서울 · global이 떠 있고 도쿄는 standby, 평소 사용자 로그인(Terraform · DB 상태 기록) + 관리자 로그인(aws)
@@ -243,5 +244,6 @@ standby) standby ;;
 run) run ;;
 stop) stop "${2:-}" ;;
 seoul-up) seoul_up ;;
-*) sed -n '3,6p' "$0" >&2; exit 1 ;;
+seoul-down) scale_app "$SEOUL" 0 0 0 && echo "서울 앱 0으로. 되돌리기: bash drill/region.sh seoul-up" ;;
+*) sed -n '3,7p' "$0" >&2; exit 1 ;;
 esac
