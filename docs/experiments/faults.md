@@ -1,6 +1,6 @@
-# 4단계 장애 테스트 — 실행 결과 및 후속 분석 (2026-11-20~21)
+# 4단계 장애 테스트 — 실행 결과 및 후속 분석 (2026-11-20 ~ 22)
 
-로컬 예행연습([07](../07-experiments.md) E-04 ~ E-06)에서 "AWS에서 볼 것"으로 남긴 장애를 새 구조(서울)에 주입해, **손님이 본 오류**와 **회복까지 걸린 시간**을 측정했습니다. **4단계 실행은 완료**됐고, 특히 AZ 2c NACL 통신 차단 중 오류율 중앙 14.6%의 정확한 실패 경로는 후속 검증 대상입니다. 실행은 [런북 5-7](../../infra/README.md#5-7-장애-테스트-4단계), 스크립트는 [drill/fault.sh](../../drill/fault.sh).
+로컬 예행연습([07](../07-experiments.md) E-04 ~ E-06)에서 "AWS에서 볼 것"으로 남긴 장애를 새 구조(서울)에 주입해, **손님이 본 오류**와 **회복까지 걸린 시간**을 측정했습니다. **4단계 실행은 완료**됐고, AZ 차단 중 실패(중앙 14.6%)의 경로는 2026-11-22 CloudWatch AZ별 지표로 확인했고(막힌 AZ의 ALB 노드 IP가 DNS에 남아 CloudFront 요청 일부가 시간 초과, [원인 분석](#원인-분석-2026-11-22)), ALB zonal shift를 넣어 다시 잽니다([ADR-067](../04-decisions.md#adr-067)). 실행은 [런북 5-7](../../infra/README.md#5-7-장애-테스트-4단계), 스크립트는 [drill/fault.sh](../../drill/fault.sh).
 
 ## 범위 (2026-11-19 사용자)
 
@@ -115,4 +115,35 @@
 - **차단 10분 내내 띄엄띄엄 실패(중앙 14.6%), 되돌린 뒤에야 정상화.** 예측("처음 1 ~ 3분 일부 오류 뒤 거의 0", 잠정 목표 10분 안 회복)과 다름 → 이 모의 장애에서는 다른 AZ만으로 완전히 회복하지 못했다. 막힌 AZ 쪽으로 계속 간 요청이 시간 초과된 것으로 본다(가설: 내부 ALB · CloudFront VPC 원본이 막힌 AZ 몫을 계속 보냄, 막힌 태스크가 교체되지 않음). 원인 분석은 events.txt · state.log · cw.json으로
 - 원복 확인(3회차, 02:09): 서브넷 3개 원래 ACL, 막는 ACL 삭제됨. 집계 요약 · 원본 사본: 비공개 Drive `AWS/hotel-v2-raw/20261121/az-block-failure.md`
 - 첫 시도 `fault-az-20261121-002808`은 절차가 달라(정상 대상 감소 대기 시간 초과, 약 20분 차단) 정식 회차에서 뺌(같은 기준 합계 15.2%). 이후 `fault.sh`가 주입 시각부터 정확히 10분 뒤 되돌리게 바뀜
+
+### 원인 분석 (2026-11-22)
+
+질문: 차단 10분 내내 실패한 요청을 ALB가 막힌 AZ의 태스크로 보냈나? → **아니다.** 실패한 요청은 ALB에 닿지 못했다. 근거는 기존 원본(writer.log의 응답 태스크 `x-served-by`, state.log)과 CloudWatch ALB 지표(AZ 차원, 1분 지표 15일 보관이라 남아 있음)뿐이고 새 로그 버킷 · 권한은 쓰지 않았다. 원본: `drill/results/fault-az-alb-by-az-20261121.json`(+ `-queries.json`).
+
+| 확인한 사실 (3회 공통, 막힌 AZ: 1 · 3회차 2c, 2회차 2a) | 근거 | 뜻 |
+|---|---|---|
+| 막힌 AZ 태스크의 성공 응답: 첫 1분 4 ~ 8건(차단 직전 요청) 뒤 **0건** | writer.log `x-served-by` | 막힌 태스크는 손님을 처리하지 못함 |
+| 시간 초과: 분당 11 ~ 16건, 10분 동안 줄지 않음. 5xx 9 ~ 16건은 첫 1분, **살아 있는 AZ 태스크에서만** | 같은 원본 | 5xx는 함께 넣은 DB 강제 장애 조치(+6초) 영향. 시간 초과가 AZ 차단 몫 |
+| 막힌 AZ의 ALB 노드가 받은 요청 `RequestCount` **0**, 살아 있는 AZ 노드는 분당 56 ~ 135 | CloudWatch `AWS/ApplicationELB` (LoadBalancer, AvailabilityZone) | 막힌 출입구(노드)로는 아무것도 못 들어감 |
+| 대상 연결 오류 `TargetConnectionErrorCount` · ALB 자체 5xx `HTTPCode_ELB_5XX_Count` **0** | 같은 지표 | ALB가 막힌 태스크로 보낸 적 없음. 시간 초과 요청은 ALB 앞에서 끊김 |
+| 정상 대상 수 AZ별: 최소 0 · 최대 1 (두 AZ 모두), API(`describe-target-health`)는 내내 정상 2 | CloudWatch `HealthyHostCount` + state.log | 노드마다 판단이 다름(각 노드가 따로 헬스 체크, [ALB 문서](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/target-group-health-checks.html)). 해석: 막힌 AZ 노드는 같은 서브넷 태스크를 정상으로 봄. 그래서 ECS도 교체하지 않음 |
+
+**흐름:** 손님 → CloudFront → (통로) → ALB DNS의 노드 IP 2개 중 하나. 살아 있는 AZ 노드로 가면 막힌 태스크를 피해 정상 처리. 막힌 AZ 노드로 가면 NACL에서 연결이 막혀 CloudFront가 기다리는 동안(연결 시간 제한 기본 10초, [CloudFront 문서](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/DownloadDistValuesOrigin.html)) 손님(측정기)은 5초에 포기 → "응답 없음".
+
+**왜 막힌 노드가 DNS에서 안 빠졌나:** ALB 헬스 체크는 대상(태스크)을 보지 노드를 보지 않는다. 노드를 DNS에서 빼는 대상 그룹 DNS 장애 조치(최소 정상 대상 기본 1)는 cross-zone이 켜져 있으면 모든 AZ 합계로 세서 안 걸린다([ALB 대상 그룹 문서](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-target-groups.html#target-group-health)). AWS가 스스로 빼는 경우는 AWS 인프라 문제일 때인데, 이번 원인은 우리가 건 NACL이라 AWS는 모른다 = **회색 장애**(자동 복구가 움직이지 않는 부분 장애). 네트워크 설정 실수 같은 실제 사고도 같은 모양이다.
+
+- NACL로 흉내 낸 이유: FIS AZ 정전 시나리오가 Fargate 태스크 · 단일 RDS Multi-AZ를 지원하지 않아 FIS가 하는 일(서브넷 연결 끊기)을 CLI로 직접 했다(위 범위 절). NACL은 서브넷 안 통신은 검사하지 않지만([VPC 문서](https://docs.aws.amazon.com/vpc/latest/userguide/vpc-network-acls.html)), 위 지표로 막힌 노드에 요청이 0건이라 이번 결론에는 영향 없음
+- 버린 해석: "막힌 AZ 안에서 노드 · 태스크가 섬처럼 살아 손님을 받았다"(11-22 처음 가설) → 막힌 노드 요청 0건으로 틀림
+- 버린 해결안: 헬스 체크를 DB까지(`/api/health/deep`) → 실패 요청이 태스크에 닿지 않아 효과 없고, DB 장애 조치 때 모든 태스크가 비정상이 되어 ECS가 교체를 반복할 위험([ECS 문서](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs_services.html): ALB 비정상 태스크 교체)
+
+### AZ 장애 + zonal shift (재시험 계획, 2026-11-22)
+
+ALB `enable_zonal_shift`를 켜고(서울 apply로 반영), `fault.sh az`가 주입 +60초(`SHIFT_AFTER`, 감지 · 판단 흉내)에 ARC zonal shift로 막힌 AZ 노드를 DNS에서 빼고, 되돌린 뒤 취소한다([ADR-067](../04-decisions.md#adr-067)). 나머지 조건은 11-21과 같다(주 DB AZ 차단 + 강제 장애 조치, 10분). 비교 기준은 위 3회.
+
+| 예측 | Claude (가설) | 사용자 |
+|---|---|---|
+| shift 뒤 시간 초과가 0이 되기까지 | 1 ~ 3분 (DNS 60초 + CloudFront가 새 주소를 쓰기까지, 문서에 숫자 없음) | 실행 전에 받음 |
+| 차단 중 손님 실패율(건수, 쓰기 · 읽기 합계) | 14.6% → 3 ~ 6% | |
+| 차단 중 5xx | 그대로 첫 1분 9 ~ 16건(DB 장애 조치 몫) | |
+| 되돌린 뒤 · shift 취소 뒤 | 실패 0, 정상 2 | |
 

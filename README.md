@@ -4,7 +4,7 @@
 
 4인 팀 프로젝트 [Project_TEAM_AWS](https://github.com/yubin05/Project_TEAM_AWS)(이하 v1)를 회고하고, 같은 고객 문제를 **고객 규모에 맞는 설계**로 다시 풀어 **실측으로 검증**하는 것이 목표입니다.
 
-> **프로젝트 상태: v2 AWS 이관·성능·장애·DR 0~5단계 실험 수행 완료 (2026-11-21 사용자 확인).** 이관(12개 테이블·176,073행 체크섬 일치), AWS k6 3회(3,000명 층까지), 쿠폰 스파이크 2대/4대 각 3회(100장 정확 발급), 4단계 장애 실험까지 결과를 기록했습니다. **4·5단계 장애/DR 실패율의 원인 분석·수정과 5단계 RTO/RPO 최종 수치 정리는 후속 작업**입니다. 실행 완료와 목표 충족 여부는 구분합니다. **운영·보안 자동 대응은 v2의 3.5단계가 아닌 v3 독립 프로젝트**이며 2026-11-23(월)부터 착수 예정입니다.
+> **프로젝트 상태: v2 AWS 이관·성능·장애·DR 0~5단계 실험 수행 완료 (2026-11-21 사용자 확인).** 이관(12개 테이블·176,073행 체크섬 일치), AWS k6 3회(3,000명 층까지), 쿠폰 스파이크 2대/4대 각 3회(100장 정확 발급), 4단계 장애 실험까지 결과를 기록했습니다. **2026-11-22: 4단계 AZ 차단 중 실패는 원인을 확인해(막힌 AZ의 ALB 출입구가 DNS에 남음) ALB zonal shift를 넣었고, 5단계는 Backup & Restore 3회 시도(RTO 미측정 · RPO 10분 5.6초) 뒤 Pilot Light(도쿄 DB 복제본 → 승격, 목표 RTO 30분 · RPO 1분)로 바꿔 두 드릴을 다시 잽니다.** 실행 완료와 목표 충족 여부는 구분합니다. **운영·보안 자동 대응은 v2의 3.5단계가 아닌 v3 독립 프로젝트**이며 2026-11-23(월)부터 착수 예정입니다.
 
 **▶ [새 PC에서 1단계 AWS 이전 환경 올리기](https://github.com/yubin05/hotel-booking-app/blob/main/legacy/README.md)** · 준비물 → 매일 올리기 · 확인 → 지우기를 한 페이지에
 
@@ -16,7 +16,7 @@
 
 - v1 회고 — 실제 문제(트래픽 폭증)와 맞지 않던 멀티클라우드 DR을 Multi-AZ + 오토스케일링 + 리전 간 백업으로 단순화
 - 고객 규모에 맞춘 구조 — 마이크로서비스 5개를 모듈러 모놀리스 1개로, API Gateway 없이 CloudFront VPC Origin으로 비공개 ALB에 연결, 최대 태스크 수를 비용 상한으로
-- 월 고정 비용 추정 $679 → $205 (−70%) — v1에서 늘 켜 둬야 했던 Azure VPN Gateway · Aurora · DMS 대기 비용을 없앰 (실서비스처럼 상시 운영한다고 보고 AWS · Azure 공식 단가로 계산. 포트폴리오 검증은 작업 시간에만 켜므로 실제 청구서는 이 단가를 검증하는 데 씀)
+- 월 고정 비용 추정 $679 → $226 (−67%, 도쿄 DB 복제본 $21 포함) — v1에서 늘 켜 둬야 했던 Azure VPN Gateway · Aurora · DMS 대기 비용을 없앰 (실서비스처럼 상시 운영한다고 보고 AWS · Azure 공식 단가로 계산. 포트폴리오 검증은 작업 시간에만 켜므로 실제 청구서는 이 단가를 검증하는 데 씀)
 - 단계적 검증 — 로컬(0원)에서 앱 결함을 먼저 없애고, AWS에서는 로컬에서 재현할 수 없는 인프라 동작만 측정. 같은 k6 시나리오를 환경만 바꿔 다시 돌려 단계마다 비교
 - 이관 전 기준선 — 옛날 구조(EC2 t3.micro 3대)는 동시 접속 500명(초당 약 85건)까지 버티고 1,000명에서 무너짐. DB가 먼저 한계(CPU 93%), 3회 모두 같은 결과. 3단계에서 같은 부하로 이관 후와 비교
 - 병목을 재고 고치기 — 옛날 구조가 500명에서 무너진 원인을 측정(DB 시간의 60%가 추천 숙소 조회, 1,000명 이후는 서버의 연결 추적 표가 가득 참)하고, 앱만 고쳐 같은 서버에서 1,000명 실패율 64% → 1.5%, 500명 응답 약 6배 빠르게
@@ -44,9 +44,9 @@ v2는 같은 시나리오를 **요구사항 → 설계 → 실측** 순서로 �
 | 대비하는 상황 | 방법 |
 |---|---|
 | 트래픽 폭증 | CloudFront 캐시, ECS 오토스케일링 (최대 태스크 수로 비용 상한) |
-| 서버·AZ 장애 | ALB·ECS를 AZ 2개에 분산, RDS Multi-AZ 자동 장애 조치, AZ마다 NAT |
+| 서버·AZ 장애 | ALB·ECS를 AZ 2개에 분산, RDS Multi-AZ 자동 장애 조치, AZ마다 NAT. AWS가 모르는 AZ 이상(회색 장애)은 ALB zonal shift로 그 AZ를 뺌 |
 | 데이터 사고 | RDS 시점 복구(PITR) |
-| 리전 장애 | 다른 리전에 복제한 백업으로, 같은 Terraform을 써서 복원 (Backup & Restore, 잠정 목표 RTO 1시간). 사진은 CDN이 도쿄 복제본으로 자동 전환 |
+| 리전 장애 | 도쿄에 상시 둔 DB 복제본을 승격하고, 같은 Terraform으로 나머지를 올려 전환 (Pilot Light, 목표 RTO 30분 · RPO 1분. 2026-11-22 Backup & Restore에서 바꿈). 사진은 CDN이 도쿄 복제본으로 자동 전환 |
 
 → [아키텍처 상세](docs/02-architecture.md)
 
@@ -57,15 +57,15 @@ v2는 같은 시나리오를 **요구사항 → 설계 → 실측** 순서로 �
 | 백엔드 | 마이크로서비스 5개 (서로 동기 호출) | 모듈러 모놀리스 1개 |
 | 컴퓨트 | ECS 5개 서비스, 태스크 10개 | ECS 1개 서비스, 최소 2개 + 오토스케일링 |
 | 진입점 | Amplify + API Gateway + VPC Link | CloudFront + WAF + VPC Origin |
-| DB | Aurora + DMS CDC로 Azure MySQL 복제 | RDS MySQL Multi-AZ + 리전 간 백업 |
-| DR | AWS–Azure Active-Passive | Multi-AZ(HA) + 리전 간 Backup & Restore |
+| DB | Aurora + DMS CDC로 Azure MySQL 복제 | RDS MySQL Multi-AZ + 도쿄 읽기 복제본 |
+| DR | AWS–Azure Active-Passive | Multi-AZ(HA) + 리전 간 Pilot Light (도쿄 DB만 상시) |
 | 이관 | VPN + DMS CDC | 점검 시간 중 덤프·복원 |
 | 인증 | Cognito | 앱 자체 JWT |
 | 배포 | CodePipeline + CodeDeploy Blue/Green | GitHub Actions + ECS 롤링 + 자동 롤백 |
 | 로그 | Firehose + OpenSearch | CloudWatch |
 | 이벤트 대응 | 없음 | 선착순 쿠폰(초과 발급 0건) + 예약 스케일링 |
 | 검증 | DNS 전환 테스트 위주 | 부하·장애·복원 실측 |
-| 월 고정 비용 (추정, 상시) | 약 $679 | 약 $205 ([09 비용 추정](docs/09-cost-estimate.md)) |
+| 월 고정 비용 (추정, 상시) | 약 $679 | 약 $226 ([09 비용 추정](docs/09-cost-estimate.md)) |
 
 ## 설계 결정
 
@@ -88,6 +88,8 @@ v2는 같은 시나리오를 **요구사항 → 설계 → 실측** 순서로 �
 
 - [멀티클라우드 DR을 쓰지 않는 이유 (vs Azure 대기 · GCP Cold DR)](docs/04-decisions.md#adr-001)
 - [Backup & Restore 선택 이유 (vs Pilot Light · Warm Standby)](docs/04-decisions.md#adr-009)
+- [드릴 3회 뒤 Pilot Light로 바꾼 이유 (복원 시간 편차 · RPO 10분대 · 결제 연결 전)](docs/04-decisions.md#adr-066)
+- [AZ 회색 장애를 zonal shift로 대응하는 이유 (vs DB까지 보는 헬스 체크 · autoshift)](docs/04-decisions.md#adr-067)
 - [리전 전환을 CloudFront 원본 전환으로, 사람이 판단해 하는 이유 (vs DNS 전환 · 자동 전환)](docs/04-decisions.md#adr-012)
 - [장애 종류별 복구 목표를 나눈 이유 (AZ 10분 · 리전 1시간, vs Warm Standby)](docs/04-decisions.md#adr-036)
 - [덤프로 이관하는 이유 (vs DMS CDC)](docs/04-decisions.md#adr-008)
@@ -120,18 +122,18 @@ v2는 같은 시나리오를 **요구사항 → 설계 → 실측** 순서로 �
 
 v2에서는 **AWS 이관·부하·장애 주입·도쿄 DR**까지 다룹니다. 예전 초안의 **3.5단계 운영 사건 대응 자동화**는 v2 범위에서 제외했습니다. 로그인 공격 재현, WAF/Lambda 자동 차단, AI 사건 보고서, 보안 통합 관제는 [보안 운영 v3](https://yubin05-portfolio.vercel.app/projects/hotel-booking-secops)에서 2026-11-23(월)부터 진행할 계획입니다.
 
-4·5단계의 실패율과 재해 복원 드릴에서 관찰된 오류는 **실험이 실행되었다는 사실과 별도로** 원인 분석·재검증 대상입니다. 실측 수치를 임의로 수정하거나 미기록 RTO/RPO를 확정값으로 제시하지 않습니다.
+4단계 AZ 차단 실패는 원인을 확인했고(2026-11-22, CloudWatch AZ별 지표) zonal shift를 넣어, 5단계는 Pilot Light로 바꿔 다시 잽니다. 실측 수치를 임의로 수정하거나 미기록 RTO를 확정값으로 제시하지 않습니다.
 
 ## 검증 기록
 
-측정값이 기록된 항목만 "검증했다"고 적고, 응답 시간이 좋아도 데이터가 틀리면 실패로 봅니다. 0~5단계 실험 실행은 완료 보고됐으나, 5단계 RTO/RPO 수치와 4·5단계 일부 실패율은 최종 정리·원인 검증 대상입니다.
+측정값이 기록된 항목만 "검증했다"고 적고, 응답 시간이 좋아도 데이터가 틀리면 실패로 봅니다. 0~5단계 실험은 실행했고, 4단계 AZ 차단과 5단계 리전 복원은 2026-11-22 보완(zonal shift · Pilot Light) 뒤 다시 잽니다.
 
 - [이관 전 부하 기준선](docs/experiments/baseline.md) — AWS 이전 환경(EC2 t3.micro 3대)에 손님을 500명씩 늘려 3,000명까지, 3회. 동시 접속 500명(초당 약 85건, p95 1초 이내)까지 버티고 1,000명에서 무너짐(에러율 59~69%). DB가 먼저 한계, 정합성 검사 모두 0
 - [DB 병목 분석 · 개선 (1.5단계)](docs/experiments/db-bottleneck.md) — 조회별 DB 시간과 실행 계획으로 원인을 찾아 비싼 조회 2개(추천 숙소 · 검색)를 고치고, 연결 재사용, DB가 오래 걸리는 조회를 직접 끊게, 예약 화면 재시도. 같은 옛날 구조에서 1,000명 실패율 64% → 1.5%. 남은 한계는 DB 서버 CPU
 - [로컬 장애 · 부하 실험 6개](docs/07-experiments.md) — 평소 트래픽, 예약 쏠림, 쿠폰 오픈, DB 장애, 서버 강제 종료, 배포 중 종료. 문제 2건을 찾아 고쳤고, 이중 예약 · 예약 유실 · 쿠폰 초과 발급은 모두 0
 - [3단계 데이터 이관·k6·쿠폰 실험](docs/experiments/migration.md) — 이관 체크섬 12개 테이블·176,073행 일치, 3,000명 부하 3회, 선착순 100장 발급: 2대 고정 3회 p95 평균 2.99초 vs 예약 4대 3회 2.65초
-- [4단계 장애 실험](docs/experiments/faults.md) — 태스크 종료·깨진 배포·RDS 장애 조치·AZ 통신 차단 실험 수행; AZ 차단 중 손님 오류 중앙 14.6%는 원인 미확정이며 후속 재검증 대상
-- [5단계 도쿄 DR](docs/experiments/region-drill.md) — 사용자 실험 수행 완료 확인; 도쿄 복구·전환/Failback의 RTO·RPO 최종 숫자와 실패율을 기록·검증하는 문서 보완이 남음
+- [4단계 장애 실험](docs/experiments/faults.md) — 태스크 종료·깨진 배포는 손님 실패 0, RDS 장애 조치는 손님 끊김 중앙 약 16초. AZ 통신 차단 중 손님 실패 중앙 14.6%: ALB는 막힌 서버를 잘 피했지만 막힌 AZ의 출입구(ALB 노드) 주소가 DNS에 남아 일부 요청이 시간 초과(막힌 출입구 요청 0건으로 확인) → zonal shift를 넣어 재측정 예정
+- [5단계 도쿄 DR](docs/experiments/region-drill.md) — Backup & Restore 3회 시도: RPO 10분 5.6초(1회 실측), DB 복원이 7분 · 94분 넘게 미완료로 갈려 RTO를 약속할 수 없음 → 결제 연결 전에 Pilot Light로 전환(월 약 $21), 목표 RTO 30분 · RPO 1분으로 재측정 예정
 - [트러블슈팅 9건](docs/troubleshooting/README.md) — 재현 → 원인 → 해결 → 검증 기록 (이중 예약, 쿠폰 교착, DB 연결 고갈, DB 멈춤 등)
 
 ## 시나리오 근거
@@ -148,7 +150,7 @@ v2에서는 **AWS 이관·부하·장애 주입·도쿄 DR**까지 다룹니다.
 
 설계는 실운영 기준(RDS Multi-AZ 상시 등)으로 합니다. 포트폴리오 검증은 테스트할 때만 `terraform apply`하고 끝나면 `destroy`합니다. 실제 청구 금액은 단계별로 기록합니다.
 
-월 고정 비용 추정: 상시 운영 기준 v1 약 $679 → v2 약 $205, 작업 시간(평일 9~18시) 기준 v2 약 $55. AWS Budgets 알림은 월 $50으로 1단계 전에 켭니다. → [09 비용 추정](docs/09-cost-estimate.md)
+월 고정 비용 추정: 상시 운영 기준 v1 약 $679 → v2 약 $226(도쿄 DB 복제본 $21 포함), 작업 시간(평일 9~18시) 기준 v2 약 $61. AWS Budgets 알림은 월 $50으로 1단계 전에 켭니다. → [09 비용 추정](docs/09-cost-estimate.md)
 
 ## 문서
 

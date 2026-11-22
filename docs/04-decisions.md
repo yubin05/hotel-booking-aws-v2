@@ -181,7 +181,7 @@
   | Warm Standby | 전체를 작게 운영 | 분 단위 |
   | Active-Active | 양쪽이 모두 트래픽 처리 | 거의 0 |
 
-- **결정:** AZ 장애는 Multi-AZ, 리전 장애는 Backup & Restore.
+- **결정:** AZ 장애는 Multi-AZ, 리전 장애는 Backup & Restore. **→ 2026-11-22 리전 장애는 Pilot Light로 바꿈([ADR-066](#adr-066))**
 - **근거:** 소규모 회사이고 리전 장애 시 수 시간 내 복구를 받아들일 수 있다고 가정했다. 평소 비용이 가장 적다.
 - **결과:** RTO가 Pilot Light보다 길다. 실측값으로 제시하고, 요구가 강해지면 도쿄 읽기 복제본(Pilot Light)으로 확장한다. 목표 수치(리전 RTO 1시간)와 확장 조건은 [ADR-036](#adr-036). 리전 간 백업은 국외 보관이므로 개인정보 국외 이전 고지가 필요하다는 가정을 둔다.
 
@@ -657,6 +657,8 @@
   | 리전 전체 | 1시간 | Backup & Restore ([ADR-009](#adr-009) 유지) |
 
   RPO는 드릴로 잰 뒤 정한다. 리전 RTO가 1시간을 넘으면 가장 느린 단계를 Pilot Light(도쿄 DB 복제본)로 바꾼다.
+
+  **재설정 (2026-11-22):** 리전 B&R 드릴 3회에서 DB 복원이 7분 · 94분 넘게 미완료로 갈리고 RPO 10분 5.6초 → 이 기준대로 Pilot Light로 올리고 **리전 RTO 30분 · RPO 1분**(잠정, 다음 드릴 3회로 확정, [ADR-066](#adr-066)). AZ 10분은 그대로 두고 회색 장애 대응에 zonal shift를 더함([ADR-067](#adr-067))
 - **근거:** 실제 사고(4시간 중단)의 원인은 과부하라 R1(오토스케일링)이 막는다. 사용자가 자주 겪을 장애는 서버·AZ 쪽이고 추가 비용 없이 분 단위로 복구된다. 리전 장애는 드물어 상시 대기 비용이 맞지 않는다. 재 보고 필요한 단계만 올리는 것이 실무 방식이다.
 - **결과:** 4·5단계 실측을 이 표와 비교해 확정하고 "목표 → 실측 → 판단"으로 보여 준다. 복제본은 실수도 복제하므로 Pilot Light로 올려도 R3용 백업은 유지한다. 리전 장애는 짧게 끝날 수도 있어(서울 84분, [08 6절](08-real-cases.md)) 도쿄 복원을 시작하는 장애 선언 기준을 5단계에서 정하고, RTO의 "판단" 구간에 넣는다.
 
@@ -1372,6 +1374,8 @@
 
 ## ADR-062 리전 복원은 RDS 자동 백업의 리전 간 복제 + 도쿄 apply 한 번에 시점 복원, 되돌리기는 덤프 이관 도구 재사용 (2026-11-19)
 
+> **2026-11-22 [ADR-066](#adr-066)으로 대체:** 리전 간 백업 복제 · 시점 복원 경로(`seoul/backup.tf`, `restore_*` 변수, 평소 권한 4개)를 뺐다. 되돌리기(덤프 이관 · 대조 · 체크섬)는 그대로 쓴다.
+
 - **상황:** 5단계 리전 복원 드릴을 만들려는데 02 8절 "RDS 백업이 도쿄로 복제됨"을 만드는 코드가 없었고, 런북 3 · 4절에 "DB 복원 · 되돌리는 방법은 5단계에서 정함"이 남아 있었다. 2026-11-19 사용자와 정함.
 - **결정:**
 
@@ -1423,3 +1427,67 @@
   | ADR-063 때 설계한 Vercel 함수 + Vercel OIDC 읽기 역할 | 화면을 직접 만들어야 하고 AWS 역할이 하나 더 는다. 실제 Grafana를 쓰는 공유 대시보드로 대신한다 |
 
 - **받아들인 위험 · 확인할 것:** k6 문서는 원격 쓰기 출력을 실험 기능이라고 적는다. Grafana의 p95는 보낸 주기(1초)마다 계산한 값이라 요청 원본으로 계산하는 REPLAY의 p95와 조금 다를 수 있어 화면에 정의를 적는다. 공유 링크는 볼 때마다 CloudWatch 조회 요금(지표 1,000개당 $0.01)이 생길 수 있다(Grafana 쪽 캐시 여부는 확인 못 함). 외부 공유 대시보드는 무료 플랜에서 된다(2026-11-20 확인: 로그인 없이 열리고, 공개 링크로도 CloudWatch 1분 · 앱 1초 패널에 값이 옴). 무료 플랜 한도(1만 시리즈)는 k6 태그가 늘면 넘을 수 있어 첫 회차 뒤 시리즈 수를 본다.
+
+<a name="adr-066"></a>
+## ADR-066 리전 장애 대비를 Pilot Light(도쿄 RDS 읽기 복제본 → 승격)로 바꾸고, 목표를 리전 RTO 30분 · RPO 1분으로 다시 잡는다 (2026-11-22)
+
+- **상황:** [ADR-062](#adr-062) Backup & Restore로 5단계 드릴을 3회 시도했다(2026-11-21, [region-drill](experiments/region-drill.md)). 시도 1은 복원 인자 오류, 시도 2는 도쿄 인프라 + DB 14분 51초 · 실제 RPO 10분 5.6초(시험 예약 600건 유실)였지만 관리자 세션 만료로 스크립트와 측정기가 함께 멈춰 RTO가 비었고, 시도 3은 DB 시점 복원이 끝나지 않아(94분 동안 "복원 완료" 이벤트 없음) Terraform이 50분 대기 뒤 실패했다. 2026-11-22 사용자: 결제가 붙으면 유실 구간의 예약마다 결제 취소 · 연락을 손으로 해야 해서 고객사에 부담이지만, 드문 리전 장애 때문에 상시 DB 비용을 내는 것도 고객사가 꺼릴 수 있다 → 고객사 입장에서 목표를 다시 잡기로 함.
+- **판단 근거 (고객사에 설명하는 순서):**
+  1. **RPO:** 이 방식은 변경 기록을 5분마다 올리고 그걸 도쿄로 복사해 원리상 수 분 ~ 10분대가 빈다(실측 605.6초, 예상 737 · 749초). 결제 연결 뒤에는 그 구간의 결제를 결제사 기록과 맞춰 환불 · 연락하는 수작업이 생긴다.
+  2. **RTO를 약속할 수 없음:** 같은 백업 · 같은 설정에서 DB 복원이 7분(시도 2)과 94분 넘게 미완료(시도 3)로 갈렸다. 원인은 RDS 이벤트로 알 수 없고 우리가 줄일 수 있는 단계가 아니다.
+  3. **미리 정한 기준:** [ADR-036](#adr-036) "리전 RTO가 1시간을 넘으면 가장 느린 단계를 Pilot Light로". 가장 느리고 불확실한 단계가 DB 복원이었다.
+  4. **비용:** 도쿄 db.t4g.micro 복제본 상시 월 약 $21 + 서울 → 도쿄 전송(ADR-062의 2026-11-01 AWS 가격 목록 단가: 시간당 $0.025, gp3 GB당 월 $0.138, 전송 GB당 $0.08). 설계 월 고정비 약 $204([ADR-034](#adr-034))의 약 10%.
+- **결정:**
+
+  | 항목 | 고른 것 |
+  |---|---|
+  | 평소 도쿄 | 서울 RDS의 다른 리전 읽기 복제본 + 그 DB의 네트워크(VPC · DB 서브넷 · 보안 그룹 · 설정표, 7개). 앱 · ALB · NAT · 통로는 없음. 코드: `modules/regional` `replica_source_arn`(넣으면 복제본, 빼고 apply하면 승격) |
+  | 장애 때 | 사람이 선언([ADR-012](#adr-012) 그대로) → 도쿄 DB 승격(`-target`으로 DB만 먼저: 이관 태스크 정의가 승격 뒤 생기는 도쿄 관리자 금고 주소를 씀) → 나머지 도쿄 인프라 → 확인 SQL → CloudFront 원본 전환 |
+  | 목표 | **리전 RTO 30분 · RPO 1분**(잠정, 다음 드릴 3회로 확정). AZ 10분 그대로 |
+  | 포트폴리오 | 드릴 날만 `region.sh standby`로 대기 상태를 만든다(Multi-AZ · NAT 2와 같은 방식). 설계는 상시 |
+  | 백업 | 서울 자동 백업 7일(시점 복구)은 유지: 복제본은 실수(잘못 지운 데이터)도 그대로 복제한다. 리전 간 백업 복제는 뺀다 |
+  | 권한 | 평소 정책에서 백업 복제 시작 · 중지 · 조회, 시점 복원 4개를 빼고 복제본 생성 · 승격 2개를 넣는다(공백 뺀 6,067 → 5,951 / 6,144자). bootstrap 관리자 apply |
+  | 되돌리기 | ADR-062 덤프 이관 그대로(도쿄 → 서울 덮기, 대조 목록). 대조 기준 시각은 "도쿄에 남은 마지막 손님 쓰기"로 |
+  | 측정 | 측정기 · 도쿄 DB 상태 기록기를 스크립트와 분리, 확인 SQL이 실패해도 전환 계속, 보고서가 측정기 원본만으로 "장애 선언 → 도쿄 첫 예약 성공"을 셈(시도 2 · 3에서 RTO를 잃은 원인) |
+
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | Backup & Restore 유지 + 목표를 RPO 15분 · RTO 1시간으로 낮춤 | 비용은 거의 0이지만 복원 시간 편차(시도 3) 때문에 RTO를 약속할 수 없고, 결제 연결 뒤 RPO 수작업이 남는다 |
+  | Aurora Global Database | RPO 초 단위 · 승격이 빠르지만(AWS 백서) MySQL → Aurora 엔진 이전과 상시 비용이 이 규모에 과하다 |
+  | Warm Standby(도쿄에 앱 · ALB까지 상시) | [ADR-036](#adr-036)이 버린 이유 그대로(상시 비용) |
+  | 자동 리전 전환 | [ADR-012](#adr-012) 이유 그대로. 게다가 승격은 되돌릴 수 없다("no longer a read replica", [RDS 문서](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.Promote.html)). 감지 · 알림은 자동, 결정은 사람 |
+
+- **결과 · 받아들인 위험:**
+  - RTO 30분은 시도 2(도쿄 51개 14분 51초, 그중 DB 복원 7분 + 첫 백업 약 2분 30초)에서 복원을 빼고 승격(문서상 "몇 분")을 더한 **추정**이다. 드릴로 확정한다.
+  - 드릴 한계: 서울 DB가 살아 있어 선언 뒤에도 복제가 따라와 실제 잃은 쓰기는 0에 가깝게 나온다. 선언 때 `ReplicaLag`를 예상 RPO로 같이 적는다.
+  - 첫 드릴에서 확인할 가설: 도쿄 AWS 관리 키(`aws/rds`)로 다른 리전 복제본이 되는지(B&R 복제에선 됐음), 승격과 관리자 금고 붙이기가 한 apply에서 되는지(안 되면 한 번 더), standby 시간(RTO 밖).
+  - 상시 비용은 결제를 켜는 시점부터. 그 전에는 드릴 날만.
+  - `-target`은 Terraform이 평소 쓰지 말라고 경고한다. 대기 상태 만들기 · 승격 두 단계에만 쓰고, 상시 운영이면 모듈에 standby 변수로 나눈다(코드에 shortcut 주석).
+
+<details>
+<summary>확인한 근거와 메모</summary>
+
+- RDS는 변경 기록을 5분마다 S3에 올린다(*"every five minutes"*, [PITR](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_PIT.html)). 리전 간 복제 지연은 문서에 숫자가 없다([백업 복제](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReplicateBackups.html)).
+- 승격: *"The promotion process takes a few minutes to complete"*, 승격 뒤 *"it ceases to function as a read replica"* ([RDS 문서](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.Promote.html)).
+- 공급자 6.73.0: `replicate_source_db`를 빼면 독립 DB로 승격, 복제본은 `username` 지정 불가, 다른 리전 암호화 복제본은 받는 리전 `kms_key_id`, `storage_encrypted`는 무시([db_instance 문서](https://github.com/hashicorp/terraform-provider-aws/blob/v6.73.0/website/docs/r/db_instance.html.markdown)). 그래서 `db_name` · `username` · `kms_key_id`는 `ignore_changes`(승격 apply에서 null → 값이 되어도 DB를 갈아 끼우지 않게).
+- AWS DR 백서: 낮은 RPO에는 DR 리전의 살아 있는 DB로 계속 복제하는 것이 최선(*"continuous data replication to live databases ... is the best approach for low RPO"*, [DR 방식](https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html)).
+- 도쿄 RDS 이벤트(시도 2 · 3 복원 시각): `drill/results/region-tokyo-rds-events-20261121.json`(git 밖, 11-22 조회).
+- 11-22 도쿄 standby plan(조회 전용, 서울 ARN은 형식만 맞춤): 7 to add, `kms_key_id` = 도쿄 `aws/rds` 키 ARN으로 읽힘.
+</details>
+
+<a name="adr-067"></a>
+## ADR-067 AZ 회색 장애는 ALB zonal shift로 그 AZ 노드를 DNS에서 뺀다 — 사람이 시작, autoshift는 보류 (2026-11-22)
+
+- **상황:** 4단계 AZ 차단 3회 모두 10분 내내 손님 실패(중앙 14.6%). 11-22 CloudWatch AZ별 지표로 보니 막힌 AZ의 ALB 노드 요청 0건, 대상 연결 오류 0, ALB 5xx 0 → 실패 요청은 ALB에 닿지 못했다. ALB는 막힌 태스크를 피했지만 **막힌 AZ 노드의 IP가 DNS에 남아** CloudFront가 일부 요청을 거기로 보내 연결이 시간 초과됐다. 대상 그룹 DNS 장애 조치는 cross-zone이 켜져 있으면 모든 AZ 합계로 세서 걸리지 않고, AWS가 스스로 빼는 것은 AWS 인프라 문제일 때다. 이번 원인(NACL)은 AWS가 모르는 회색 장애다([faults 원인 분석](experiments/faults.md#원인-분석-2026-11-22)).
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | ALB 헬스 체크를 DB까지(`/api/health/deep`) | 실패 요청이 태스크에 닿지 않아 효과 없음. DB 장애 조치 때 모든 태스크가 비정상 → ECS가 교체를 반복할 위험(ECS는 ALB 비정상 태스크를 교체, [ECS 문서](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs_services.html)). 앱이 ALB용 체크에서 DB를 빼 둔 원래 이유 |
+  | CloudFront 원본 연결 시간 제한 10 → 2초 | 다른 IP로 다시 연결하는지 문서에 없어 효과 불확실. 한 번에 하나만 바꾸려고 이번엔 안 함 |
+  | zonal autoshift | AWS 내부 지표로만 시작해 우리 쪽 원인 장애에는 안 움직이고, 매주 연습 실행이 필수라 그때마다 한 AZ로 몰려 태스크를 미리 늘려야 함([autoshift 문서](https://docs.aws.amazon.com/r53recovery/latest/dg/arc-zonal-autoshift.html)) |
+
+- **결정:** ALB `enable_zonal_shift = true`(기본 꺼짐, zonal shift · autoshift 모두 추가 요금 없음 — [ARC 요금](https://aws.amazon.com/application-recovery-controller/pricing/)). cross-zone이 켜진 ALB도 지원하고, 시작하면 그 AZ의 노드 IP를 DNS에서 빼고 그 AZ 대상으로 가는 트래픽을 막는다([ALB zonal shift](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/zonal-shift.html)). 운영 대응: 감지(손님 오류 증가 + 한 AZ 노드의 요청 수 급감) → 사람이 zonal shift 시작 → AZ 회복 확인 뒤 취소. 드릴: `fault.sh az`가 주입 +60초에 시작(감지 · 판단 흉내), 서브넷을 되돌린 뒤 취소, 만료(차단 시간 + 10분)는 안전장치. 드릴은 AZ 차단과 같은 관리자 세션으로 실행해 평소 권한은 늘리지 않는다.
+- **결과:** 다음 AZ 드릴 3회로 효과를 잰다(예측: 차단 중 실패 14.6% → 3 ~ 6%, [faults](experiments/faults.md#az-장애--zonal-shift-재시험-계획-2026-11-22)). ALB가 fail open(모든 대상 비정상) 상태면 zonal shift는 효과가 없다(문서). CloudFront VPC 원본이 DNS 변경을 얼마나 빨리 따라가는지는 문서에 없어 드릴로 잰다. 고객사 운영자가 zonal shift를 시작하는 권한(그 ALB ARN 범위)은 고객사 운영 권한 설계 때 정한다.

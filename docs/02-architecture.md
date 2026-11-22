@@ -87,7 +87,7 @@ ALB 헬스체크에 DB 확인을 넣으면, DB가 잠깐만 끊겨도 모든 태
 
 - RDS for MySQL, 작은 인스턴스(예: `db.t4g.micro`). 버전은 8.4 계열 예정(8.0 지원 일정 확인 필요)입니다([ADR-005](04-decisions.md#adr-005)).
 - Multi-AZ는 설계상 상시입니다. 포트폴리오에서는 비용 때문에 장애 조치 테스트 때만 켭니다.
-- 자동 백업으로 시점 복구(PITR)를 하고, 백업을 도쿄 리전에 복제합니다. RDS 자동 백업 리전 간 복제가 이 조합에서 지원되는지 확인 필요하며, 안 되면 AWS Backup 리전 간 복사로 대체합니다(이 경우 RPO는 복사 주기만큼 길어짐).
+- 자동 백업으로 시점 복구(PITR, 7일)를 하고, 도쿄 리전에 읽기 복제본을 둡니다(Pilot Light, [ADR-066](04-decisions.md#adr-066)). 포트폴리오에서는 DR 드릴 날만 만듭니다. 2026-11-21까지는 백업을 도쿄로 복제해 시점 복원했으나(ADR-062) 복원 시간이 7분 · 94분 넘게 미완료로 갈려 바꿨습니다.
 
 ### 데이터 모델 원칙
 
@@ -140,17 +140,17 @@ terraform apply는 사람이 실행 (인프라 변경은 자동 적용하지 않
 
 - 주요 비용 요소: NAT Gateway, ALB, RDS(Multi-AZ 시 약 2배), Fargate, WAF, 공인 IPv4, 백업 저장. 금액은 0단계에서 AWS 요금 계산기로 산출하고, 실제 청구 금액을 단계별로 기록합니다.
 
-## 8. 리전 장애 복구 흐름 (Backup & Restore)
+## 8. 리전 장애 복구 흐름 (Pilot Light)
 
 서울 리전 장애를 가정합니다. CloudFront·Route 53 같은 글로벌 서비스 자체의 장애는 범위 밖입니다.
 
 ```
 평시   서울에서 운영
-       RDS 백업과 ECR 이미지가 도쿄로 복제됨 (도쿄에 켜진 서버는 없음)
+       도쿄에는 서울 RDS의 읽기 복제본과 그 네트워크만 켜져 있음 (앱 · ALB · NAT는 없음, ADR-066). ECR 이미지도 도쿄로 복제됨
 
-장애   1. 서울 장애 확인 (모니터링 알림 + 사람의 판단)
-       2. infra/tokyo 를 apply (modules/regional 호출: VPC, ALB, ECS, CloudFront 통로(VPC Origin))
-       3. 복제된 백업으로 도쿄에 RDS 시점 복원 (2와 같은 apply 한 번, ADR-062)
+장애   1. 서울 장애 확인 (모니터링 알림 + 사람의 판단, ADR-012. 승격은 되돌릴 수 없어 자동으로 하지 않음)
+       2. 도쿄 복제본 승격 (infra/tokyo 에서 replica_source_arn 을 빼고 DB만 apply)
+       3. infra/tokyo 를 apply (나머지: NAT, ALB, ECS, CloudFront 통로(VPC Origin))
        4. 기능 검증 (로그인, 예약 생성·변경·취소)
        5. infra/global 을 -var active_region=ap-northeast-1 로 apply
           → 도쿄 ALB 입구를 열고 CloudFront 앱 원본을 도쿄 VPC Origin으로 전환 (DNS는 그대로)
@@ -161,7 +161,7 @@ terraform apply는 사람이 실행 (인프라 변경은 자동 적용하지 않
        2. 도쿄를 점검 모드로 (쓰기 중지) → 대조할 변경분을 먼저 뽑음 → 덤프 → 서울 RDS에 로드 → 체크섬 검증
           (덮기 전 상태는 서울 자동 백업 7일로 되돌릴 수 있어 수동 스냅샷 없음, ADR-062)
        3. CloudFront 원본을 서울로 전환 → 도쿄 리소스 destroy
-       4. 대조: 서울 옛 DB에서 마지막 복제 시각 이후 변경분을 뽑아 현재 데이터와 비교
+       4. 대조: 서울 옛 DB에서 도쿄에 남은 마지막 쓰기 이후 변경분을 뽑아 고객사가 처리 (2에서 덮기 전에 뽑음)
 ```
 
 - DNS 대신 **CloudFront 원본을 바꾸는** 이유: CloudFront는 글로벌 서비스라 서울 장애의 영향을 받지 않고, Route 53은 늘 CloudFront를 가리켜 DNS 캐시 지연이 없습니다([ADR-012](04-decisions.md#adr-012)). 다른 리전 VPC Origin으로의 전환은 global 루트를 만들 때 PoC로 먼저 확인하고, 안 되면 Public ALB + 비밀 헤더로 바꿉니다([ADR-035](04-decisions.md#adr-035)).
@@ -169,15 +169,15 @@ terraform apply는 사람이 실행 (인프라 변경은 자동 적용하지 않
 
 ## 9. RTO·RPO 측정 방법
 
-잠정 목표(AZ 장애 10분, 리전 장애 RTO 1시간, [ADR-036](04-decisions.md#adr-036))를 두고 드릴 3회 실측 후 확정합니다. 리전 RTO가 1시간을 넘으면 가장 느린 단계를 Pilot Light(도쿄 DB 복제본)로 바꿉니다.
+목표(AZ 장애 10분, 리전 RTO 30분 · RPO 1분, [ADR-036](04-decisions.md#adr-036) 재설정 · [ADR-066](04-decisions.md#adr-066))는 Pilot Light 드릴 3회 실측으로 확정합니다. Backup & Restore 3회 시도(2026-11-21)에서 DB 복원이 7분 · 94분 넘게 미완료로 갈리고 RPO가 10분 5.6초여서 Pilot Light로 바꿨습니다([5단계 기록](experiments/region-drill.md)).
 
 - **RTO** = 장애 선언부터 검증을 통과하고 전환이 끝날 때까지. 단계마다 시각을 기록합니다.
 
 ```
-RTO ≈ 판단 + 인프라 생성(apply) + DB 복원 + 앱 기동 + 기능 검증 + CloudFront 반영
+RTO ≈ 판단 + DB 승격 + 인프라 생성(apply) + 앱 기동 + 기능 검증 + CloudFront 반영
 ```
 
-- **RPO** = 장애 시각 − 복원된 데이터의 마지막 커밋 시각. 드릴 중에 순번을 붙인 예약을 일정 간격으로 계속 만들고, 복원 후 남아 있는 가장 큰 순번으로 계산합니다. 같은 요청의 재시도로 멱등성도 함께 확인합니다.
+- **RPO** = 장애 시각 − 승격된 DB에 남은 마지막 커밋 시각. 드릴 중에 순번을 붙인 예약을 일정 간격으로 계속 만들고, 승격 후 남아 있는 가장 큰 순번으로 계산합니다. 같은 요청의 재시도로 멱등성도 함께 확인합니다. 드릴에서는 서울 DB가 살아 있어 선언 뒤에도 복제가 따라오므로, 선언 순간의 복제 지연(`ReplicaLag`)을 실제 장애의 예상 RPO로 함께 적습니다.
 
 ## 10. 미결정 사항
 

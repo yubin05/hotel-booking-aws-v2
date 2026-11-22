@@ -1,6 +1,6 @@
 # 03. 단계별 실행 기록 및 완료 기준
 
-**v2 단계 0~5의 실행은 2026-11-21 사용자 확인 기준 완료**입니다. 기록된 숫자만 실측 결과로 사용하며, **4·5단계 오류율 보정과 5단계 RTO/RPO 최종 집계는 별도의 후속 검증**으로 남습니다. 예전 3.5단계 보안 운영은 v2 범위에 포함하지 않고 v3에서 2026-11-23(월) 착수할 계획입니다.
+**v2 단계 0~5의 실행은 2026-11-21 사용자 확인 기준 완료**입니다. 기록된 숫자만 실측 결과로 사용하며, **4·5단계 오류율 보정과 5단계 RTO/RPO 최종 집계는 별도의 후속 검증**으로 남습니다. 예전 3.5단계 보안 운영은 v2 범위에 포함하지 않고 v3에서 2026-11-23(월) 착수할 계획입니다. **2026-11-22:** 4단계 AZ 실패 경로를 확인해 ALB zonal shift를, 5단계는 Pilot Light로 바꿔 두 드릴을 다시 잽니다([ADR-066](04-decisions.md#adr-066) · [ADR-067](04-decisions.md#adr-067)).
 
 ## 진행 원칙
 
@@ -99,12 +99,14 @@
 
 | 할 일 | 완료 기준 |
 |---|---|
-| [리전 장애 복구 흐름](02-architecture.md#8-리전-장애-복구-흐름-backup--restore) 수행, 드릴 스크립트화 | 단계별 시간이 포함된 실측 RTO |
+| [리전 장애 복구 흐름](02-architecture.md#8-리전-장애-복구-흐름-pilot-light) 수행, 드릴 스크립트화 | 단계별 시간이 포함된 실측 RTO |
 | 드릴 중 순번 예약을 계속 생성 | 실측 RPO |
 | 서울로 Failback 후 대조 | 데이터 대조 결과 |
-| 드릴 3회 | 잠정 목표([ADR-036](04-decisions.md#adr-036): 리전 RTO 1시간)와 비교해 확정, 넘으면 Pilot Light 검토 |
+| 드릴 3회 | 잠정 목표([ADR-036](04-decisions.md#adr-036): 리전 RTO 1시간)와 비교해 확정, 넘으면 Pilot Light 검토 → **11-22 Pilot Light로 바꿈, 목표 RTO 30분 · RPO 1분으로 Pilot Light 드릴 3회** |
 
-- 2026-11-19: 백업 복제 · 도쿄 복원 · 되돌리기 방식 결정([ADR-062](04-decisions.md#adr-062)), 드릴 스크립트 `drill/region.sh`(전환 → 되돌리기를 한 번에, 단계 시각 · 사람 확인 시간 · 대조 · 체크섬). 순번 쓰기는 예약 API(재전송 키 `drill-<run>-<순번>`)로: 가입은 로그인 쪽 WAF 한도(IP당 5분 100건)에 걸려서. 실행 계획 · 예측: [5단계 리전 복원 드릴](experiments/region-drill.md), 런북 5-8
+- 2026-11-19: 백업 복제 · 도쿄 복원 · 되돌리기 방식 결정([ADR-062](04-decisions.md#adr-062)), 드릴 스크립트 `drill/region.sh`(전환 → 되돌리기를 한 번에, 단계 시각 · 사람 확인 시간 · 대조 · 체크섬)
+- 2026-11-21: Backup & Restore 3회 시도, 3회 모두 RTO 미측정(시도 3은 DB 복원 94분 미완료), 실측 RPO 10분 5.6초 1회
+- 2026-11-22: 고객사 관점 재검토 → Pilot Light(도쿄 RDS 복제본 → 승격)로 전환([ADR-066](04-decisions.md#adr-066)), 측정기를 스크립트와 분리. 4단계 AZ 실패 경로 확인 → ALB zonal shift([ADR-067](04-decisions.md#adr-067)). 재드릴은 사용자 실행. 순번 쓰기는 예약 API(재전송 키 `drill-<run>-<순번>`)로: 가입은 로그인 쪽 WAF 한도(IP당 5분 100건)에 걸려서. 실행 계획 · 예측: [5단계 리전 복원 드릴](experiments/region-drill.md), 런북 5-8
 
 **마무리**
 - DORA 지표 정리: 배포 빈도, 변경 리드타임, 변경 실패율, 복구 시간
@@ -571,3 +573,7 @@ v2 범위에는 넣지 않고, 끝난 뒤 이어서 할 수 있는 것만 적습
 | 3 측정 날 ⑧ 예약 끝 연장 | 2026-11-20 | 평소 사용자 apply 0 · 1 · 0(예약 끝 19:35 → 19:55, 3회차 T가 끝에 걸리지 않게). **시각 사용자 확인 대기**. 쿠폰 회차 뒤 scale_events는 파일만 `[]`로 되돌림(예약 리소스는 서울을 지울 때 함께 지워짐) | $0 | |
 | 3 측정 날 ⑨ global 발생기 WAF 예외 빼기 | 2026-11-20 | 1차 apply 22:57:46 → 23:03:24 **실패**(IP 세트를 웹 ACL보다 먼저 지우려다 `WAFAssociatedItemException`, 변화 없음) → `waf.tf` IP 세트에 `create_before_destroy` 추가 · 기존 state 표시는 Claude가 `apply -refresh-only`로 갱신(23:1x, 인프라 변화 없음) → 2차 apply 성공 0 · 1 · 1. **2차 시각 사용자 확인 대기** | $0 | 인수인계 4절 |
 | 3 측정 날 ⑩ 옛 환경 + 발생기 내리기 · 권한 떼기 | 2026-11-20 | legacy destroy 0 · 0 · 19, `legacy/iam` 관리자 apply 0 · 0 · 1(권한 뗌). 23:3x 조회: 옛 환경 EC2 0 · 발생기 IP 세트 0. **destroy · apply 시각 사용자 확인 대기**. legacy/iam 붙이기는 이 뒤 terraform.tfvars 변수로 바꿈(app `86853ca`) | 10:18 ~ 23시쯤 옛 환경 · 발생기(t3.medium 1 + t3.micro 3) | |
+| 5 리전 드릴 시도 1 · 2 (둘 다 멈춤) | 2026-11-21 | 시도 1: t0 14:26:22, 도쿄 apply 14:34:39 → **실패**(DB 시점 복원이 `DBName must be null`로 거부, 41개 생성 · DB와 그 뒤 10개 남음) → `rds.tf` 복원 땐 `db_name = null`로 수정. seoul-up, 도쿄 destroy 41개 **시각 사용자 확인 대기**. 시도 2: t0 15:44:10, 도쿄 apply 51개 15:48:59 → 16:03:50(14분 51초, 복원 성공) → 확인 SQL에서 관리자 세션 만료로 멈춤. 확인 SQL만 손으로 돌려 RPO 605.6초 · 잃은 쓰기 600건 확보. seoul-up(16:34 정상 확인), 도쿄 destroy 51개 **시각 사용자 확인 대기**. Administrator-Role 최대 세션 1 → 2시간(사용자, `aws iam update-role --max-session-duration 7200`) | 도쿄 켠 시간만큼(약 14:35 ~ 15:2x, 15:49 ~ 16:4x) | [리전 드릴](experiments/region-drill.md#시도-1--2-2026-11-21-둘-다-중간에-멈춤--측정값에서-뺌) |
+| 5 리전 드릴 시도 3 (DB 복원 미완료) | 2026-11-21 | t0 16:56:34(예상 RPO 749초), 도쿄 apply 51개 16:56:49 → 17:46:49쯤 **실패**(DB `creating`, Terraform 50분 timeout). 도쿄 RDS 이벤트(11-22 조회): 복구 시작 · 완료 2번, "Restored from" 없음, 18:31:00 DB 삭제. 도쿄 destroy · 서울 · global destroy **시각 사용자 확인 대기** | 도쿄 켠 시간(16:57 ~ 18:3x) | [리전 드릴](experiments/region-drill.md#시도-3-db-복원이-끝나지-않음) |
+| 4 · 5 보완 ① 남은 실험 자원 정리 | 2026-11-22 | 조회(관리자): global · 서울 · 도쿄 state 0, VPC · RDS · NAT · EIP · ALB · ECS · CloudFront · WAF 없음. bootstrap 관리자 apply 0 · 0 · 4(진단 중 만든 ALB 로그 버킷 · 수명 주기 · 정책 · 공개 차단, 비어 있음) 14:46:17 → 14:46:32. 도쿄 복제 백업 1개 삭제(`region.sh cleanup`, 복원 구간 11-21 13:35 ~ 20:04) | $0 | 실측 원본 보존 |
+| 4 · 5 보완 ② 원인 분석 · 설계 | 2026-11-22 | AZ: CloudWatch AZ별 지표(막힌 AZ 노드 요청 0 · 대상 연결 오류 0)로 실패 경로 확인 → ALB zonal shift([ADR-067](04-decisions.md#adr-067)). 리전: Pilot Light([ADR-066](04-decisions.md#adr-066)), 목표 RTO 30분 · RPO 1분. 측정기 분리 · 확인 SQL 실패해도 계속 · 보고서가 도쿄 첫 예약 성공을 셈. 도쿄 standby plan 7 to add(조회) | $0 | 드릴은 다음(사용자) |

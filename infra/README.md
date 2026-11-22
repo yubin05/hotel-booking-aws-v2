@@ -73,7 +73,7 @@ AWS_PROFILE=admin aws ec2 describe-addresses --region ap-northeast-2 --query 'le
 
 ## 3. 리전 전환(failover): 서울 → 도쿄
 
-CloudFront 원본만 바꾸고 DNS는 그대로 둡니다([ADR-012](../docs/04-decisions.md#adr-012) · [ADR-035](../docs/04-decisions.md#adr-035)). 이 절은 빈 DB로 바꾸는 전환 PoC입니다. 백업으로 DB까지 살리고 되돌리는 드릴은 5-8(`drill/region.sh`)이 한 번에 합니다.
+CloudFront 원본만 바꾸고 DNS는 그대로 둡니다([ADR-012](../docs/04-decisions.md#adr-012) · [ADR-035](../docs/04-decisions.md#adr-035)). 이 절은 빈 DB로 바꾸는 전환 PoC입니다. 도쿄 복제본을 승격해 DB까지 살리고 되돌리는 드릴은 5-8(`drill/region.sh`)이 한 번에 합니다.
 
 ```bash
 # 1) 도쿄 올리기: 통로까지 같이 만들어짐(9분 남짓). 그 사이 CloudFront가 도쿄 VPC에 보안 그룹을 만들어 둠
@@ -81,7 +81,7 @@ cd /c/dev/hotel-booking-aws-v2/infra/tokyo
 terraform plan                      # 51 to add (서울과 같은 모듈 + Container Insights 로그 그룹(11-20~) · 일회성 태스크 정의 restore · sql · dump(11-19~), 관제 대시보드 · 오토스케일링 · 기본 보안 그룹 포함)
 date; terraform apply; date
 
-# 2) DB 복원 · 확인은 5-8 드릴에서 (tokyo apply에 -var restore_backup_arn · restore_time, ADR-062)
+# 2) DB까지 살리는 실제 전환(복제본 승격)은 5-8 드릴에서 (region.sh standby · run, ADR-066)
 
 # 3) 전환: 도쿄 입구 열기 → CloudFront 원본 교체 → 서울 입구 닫기
 cd ../global
@@ -208,7 +208,7 @@ LOAD_IP=$(terraform -chdir=/c/dev/hotel-booking-app/legacy output -raw load_test
 terraform plan -var "loadtest_ips=[\"$LOAD_IP/32\"]"      # 14 to add (매일 13 + 발생기 IP 세트. 허용 규칙은 웹 ACL 안)
 date; terraform apply -var "loadtest_ips=[\"$LOAD_IP/32\"]"; date
 
-# 2) 사전 (손님 영향 없음). 관리자 세션은 1시간이라 여기서 새로 로그인
+# 2) 사전 (손님 영향 없음). 관리자 세션은 2시간(11-21부터, 콘솔 역할 전환 시점부터)이라 여기서 새로 로그인
 aws login --profile admin
 eval "$(ssh-agent -s)"; ssh-add ~/.ssh/hotel-legacy
 cd /c/dev/hotel-booking-aws-v2
@@ -325,44 +325,44 @@ BASELINE=10 TAIL=10 bash drill/fault.sh task   # 스모크(기록 안 함)
 bash drill/fault.sh task      # × 3 (회차 사이 태스크 2 · 정상 2를 스크립트가 확인)
 bash drill/fault.sh deploy    # × 3 (깨진 리비전은 끝나면 등록 해제)
 bash drill/fault.sh rds       # × 3 (multi_az=true)
-bash drill/fault.sh az        # × 3 (multi_az=true, 10분 막음 → 되돌림)
+bash drill/fault.sh az        # × 3 (multi_az=true, 10분 막음 · +60초 zonal shift → 되돌림 · 취소. 11-21 기준선 조건은 SHIFT_AFTER=off)
 ```
 
 - 회차마다 `drill/results/fault-<종류>-<시각>/report.md`(손님 쪽 끊김 · 오류 · 중복 예약)와 `marks.log`(주입 · 감지 · 회복 시각).
-- **az가 중간에 끊기면** 서브넷이 막힌 채 남을 수 있습니다: `bash drill/fault.sh az-undo drill/results/fault-az-<시각>`. 스크립트는 끝날 때(Ctrl+C 포함) 스스로 되돌립니다.
+- **az가 중간에 끊기면** 서브넷이 막힌 채, zonal shift가 켜진 채 남을 수 있습니다: `bash drill/fault.sh az-undo drill/results/fault-az-<시각>`(서브넷 되돌림 → shift 취소). 스크립트는 끝날 때(Ctrl+C 포함) 스스로 되돌리고, shift는 차단 시간 + 10분 뒤 스스로 만료됩니다.
+- zonal shift를 쓰려면 ALB에 `enable_zonal_shift`가 켜져 있어야 합니다(모듈 코드, 11-22~). 서울이 이미 떠 있으면 서울 apply에서 ALB 1 to change로 붙습니다([ADR-067](../docs/04-decisions.md#adr-067)).
 - Multi-AZ는 끝나면 `-var` 없이 apply(또는 destroy)해서 평소로 돌립니다. 3단계 비교는 Multi-AZ를 끈 채로 해야 1단계와 조건이 같습니다.
 
 ## 5-8. 리전 복원 드릴 (5단계)
 
-서울 장애를 선언하고 도쿄에서 복제된 백업으로 DB까지 살린 뒤, 서울로 되돌립니다([5단계 계획](../docs/experiments/region-drill.md), [ADR-062](../docs/04-decisions.md#adr-062)). 한 회차 1시간 안팎.
+서울 장애를 선언하고 도쿄 복제본(Pilot Light)을 승격해 손님을 받은 뒤, 서울로 되돌립니다([5단계 계획](../docs/experiments/region-drill.md), [ADR-066](../docs/04-decisions.md#adr-066)). 한 회차 = standby(복제본 만들기) + run 1시간 안팎.
 
 ```bash
-# 처음 한 번: 평소 권한에 백업 복제 · 시점 복원 추가 (bootstrap, 0 to add · 1 to change)
+# 처음 한 번: 평소 권한을 백업 복제 · 시점 복원에서 복제본 생성 · 승격으로 바꿈 (bootstrap, operator-v2 정책 1 to change)
 cd /c/dev/hotel-booking-aws-v2/infra/bootstrap
+AWS_PROFILE=admin terraform plan
 date; AWS_PROFILE=admin terraform apply; date
 terraform -chdir=../tokyo init              # 이 PC에서 도쿄를 처음 쓰면
 
-# 1) 서울 + 백업 복제 → global. 서울은 51 to add (매일 50 + 복제 1, 이미 떠 있으면 1 to add)
-cd ../seoul
-terraform plan -var backup_replication=true
-date; terraform apply -var backup_replication=true; date
+# 1) 서울 → global (매일 올리기와 같음)
+cd ../seoul && date; terraform apply; date
 cd ../global && date; terraform apply; date
 
-# 2) 드릴 (회차마다). 관리자 세션은 1시간이라 시작 직전에 로그인, 중간 멈춤에서 필요하면 다시
+# 2) 회차마다: 도쿄 대기 상태 → 드릴 → 도쿄 내리기
+#    관리자 세션은 콘솔에서 역할을 전환한 때부터 2시간(11-21 1 → 2시간). 회차마다 콘솔에서 역할을 새로 전환한 뒤 바로 로그인
+#    (같은 브라우저 세션으로 aws login만 다시 하면 끝나는 시각이 안 늘어남)
 cd /c/dev/hotel-booking-aws-v2
 aws login --profile admin
-bash drill/region.sh run      # 복제 따라오기 기다림 → 장애 선언 → 도쿄 plan · yes → 확인 SQL → global plan · yes → RTO
+bash drill/region.sh standby  # 도쿄 7 to add(복제본 · VPC · DB 서브넷 2 · 보안 그룹 · 서브넷 그룹 · 설정표) → yes. 끝에 "available arn:..."
+bash drill/region.sh run      # 장애 선언 → 승격 plan · yes → 도쿄 plan · yes → 확인 SQL → global plan · yes → RTO
                               # → Enter → 도쿄 멈춤 · 대조 · 덤프 이관 · 체크섬 → 서울 → global plan · yes
-cd infra/tokyo && date; terraform destroy; date; cd ../..   # 다음 회차 전에 도쿄를 비움
-
-# 3) 드릴을 다 마치면: 복제 끄기 → 남은 복제 백업 지우기 (안 지우면 요금)
-cd infra/seoul && date; terraform apply; date; cd ../..     # -var 없이 = 복제 중지
-bash drill/region.sh cleanup
+cd infra/tokyo && date; terraform destroy; date; cd ../..   # 51개. 다음 회차는 standby부터
 ```
 
-- 첫 서울 apply에서 확인할 것(문서로 못 정한 가설): 받는 쪽 키로 도쿄 `aws/rds`(AWS 관리 키)를 쓸 수 있는지, 미리 서명 주소 없이 복제가 시작되는지, 보관 1일이 되는지. 거부되면 에러 문구를 그대로 기록하고 고칩니다.
-- 중간에 멈추면 서울로: `bash drill/region.sh seoul-up` → `cd infra/global && terraform apply`(-var 없이 = 서울). 도쿄는 destroy.
-- 결과: `drill/results/region-<시각>/` `steps.log`(단계 시각 · RTO), `report.md`(RPO · 끊김 · 중복), `lost-in-seoul.txt`(대조), `tokyo.sum` · `seoul.sum`(체크섬).
+- **중간에 멈추면** 손님 측정기 · 도쿄 DB 상태 기록기는 계속 돕니다(11-21 시도 2 · 3은 같이 꺼져 RTO를 잃음). 남은 단계를 손으로 끝까지 한 뒤(예: `cd infra/tokyo && terraform apply` → `cd ../global && terraform apply -var active_region=ap-northeast-1`) `bash drill/region.sh stop drill/results/region-<시각>`으로 끝내면 보고서가 나옵니다. 서울로 되돌리려면 `bash drill/region.sh seoul-up` → `cd infra/global && terraform apply`(-var 없이), 도쿄는 destroy.
+- 첫 회차에서 확인할 것(문서로 못 정한 가설): 도쿄 AWS 관리 키로 다른 리전 복제본이 되는지, 승격 apply에서 도쿄 관리자 금고까지 붙는지(안 되면 같은 승격 plan · apply를 한 번 더), standby 시간.
+- 결과: `drill/results/region-<시각>/` `steps.log`(단계 시각), `db-state.log`(도쿄 DB 10초마다), `report.md`(RTO(측정기 원본) · RPO · 끊김 · 중복), `lost-in-seoul.txt`(대조), `tokyo.sum` · `seoul.sum`(체크섬).
+- 예전 Backup & Restore(서울 `-var backup_replication=true`, `region.sh cleanup`)는 2026-11-22에 뺐습니다([ADR-066](../docs/04-decisions.md#adr-066)). 11-21 시도 기록은 [region-drill](../docs/experiments/region-drill.md)에 있습니다.
 
 ## 6. 자주 만난 문제
 
