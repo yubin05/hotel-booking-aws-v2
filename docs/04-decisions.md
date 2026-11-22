@@ -1542,3 +1542,31 @@
   - 서울 DB를 RDS 관리에서 이 방식으로 바꾸는 서울 apply는 그 자리 수정이다(RDS가 관리 금고를 지우고 새 비밀번호를 씀, [ModifyDBInstance](https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_ModifyDBInstance.html)). plan에서 DB가 바뀌기만 하고(`~`) 다시 만들지(`-/+`) 않는지 확인한다.
   - 첫 드릴에서 확인할 가설: 승격과 같은 apply에서 `password_wo_version`(null → 1)이 함께 바뀌어도 공급자가 승격을 먼저 해 오류가 없는지. 오류가 나면 같은 apply를 한 번 더 한다(값은 같은 비밀번호).
 
+
+## ADR-070 앱 서버가 없을 때 CloudFront가 503 대신 점검 안내 페이지를 보여 준다 (2026-11-22)
+
+- **상황:** 5단계 Pilot Light 2회차에 사용자가 실제 사이트를 열어 보니, 전환 · 되돌리기 동안 503 글자만 보이거나(화면 요청) 화면은 뜨고 요청만 "요청을 처리하지 못했습니다"였다. 손님은 사이트가 없어졌는지, 결제가 됐는지 알 수 없다. Pilot Light는 전환 동안 앱이 없어(RTO 약 12 ~ 13분) 이 구간이 반드시 생긴다. 2026-11-22 사용자와 정함.
+- **결정:**
+
+  | 항목 | 고른 것 |
+  |---|---|
+  | 무엇을 | 앱 CloudFront의 502 · 503 · 504를 점검 안내 페이지로 바꿔 보여 줌. **상태 코드는 그대로**(200으로 바꾸면 측정기 · 모니터링이 성공으로 셈). 500(앱의 일반 오류)은 그대로 |
+  | 페이지 위치 | 사진 창고 버킷(bootstrap, 서울 원본 → 도쿄 복제)의 `maintenance/index.html`. 앱 원본과 달라 앱이 죽어도 받을 수 있고([CloudFront 문서](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/custom-error-pages-procedure.html): 오류 페이지는 앱과 다른 곳, S3 권장), 서울 S3가 안 되면 도쿄 것(사진 배포와 같은 origin group) |
+  | 앱 배포 연결 | global: 사진 버킷 두 개를 앱 배포의 원본으로 추가(사진 OAC 재사용) → origin group → `/maintenance/*` 경로. 사진 버킷 정책에 "앱 배포는 `maintenance/*`만 읽기" 추가 |
+  | 오류 보관 시간 | 5초(기본 10초, [CloudFront 문서](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/HTTPStatusCodes.html)). 복구 뒤 점검 페이지가 오래 남지 않게. `/api/*`는 캐시를 꺼서 보관하지 않음 |
+  | 문구 | 복구 중이거나 접속이 몰림 · 진행 중이던 예약 · 결제는 다시 하기 전에 내 예약에서 확인(새로 고치면 화면의 재전송 키가 새로 생겨 다시 누르면 두 건이 될 수 있어서) · 30초마다 다시 확인 |
+  | 화면 코드 | JSON 없는 502 · 503 · 504 응답에 "점검 중이거나 접속이 몰려 있어요" 문구(앱 저장소 `web/src/api.ts`, 지금은 "요청을 처리하지 못했습니다") |
+  | 비용 | S3 파일 1개 · 요청 몇 건, 사실상 $0 |
+
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | 점검 페이지 전용 새 버킷(us-east-1) | 평소 사용자 정책에 버킷 권한을 더해야 하는데 정책이 6,144자 한도에 거의 참(5,987자). 사진 창고가 이미 상시 · 두 리전 |
+  | Lambda@Edge로 화면 경로만 바꾸기 | 경로별로 나눌 수 있지만 함수 · 역할 · 배포가 늘어 이 규모에 과함 |
+  | 앱 화면 코드만 고치기 | 화면 파일(index.html)도 앱이 내보내 앱이 없으면 화면 자체가 안 뜸 |
+
+- **결과 · 받아들인 위험:**
+  - CloudFront 오류 페이지는 배포 전체에 걸린다(경로별로 나눌 수 없음, [CloudFront 문서](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/DownloadDistValuesErrorPages.html)). 앱이 일부러 보내는 503(DB 혼잡 "지금은 처리할 수 없습니다", 카카오 · 결제 미설정)도 본문이 이 페이지로 바뀔 수 있다. 캐시를 끈 `/api/*`에서도 바뀌는지는 문서에 없어 가설 → 적용 뒤 확인. 상태 코드는 그대로라 측정기 · 부하 실험의 성공 · 실패 판정은 같고, 메시지로 나누던 옛 보고서 스크립트(앱 저장소 e04 ~ e06)는 다시 돌리면 503 분류가 달라질 수 있다
+  - 장애 선언 즉시 CloudFront에서 서울로 가는 쓰기를 끊는 것(fencing)은 이번에 하지 않는다. 서울 태스크가 손님에게서 빠지는 16 ~ 19초 동안 쓰기를 받는 문제([region-drill](experiments/region-drill.md#결과--pilot-light))의 후보로 남김
+  - 확인 방법(적용 뒤): 서울 앱을 0으로 → 브라우저에 점검 페이지 · `curl` 상태 503 · `/api` 503 본문 확인 → 앱 다시

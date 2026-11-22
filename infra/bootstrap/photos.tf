@@ -155,3 +155,17 @@ resource "aws_s3_bucket_replication_configuration" "photos" {
     }
   }
 }
+
+# ---- 점검 안내 페이지 (ADR-070) ----
+# 앱 서버가 없을 때(리전 전환 · 되돌리기 · 장애) 앱 CloudFront가 502 · 503 · 504 대신 보여 줌.
+# 앱 원본과 다른 곳(S3)에 둬야 앱이 죽어도 받을 수 있다(CloudFront 문서). 서울에 올리면 위 복제로 도쿄에도 생겨, 서울 S3 장애 때는 도쿄 것을 씀.
+# 사진 창고를 같이 쓰는 이유: 새 버킷 · 권한 없이 상시 + 두 리전. 앱 배포는 maintenance/* 만 읽음(global photos.tf 버킷 정책)
+resource "aws_s3_object" "maintenance" {
+  provider      = aws.seoul
+  bucket        = aws_s3_bucket.photos.id
+  key           = "maintenance/index.html"
+  source        = "${path.module}/maintenance.html"
+  etag          = filemd5("${path.module}/maintenance.html")
+  content_type  = "text/html; charset=utf-8"
+  cache_control = "max-age=300" # 문구를 고치면 5분 안에 반영
+}
