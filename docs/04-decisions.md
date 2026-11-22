@@ -1457,6 +1457,7 @@
   | Backup & Restore 유지 + 목표를 RPO 15분 · RTO 1시간으로 낮춤 | 비용은 거의 0이지만 복원 시간 편차(시도 3) 때문에 RTO를 약속할 수 없고, 결제 연결 뒤 RPO 수작업이 남는다 |
   | Aurora Global Database | RPO 초 단위 · 승격이 빠르지만(AWS 백서) MySQL → Aurora 엔진 이전과 상시 비용이 이 규모에 과하다 |
   | Warm Standby(도쿄에 앱 · ALB까지 상시) | [ADR-036](#adr-036)이 버린 이유 그대로(상시 비용) |
+  | 도쿄도 쓰기를 받는 주 DB로 두고 서로 복제(active-active, 2026-11-22 사용자 질문) | 복제는 읽기 복제본으로도 똑같이 된다(서울 변경 → 도쿄, 초 단위). 차이는 도쿄가 평소에 쓰기를 받느냐뿐인데, 두 곳이 동시에 예약을 받으면 같은 객실 중복 판매 · ID 충돌을 맞춰야 한다([ADR-035](#adr-035) 결과의 "리전 확장", [ADR-012](#adr-012) 3번). 그래서 도쿄는 장애 선언 전까지 읽기 전용, 승격해야 쓰기를 받는다 |
   | 자동 리전 전환 | [ADR-012](#adr-012) 이유 그대로. 게다가 승격은 되돌릴 수 없다("no longer a read replica", [RDS 문서](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.Promote.html)). 감지 · 알림은 자동, 결정은 사람 |
 
 - **결과 · 받아들인 위험:**
@@ -1491,3 +1492,21 @@
 
 - **결정:** ALB `enable_zonal_shift = true`(기본 꺼짐, zonal shift · autoshift 모두 추가 요금 없음 — [ARC 요금](https://aws.amazon.com/application-recovery-controller/pricing/)). cross-zone이 켜진 ALB도 지원하고, 시작하면 그 AZ의 노드 IP를 DNS에서 빼고 그 AZ 대상으로 가는 트래픽을 막는다([ALB zonal shift](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/zonal-shift.html)). 운영 대응: 감지(손님 오류 증가 + 한 AZ 노드의 요청 수 급감) → 사람이 zonal shift 시작 → AZ 회복 확인 뒤 취소. 드릴: `fault.sh az`가 주입 +60초에 시작(감지 · 판단 흉내), 서브넷을 되돌린 뒤 취소, 만료(차단 시간 + 10분)는 안전장치. 드릴은 AZ 차단과 같은 관리자 세션으로 실행해 평소 권한은 늘리지 않는다.
 - **결과:** 다음 AZ 드릴 3회로 효과를 잰다(예측: 차단 중 실패 14.6% → 3 ~ 6%, [faults](experiments/faults.md#az-장애--zonal-shift-재시험-계획-2026-11-22)). ALB가 fail open(모든 대상 비정상) 상태면 zonal shift는 효과가 없다(문서). CloudFront VPC 원본이 DNS 변경을 얼마나 빨리 따라가는지는 문서에 없어 드릴로 잰다. 고객사 운영자가 zonal shift를 시작하는 권한(그 ALB ARN 범위)은 고객사 운영 권한 설계 때 정한다.
+
+<a name="adr-068"></a>
+## ADR-068 서울에 읽기 복제본을 두지 않는다 — 실측 병목이 DB 읽기가 아님, 조건이 되면 다시 본다 (2026-11-22)
+
+- **상황:** 사용자 질문(2026-11-22, 그 전에도 여러 번): 조회는 읽기 복제본, 예약 같은 쓰기는 주 DB로 나누면 병목이 줄지 않나? Multi-AZ 대기 DB를 읽기에 쓸 수는 없나? 같은 질문이 반복돼 결정으로 남긴다.
+- **확인한 사실:**
+
+  | 사실 | 근거 |
+  |---|---|
+  | 지금 쓰는 Multi-AZ(인스턴스)의 대기 DB는 읽기를 받지 못한다 | *"You can't use a standby replica to serve read traffic"* ([RDS 문서](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZSingleStandby.html)) |
+  | 대기 DB를 읽기에 쓰는 Multi-AZ DB 클러스터는 t3 · t4g 같은 작은 등급을 지원하지 않는다(db.m6gd 등부터) | [Multi-AZ DB 클러스터 문서](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/multi-az-db-clusters-concepts.html) |
+  | 3단계 실측: 3,000명 층까지 버팀, 먼저 막힌 곳은 **앱 태스크 CPU**(2,500명부터 평균 95% 이상), RDS CPU 43% | [3단계 k6](experiments/migration.md#2-1단계와-같은-k6-비교) |
+  | 쿠폰 오픈의 대기(가설): 쿠폰 한 줄 잠금과 서버당 쿠폰 DB 연결 2개 = **쓰기 쪽** | [3단계 쿠폰](experiments/migration.md) |
+
+- **결정:** 두지 않는다. 읽기 복제본은 주 DB의 **조회** 부담을 덜 뿐, 예약 · 쿠폰 발급 같은 **쓰기는 그대로 주 DB 한 곳**에서 처리한다. 지금 측정된 병목(앱 CPU, 쿠폰 쓰기 잠금)에는 효과가 없고, 비용(서울 db.t4g.micro 1대 월 약 $21, [09](09-cost-estimate.md) 단가로 추정)과 앱 변경만 생긴다.
+- **다시 볼 조건(우리가 정한 기준):** 목표 부하에서 RDS CPU가 계속 70% 이상이고, 그 부하가 대부분 조회일 때. 그 전에 싼 순서로: 숙소 목록 · 상세 캐시(CloudFront), 쿠폰 쪽 권고(서버별 소진 기억, READ COMMITTED), DB 인스턴스 크기.
+- **넣게 되면 할 일 · 위험:** 복제는 비동기라([RDS 문서](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.html)) 방금 쓴 내용이 안 보일 수 있다(내 예약 목록, 남은 객실 · 쿠폰 수) → 이런 조회는 주 DB로 보내는 규칙과 연결 풀 2개, 복제본 장애 때 주 DB로 돌리는 처리가 필요하다.
+- **비슷한 질문:** 도쿄 복제본([ADR-066](#adr-066))을 서울 조회에 쓰기 → 서울 앱에서 리전을 건너가는 지연이 생겨 쓰지 않는다. 도쿄를 쓰기 가능한 주 DB로 두기 → ADR-066 대안 표.
