@@ -98,6 +98,9 @@ export function analyze(writerText, marksText, eventsText) {
       sec: kept.length ? (start - kept.at(-1).t) / 1000 : null,
     };
   }
+  // RTO를 측정기 원본만으로도: 장애 선언 뒤 도쿄 앱이 처음 성공시킨 예약 (스크립트가 중간에 멈춰도 writer가 계속 돌면 남음, 11-21 시도 2 · 3 교훈)
+  const firstTokyo = writes.find((w) => w.t >= start && w.region === 'ap-northeast-1');
+  result.firstTokyoWriteSec = firstTokyo ? (firstTokyo.t - start) / 1000 : null;
   for (const [name, m] of Object.entries(marks)) if (name !== 'restored_max_seq') result[`mark_${name}`] = (m.t - start) / 1000;
   return result;
 }
@@ -125,6 +128,7 @@ if (process.argv[2] === '--self-test') {
   assert.deepEqual(r.duplicateSeqs, []);
   assert.deepEqual(r.rpo, { lostWrites: 1, sec: 5 });
   assert.equal(r.mark_rto_end, 4);
+  assert.equal(r.firstTokyoWriteSec, 4); // 14초 재전송 200이 도쿄 첫 성공 (15초 201보다 먼저)
   assert.equal(r.write.regions, 'ap-northeast-2 → ap-northeast-1');
   // 새 판정: 대상은 기존과 같이 시작 표시 뒤에 응답이 온(또는 포기한) 요청, 시각은 보낸 시각. 시간 초과 둘은 7 · 8초에 보냄(장애 전에 보낸 요청이 걸림 → 음수)
   assert.equal(r.write.user.failedSent, 2);
@@ -166,6 +170,7 @@ for (const d of dirs) {
   }
   console.log(`- 중복 예약 순번: ${r.duplicateSeqs.length ? r.duplicateSeqs.join(', ') : '없음'}, 재전송에 같은 예약이 돌아온 수: ${r.replays}`);
   if (r.rpo) console.log(`- RPO: 잃은 쓰기 ${r.rpo.lostWrites}건, 남은 마지막 쓰기 → 장애 선언 ${r.rpo.sec}초`);
+  if (r.mark_t0 === 0) console.log(`- RTO(측정기 원본): 장애 선언 → 도쿄 앱 첫 예약 성공 ${r.firstTokyoWriteSec == null ? '기록 안에 없음' : `${r.firstTokyoWriteSec}초`}`);
   const marks = Object.entries(r).filter(([k]) => k.startsWith('mark_')).map(([k, v]) => `${k.slice(5)} +${v}초`);
   console.log(`- 표시(시작 기준): ${marks.join(', ')}`);
   // 새 판정 (2026-11-20): 보낸 시각 기준, 2xx · 409만 쓸 수 있었던 응답. 인프라 회복(표시)과 손님 회복을 나란히

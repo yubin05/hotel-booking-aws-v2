@@ -21,9 +21,3 @@ terraform {
 provider "aws" {
   region = "ap-northeast-2"
 }
-
-# 백업 복제는 받는 리전(도쿄)에서 만든다 (backup.tf, Terraform 문서)
-provider "aws" {
-  alias  = "tokyo"
-  region = "ap-northeast-1"
-}

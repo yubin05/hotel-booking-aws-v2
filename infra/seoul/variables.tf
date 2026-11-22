@@ -4,8 +4,3 @@ variable "multi_az" {
   default     = false
 }
 
-variable "backup_replication" {
-  description = "RDS 자동 백업을 도쿄로 복제 (5단계 리전 복원 드릴, ADR-062). 드릴 날만 -var backup_replication=true. 끝나면 drill/region.sh cleanup"
-  type        = bool
-  default     = false
-}

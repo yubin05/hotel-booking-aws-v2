@@ -34,6 +34,12 @@ resource "aws_db_parameter_group" "this" {
   }
 }
 
+# 다른 리전 복제본은 받는 리전의 키를 지정해야 함(공급자 문서). AWS 관리 키, kms:DescribeKey만으로 조회(별칭 목록 권한 없이)
+data "aws_kms_key" "rds" {
+  count  = var.replica_source_arn == null ? 0 : 1
+  key_id = "alias/aws/rds"
+}
+
 resource "aws_db_instance" "this" {
   identifier     = local.name
   engine         = "mysql"
@@ -43,11 +49,17 @@ resource "aws_db_instance" "this" {
   allocated_storage = 20
   storage_type      = "gp3"
   storage_encrypted = true # AWS 관리 키(aws/rds), 추가 요금 없음
+  kms_key_id        = one(data.aws_kms_key.rds[*].arn)
 
-  db_name  = "hotel_booking" # 앱 config의 기본 DB 이름
-  username = "admin"
+  # Pilot Light (ADR-066): 서울 주 DB의 복제본. 이 값을 빼고 apply하면 승격(공급자 문서) = 리전 전환의 DB 단계
+  replicate_source_db = var.replica_source_arn
+
+  # 복제본은 DB 이름 · 관리자 이름을 원본에서 받아 지정할 수 없음(공급자 문서). 앱 config의 기본 DB 이름
+  db_name  = var.replica_source_arn == null ? "hotel_booking" : null
+  username = var.replica_source_arn == null ? "admin" : null
   # 관리자 비밀번호는 RDS가 직접 만들어 Secrets Manager에 넣음. Terraform · 사람 모두 모름 (ADR-041)
-  manage_master_user_password = true
+  # 복제본은 원본 비밀번호를 쓰고(원본 금고는 서울), 승격 apply에서 도쿄 금고를 새로 붙임. shortcut: 승격과 같은 apply에서 붙는지는 첫 드릴에서 확인, 안 되면 apply 한 번 더
+  manage_master_user_password = var.replica_source_arn == null ? true : null
 
   multi_az               = var.db_multi_az # 설계는 켬, 포트폴리오는 평소 끔 (NAT와 같은 방식)
   parameter_group_name   = aws_db_parameter_group.this.name
@@ -56,18 +68,8 @@ resource "aws_db_instance" "this" {
   publicly_accessible    = false
 
   copy_tags_to_snapshot    = true # 스냅샷에도 태그가 붙어 누구 것인지 · 비용이 추적됨 (Security Hub RDS.17)
-  backup_retention_period  = 7    # 시점 복구 범위 · 리전 간 백업 복제의 전제 (끄면 그 기능들이 같이 꺼짐)
+  backup_retention_period  = 7    # 시점 복구 범위 · 다른 리전 복제본의 전제 (끄면 그 기능들이 같이 꺼짐)
   delete_automated_backups = true # destroy 때 백업도 같이 지움 (남아서 요금이 쌓이지 않게)
-
-  # 5단계 리전 복원 (ADR-062): 서울에서 복제된 자동 백업으로 시점 복원. 관리자 비밀번호 금고는 복원 뒤 수정으로 붙음(공급자 6.73.0 소스 확인)
-  dynamic "restore_to_point_in_time" {
-    for_each = var.restore_backup_arn == null ? [] : [1]
-    content {
-      source_db_instance_automated_backups_arn = var.restore_backup_arn
-      restore_time                             = var.restore_time
-      use_latest_restorable_time               = var.restore_time == null ? true : null # 둘은 함께 쓸 수 없음(false도 '씀'으로 봄)
-    }
-  }
 
   # 데이터는 시드라 매번 새로 만듦 (ADR-042). 실운영이면 최종 스냅샷 · 삭제 방지를 켬
   skip_final_snapshot = true
@@ -75,7 +77,7 @@ resource "aws_db_instance" "this" {
   apply_immediately   = true
 
   lifecycle {
-    # 복원 블록은 바뀌면 DB를 새로 만듦. 복원한 뒤 -var 없이 apply해도 복원한 DB를 지우지 않게
-    ignore_changes = [restore_to_point_in_time]
+    # 셋 다 바뀌면 DB를 새로 만드는 값. 승격 apply(복제본 → 독립 DB)에서 null → 값이 되어도 DB를 갈아 끼우지 않게
+    ignore_changes = [db_name, username, kms_key_id]
   }
 }

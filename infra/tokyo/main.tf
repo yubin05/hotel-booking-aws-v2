@@ -1,4 +1,4 @@
-# 리전 복원용 도쿄. 평소에는 없고 리전 전환 PoC · DR 드릴 때만 올림 (ADR-009 Backup & Restore, ADR-035)
+# 리전 복원용 도쿄. 설계는 DB 복제본만 상시(Pilot Light, ADR-066), 포트폴리오는 DR 드릴 날만 올림 (ADR-035)
 module "regional" {
   source   = "../modules/regional"
   vpc_cidr = "10.1.0.0/16" # ADR-033 (서울 10.0과 겹치지 않게)
@@ -8,8 +8,7 @@ module "regional" {
   nat_count   = 1
   db_multi_az = false
 
-  # 5단계 리전 복원 (ADR-062): 서울에서 복제된 백업으로 DB를 살리고, 되돌릴 때 dump 태스크로 덤프를 서울에 넘김
-  restore_backup_arn = var.restore_backup_arn
-  restore_time       = var.restore_time
+  # 5단계 리전 복원 (ADR-066 Pilot Light): 평소 서울 DB의 읽기 복제본만 두고, 장애 때 승격. 되돌릴 때 dump 태스크로 덤프를 서울에 넘김
+  replica_source_arn = var.replica_source_arn
   migration_tasks    = true
 }

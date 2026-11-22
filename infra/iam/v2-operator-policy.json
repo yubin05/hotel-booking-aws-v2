@@ -250,10 +250,8 @@
         "rds:AddTagsToResource",
         "rds:RemoveTagsFromResource",
         "rds:ListTagsForResource",
-        "rds:StartDBInstanceAutomatedBackupsReplication",
-        "rds:StopDBInstanceAutomatedBackupsReplication",
-        "rds:DescribeDBInstanceAutomatedBackups",
-        "rds:RestoreDBInstanceToPointInTime"
+        "rds:CreateDBInstanceReadReplica",
+        "rds:PromoteReadReplica"
       ],
       "Resource": "*",
       "Condition": {

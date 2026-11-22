@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# 5단계 리전 복원 드릴 1회 (docs/experiments/region-drill.md, 02 8 · 9절, ADR-062): 서울 장애를 선언하고 도쿄에서 복원한 뒤 서울로 되돌린다
+# 5단계 리전 복원 드릴 1회 (docs/experiments/region-drill.md, 02 8 · 9절, ADR-066 Pilot Light): 서울 장애를 선언하고 도쿄 복제본을 승격해 손님을 받은 뒤 서울로 되돌린다
+#   bash drill/region.sh standby    도쿄에 서울 DB의 읽기 복제본과 그 네트워크만 만듦(평소 대기 상태, 7개). 회차마다 run 전에
 #   bash drill/region.sh run        전환(RTO · RPO) → Enter → 되돌리기. Terraform plan마다 yes 확인 (사람이 확인한 시간은 따로 셈)
-#   bash drill/region.sh cleanup    도쿄에 남은 복제 백업 지우기 (서울 -var backup_replication 없이 apply 또는 서울 destroy 뒤, 남으면 요금)
+#   bash drill/region.sh stop <결과 폴더>   run이 중간에 멈췄을 때: 남은 단계를 손으로 끝낸 뒤 계속 도는 측정기 · DB 상태 기록기를 끝내고 보고서
 #   bash drill/region.sh seoul-up   중간에 멈췄을 때 서울 앱을 다시 2 ~ 4로 (global은 terraform apply로 서울에)
-# 결과: drill/results/region-<시각>/ writer.log(손님 쪽), marks.log · steps.log(단계 시각), tokyo-check.txt(복원 DB 확인),
+# 결과: drill/results/region-<시각>/ writer.log(손님 쪽), marks.log · steps.log(단계 시각), db-state.log(도쿄 DB 상태 10초마다), tokyo-check.txt(승격 DB 확인),
 #       lost-in-seoul.txt(대조: 서울에만 있던 쓰기), dump.log · restore.log(되돌리기 체크섬), tf-*.log(plan · apply 출력), report.md
-# 필요: 서울(-var backup_replication=true, 복제가 도는 중) · global이 떠 있고 도쿄는 비어 있음, 평소 사용자 로그인(Terraform) + 관리자 로그인(aws)
+# 필요: 서울 · global이 떠 있고 도쿄는 standby, 평소 사용자 로그인(Terraform · DB 상태 기록) + 관리자 로그인(aws)
 set -Eeuo pipefail
 cd "$(dirname "$0")"
 export MSYS_NO_PATHCONV=1
@@ -57,12 +58,24 @@ tf_apply() { # $1 루트, $2 이름, 나머지 -var. plan → 사람 확인 → 
   mark "${name}_done"
 }
 
-cleanup() {
-  local arns
-  arns=$(in_region "$TOKYO" rds describe-db-instance-automated-backups --query "DBInstanceAutomatedBackups[?Status=='retained'].DBInstanceAutomatedBackupsArn" --output text)
-  for a in $arns; do in_region "$TOKYO" rds delete-db-instance-automated-backup --db-instance-automated-backups-arn "$a" >/dev/null && echo "지움 $a"; done
-  echo "도쿄에 남은 자동 백업 (비어 있어야 함. replicating이면 서울 복제가 아직 켜져 있음):"
-  in_region "$TOKYO" rds describe-db-instance-automated-backups --query 'DBInstanceAutomatedBackups[].[DBInstanceIdentifier,Status,DBInstanceAutomatedBackupsArn]' --output text
+tokyo_db() { in_region "$TOKYO" rds describe-db-instances --db-instance-identifier "$CLUSTER" --query 'DBInstances[0].[DBInstanceStatus,ReadReplicaSourceDBInstanceIdentifier]' --output text 2>/dev/null | tr '\t' ' '; }
+
+standby() { # 도쿄 = 서울 DB의 읽기 복제본 + 그 DB가 놓일 네트워크(7개). 나머지 도쿄 인프라는 장애 선언 뒤 run이 만든다
+  local src
+  src=$(admin rds describe-db-instances --db-instance-identifier "$CLUSTER" --query 'DBInstances[0].DBInstanceArn' --output text)
+  [[ $src == arn:aws:rds:* ]] || { echo "서울 DB가 없음: 서울 apply 먼저" >&2; exit 1; }
+  # shortcut: -target으로 DB와 그 의존(VPC · DB 서브넷 · 보안 그룹 · 설정표)만 만든다. Terraform은 평소 쓰지 말라고 경고하지만 대기 상태 한 단계에만 씀. 상시 운영이면 모듈에 standby 변수로 나눔
+  date; terraform -chdir="$INFRA/tokyo" apply -target=module.regional.aws_db_instance.this -var "replica_source_arn=$src"; date
+  echo "도쿄 DB (available + 서울 ARN이면 대기 완료): $(tokyo_db)"
+}
+
+stop() { # $1 결과 폴더 (drill/results/... 또는 results/...)
+  local d=${1:?사용: bash drill/region.sh stop drill/results/region-<시각>}
+  d=${d#drill/}
+  for f in writer db-state; do
+    if [ -s "$d/$f.pid" ]; then kill "$(cat "$d/$f.pid")" 2>/dev/null && echo "$f 멈춤"; rm -f "$d/$f.pid"; fi
+  done
+  node ../scripts/drill-report.mjs "$d" | tee "$d/report.md"
 }
 
 seoul_up() {
@@ -74,58 +87,71 @@ run() {
   OUT=results/region-$(date +%Y%m%d-%H%M%S)
   mkdir -p "$OUT"
   HUMAN=0
-  local arn dbi backup_arn lt lt0 restore_time max t0 run_id name get_url put_url
+  local arn lag max= rp t0 run_id name get_url put_url
   arn=$(admin sts get-caller-identity --query Arn --output text)
   [[ "$arn" == *:assumed-role/* ]] || { echo "관리자 역할이 아님: $arn (aws login --profile admin)" >&2; exit 1; }
   local bucket=hotel-booking-aws-v2-migration-$(cut -d: -f5 <<<"$arn")-$SEOUL-an # bootstrap migration.tf
 
-  # 0) 사전: 서울이 손님을 받는 중, 도쿄는 비어 있음, 서울 백업이 도쿄로 복제 중
+  # 0) 사전: 서울이 손님을 받는 중, 도쿄는 standby(서울 DB의 복제본만)
   [ "$(code "$BASE/api/health/deep")" = 200 ] || { echo "새 주소가 안 뜸: 서울 · global 먼저" >&2; exit 1; }
-  local tokyo_state
-  tokyo_state=$(terraform -chdir="$INFRA/tokyo" state list) || { echo "도쿄 state를 못 읽음: terraform -chdir=infra/tokyo init · aws login" >&2; exit 1; }
-  [ -z "$tokyo_state" ] || { echo "도쿄가 이미 있음: 지난 회차 뒤 terraform destroy" >&2; exit 1; }
-  dbi=$(admin rds describe-db-instances --db-instance-identifier "$CLUSTER" --query 'DBInstances[0].DbiResourceId' --output text)
-  backup_arn=$(in_region "$TOKYO" rds describe-db-instance-automated-backups --dbi-resource-id "$dbi" --query 'DBInstanceAutomatedBackups[0].DBInstanceAutomatedBackupsArn' --output text)
-  [[ "$backup_arn" == arn:* ]] || { echo "도쿄에 복제된 백업이 없음: 서울 apply -var backup_replication=true 먼저" >&2; exit 1; }
-  latest() { in_region "$TOKYO" rds describe-db-instance-automated-backups --db-instance-automated-backups-arn "$backup_arn" --query 'DBInstanceAutomatedBackups[0].RestoreWindow.LatestTime' --output text; }
+  [[ "$(tokyo_db)" == "available arn:"* ]] || { echo "도쿄가 대기 상태(복제본 available)가 아님: $(tokyo_db) → bash drill/region.sh standby" >&2; exit 1; }
 
+  # 측정기 · DB 상태 기록기는 스크립트가 멈춰도 계속 돈다(11-21 시도 2 · 3은 스크립트와 함께 꺼져 RTO를 못 잼). 끝은 run 마지막 또는 region.sh stop
   node writer.mjs "$OUT/writer.log" "$BASE" >"$OUT/writer.out" 2>&1 &
-  WRITER_PID=$!
-  trap 'kill $WRITER_PID 2>/dev/null' EXIT
-  trap 'echo "멈춤(위 단계). 서울로 되돌리기: bash drill/region.sh seoul-up → global terraform apply(-var 없이)" >&2' ERR
+  echo $! >"$OUT/writer.pid"
+  trap 'echo "멈춤(위 단계). 측정기는 계속 돎 → 남은 단계를 손으로 끝낸 뒤 bash drill/region.sh stop drill/$OUT. 서울로 되돌리기: bash drill/region.sh seoul-up → global terraform apply(-var 없이)" >&2' ERR
   sleep 8
-  kill -0 $WRITER_PID 2>/dev/null || { cat "$OUT/writer.out" >&2; exit 1; }
+  kill -0 "$(cat "$OUT/writer.pid")" 2>/dev/null || { cat "$OUT/writer.out" >&2; exit 1; }
+  # 평소 사용자 권한으로 10초마다 도쿄 DB 상태. Terraform 대기와 따로 "DB를 쓸 수 있게 된 시각"(승격 끝 = available + 원본 없음)을 남김
+  (
+    set +e
+    trap - ERR
+    written=0
+    while :; do
+      s=$(timeout 30 aws --region "$TOKYO" rds describe-db-instances --db-instance-identifier "$CLUSTER" --query 'DBInstances[0].[DBInstanceStatus,ReadReplicaSourceDBInstanceIdentifier]' --output text 2>&1 | tr -d '\r' | tr '\t' ' ')
+      echo "$(now_ms) $s" >>"$OUT/db-state.log"
+      if [ $written = 0 ] && [ "$s" = "available None" ] && grep -q '^t0 ' "$OUT/marks.log"; then mark tokyo_db_writable; written=1; fi
+      sleep 10
+    done
+  ) >/dev/null 2>&1 &
+  echo $! >"$OUT/db-state.pid"
   run_id=$(sed -n 's/^# run=\([^ ]*\).*/\1/p' "$OUT/writer.log")
   mark start "writer $run_id"
-  # 복원 가능 시각이 손님 가입 + 1분을 넘을 때까지: 그래야 복원한 도쿄에 손님 계정과 쓰기가 있다 (복제 지연을 여기서 봄)
-  local w0=$(($(date +%s) - 8))
-  until lt=$(latest) && [ "$(date -d "$lt" +%s 2>/dev/null || echo 0)" -ge $((w0 + 60)) ]; do
-    echo "$(date +%T) 도쿄 복원 가능 시각 $lt (복제 기다리는 중)"
-    sleep 30
-  done
+  # 복제본이 손님 가입 · 첫 쓰기를 받을 시간. 복제 지연은 문서에 숫자가 없어 장애 선언 때의 ReplicaLag로 잰다
+  sleep 60
 
-  # ② 장애 선언: 이 순간 도쿄에서 복원할 수 있는 가장 최근 시각으로 복원한다(실제 장애면 그 뒤 복제가 끊김)
-  lt0=$(latest)
-  mark t0 "$lt0"
+  # ② 장애 선언: 서울 앱을 멈춘다(장애 흉내). 실제 장애면 이 순간 복제가 끊긴다
+  mark t0
   scale_app "$SEOUL" 0 0 0
   t0=$(mark_ms t0)
-  echo "    예상 RPO(장애 선언 − 복원 가능 시각): $((t0 / 1000 - $(date -d "$lt0" +%s)))초"
-  restore_time=$(date -u -d "$lt0" +%Y-%m-%dT%H:%M:%SZ) # 초 아래는 버림(복원 가능 시각보다 늦으면 안 됨)
+  # 예상 RPO = 장애 선언 때 복제 지연(초). 드릴에선 서울 DB가 살아 있어 선언 뒤에도 복제가 따라와 실제 잃은 쓰기는 0에 가깝게 나온다(한계, region-drill.md)
+  lag=$(in_region "$TOKYO" cloudwatch get-metric-statistics --namespace AWS/RDS --metric-name ReplicaLag --dimensions "Name=DBInstanceIdentifier,Value=$CLUSTER" \
+    --start-time "$(date -u -d '-5 min' +%FT%TZ)" --end-time "$(date -u +%FT%TZ)" --period 60 --statistics Maximum \
+    --query 'sort_by(Datapoints, &Timestamp)[-1].Maximum' --output text) || lag=-
+  mark replica_lag_s "$lag"
+  echo "    예상 RPO(장애 선언 때 복제 지연): ${lag}초"
 
-  # ③ 도쿄 인프라 + 복제된 백업으로 RDS 시점 복원 (apply 한 번)
-  tf_apply tokyo tokyo -var "restore_backup_arn=$backup_arn" -var "restore_time=$restore_time"
+  # ③ 도쿄 DB 승격: replica_source_arn을 빼면 공급자가 승격하고 도쿄 금고를 붙인다. 이관 태스크 정의가 그 금고 주소를 써서 DB만 먼저(-target)
+  #    shortcut: 승격과 금고 붙이기가 한 apply에서 되는지는 첫 드릴에서 확인. 실패하면 같은 명령을 한 번 더(금고만 붙음)
+  tf_apply tokyo tokyo_promote -target=module.regional.aws_db_instance.this
+  # ③' 나머지 도쿄 인프라(ALB · ECS · NAT · 통로 · 태스크 정의)
+  tf_apply tokyo tokyo
 
-  # ④ 복원 DB 확인(도쿄 안 sql 태스크): 손님 쓰기가 몇 번까지 들어 있나 + 주요 표 행 수
+  # ④ 승격 DB 확인(도쿄 안 sql 태스크): 장애 선언 전 손님 쓰기가 몇 번까지 들어 있나 + 주요 표 행 수
+  #    created_at < t0: 되돌리기 전에 다시 셀 때도 도쿄에서 새로 받은 예약이 섞이지 않게 (DB 시각은 UTC)
   cat >"$OUT/check.sql" <<SQL
 SELECT COUNT(*) AS drill_bookings, COALESCE(MAX(CAST(SUBSTRING_INDEX(idempotency_key, '-', -1) AS UNSIGNED)), 0) AS max_seq
-  FROM bookings WHERE idempotency_key LIKE 'drill-$run_id-%';
+  FROM bookings WHERE idempotency_key LIKE 'drill-$run_id-%' AND created_at < '$(date -u -d "@$((t0 / 1000))" '+%F %T')';
 SELECT (SELECT COUNT(*) FROM users) AS users, (SELECT COUNT(*) FROM hotels) AS hotels, (SELECT COUNT(*) FROM bookings) AS bookings;
 SQL
+  check() {
+    REGION=$TOKYO bash ../migration/sql.sh "$OUT/check.sql" | tee "$OUT/tokyo-check.txt" || return 1
+    max=$(awk -F'|' '/max_seq/ { getline; getline; gsub(/ /, "", $3); print $3; exit }' "$OUT/tokyo-check.txt")
+    [[ "$max" =~ ^[0-9]+$ ]] && mark restored_max_seq "$max"
+  }
   mark check_start
-  REGION=$TOKYO bash ../migration/sql.sh "$OUT/check.sql" | tee "$OUT/tokyo-check.txt"
-  max=$(awk -F'|' '/max_seq/ { getline; getline; gsub(/ /, "", $3); print $3; exit }' "$OUT/tokyo-check.txt")
-  [[ "$max" =~ ^[0-9]+$ ]] || { echo "복원 DB에서 순번을 못 읽음 (tokyo-check.txt)" >&2; exit 1; }
-  mark restored_max_seq "$max"
+  # 확인이 실패해도(11-21 시도 2: 관리자 세션 만료) 손님 복구가 먼저라 전환은 계속하고, 되돌리기 전에 다시 센다
+  check || { max=; mark check_failed; echo "확인 SQL 실패 → 전환은 계속, 순번은 되돌리기 전에 다시 셈" >&2; }
 
   # ⑤ CloudFront 원본을 도쿄로 (ADR-035)
   tf_apply global global_to_tokyo -var "active_region=$TOKYO"
@@ -136,7 +162,8 @@ SQL
   local rto=$((($(mark_ms rto_end) - t0) / 1000))
   echo "    RTO ${rto}초 (사람 확인 ${HUMAN}초 포함, 빼면 $((rto - HUMAN))초)" | tee -a "$OUT/steps.log"
 
-  read -rp "도쿄에서 운영 중. 확인 · 녹화 뒤 Enter로 되돌리기 (관리자 세션이 1시간이라 필요하면 다른 창에서 aws login --profile admin): " _
+  read -rp "도쿄에서 운영 중. 확인 · 녹화 뒤 Enter로 되돌리기 (관리자 세션은 2시간, 필요하면 콘솔에서 역할을 새로 전환하고 다른 창에서 aws login --profile admin): " _
+  [ -n "$max" ] || check || { echo "승격 DB에서 순번을 못 읽음 (tokyo-check.txt)" >&2; exit 1; }
 
   # 되돌리기 ① 도쿄 쓰기 멈춤(계획된 점검) → 태스크가 모두 내려갈 때까지
   mark failback_start
@@ -145,12 +172,14 @@ SQL
   wait_for "도쿄 앱 멈춤" 300 running_tokyo
   mark tokyo_stopped
 
-  # ② 대조: 서울 옛 DB에서 복원 시점 뒤 바뀐 예약을 덮기 전에 뽑아 둠 (= 도쿄가 몰랐던 새 예약 · 날짜 변경 · 취소, 고객사가 처리할 목록)
+  # ② 대조: 서울 옛 DB에서 도쿄에 남은 마지막 손님 쓰기 뒤 바뀐 예약을 덮기 전에 뽑아 둠 (= 도쿄가 몰랐던 새 예약 · 날짜 변경 · 취소, 고객사가 처리할 목록)
+  rp=$(awk -F'\t' -v s="$max" '$2 == "write" && $3 == s && $4 >= 200 && $4 < 300 { t = $1 } END { print int(t / 1000) }' "$OUT/writer.log")
+  ((rp > 0)) || rp=$((t0 / 1000 - 600)) # 남은 쓰기가 하나도 없으면 선언 10분 전부터
   # 취소는 행을 지우지 않고 status를 바꾸며, updated_at은 바뀔 때마다 갱신되고 이 대조용 색인이 있음(앱 db/schema.sql). DB 시각은 UTC
   cat >"$OUT/lost.sql" <<SQL
-SELECT IF(created_at > '$(date -u -d "$lt0" '+%F %T')', 'new', 'changed') AS kind, id, user_id, room_id, check_in_date, check_out_date, status, updated_at,
+SELECT IF(created_at > '$(date -u -d "@$rp" '+%F %T')', 'new', 'changed') AS kind, id, user_id, room_id, check_in_date, check_out_date, status, updated_at,
        idempotency_key LIKE 'drill-$run_id-%' AND CAST(SUBSTRING_INDEX(idempotency_key, '-', -1) AS UNSIGNED) > $max AS drill_lost
-  FROM bookings WHERE updated_at > '$(date -u -d "$lt0" '+%F %T')' ORDER BY updated_at;
+  FROM bookings WHERE updated_at > '$(date -u -d "@$rp" '+%F %T')' ORDER BY updated_at;
 SQL
   bash ../migration/sql.sh "$OUT/lost.sql" | tee "$OUT/lost-in-seoul.txt"
   mark compare_done
@@ -185,15 +214,15 @@ SQL
   sleep 60
   mark end
   trap - ERR
-  kill $WRITER_PID 2>/dev/null || true
-  node ../scripts/drill-report.mjs "$OUT" | tee "$OUT/report.md"
+  stop "$OUT"
   echo "결과: drill/$OUT/"
-  echo "다음: 도쿄 내리기 cd infra/tokyo && terraform destroy (50개 안팎). 다음 회차는 도쿄가 빈 뒤 다시 run"
+  echo "다음: 도쿄 내리기 cd infra/tokyo && terraform destroy (51개). 다음 회차는 standby부터"
 }
 
 case "${1:-}" in
+standby) standby ;;
 run) run ;;
-cleanup) cleanup ;;
+stop) stop "${2:-}" ;;
 seoul-up) seoul_up ;;
-*) sed -n '3,5p' "$0" >&2; exit 1 ;;
+*) sed -n '3,6p' "$0" >&2; exit 1 ;;
 esac

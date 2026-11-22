@@ -50,14 +50,8 @@ variable "migration_tasks" {
   default     = false
 }
 
-variable "restore_backup_arn" {
-  description = "5단계 리전 복원: 이 리전에 복제된 자동 백업(ARN)으로 RDS를 만듦 (ADR-062). null이면 빈 DB"
-  type        = string
-  default     = null
-}
-
-variable "restore_time" {
-  description = "restore_backup_arn의 복원 시점(UTC, RFC3339). 장애 선언 때의 가장 최근 복원 가능 시각을 넣어 실제 장애처럼 그 뒤 변경을 잃게 함. null이면 가장 최근"
+variable "replica_source_arn" {
+  description = "Pilot Light(ADR-066): 다른 리전 주 DB의 ARN. 넣으면 RDS를 그 DB의 읽기 복제본으로 만들고, 빼고 apply하면 승격(독립 DB)한다. null이면 빈 DB"
   type        = string
   default     = null
 }
