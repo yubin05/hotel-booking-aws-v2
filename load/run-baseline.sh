@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 부하 기준선 실행 (과제 3): 발생기에서 load/baseline.js를 돌리는 동안 서버 3대(앱·DB·발생기)의 CPU·메모리를 5초마다 남기고,
 # 끝나면 결과를 PC의 load/results/<이름>/ 으로 가져온다.
-# 순서(고객사 저장소 hotel-booking-app/legacy에서): terraform apply -var is_load_test=true → start-db.sh → start-app.sh <이미지:태그> → 이 스크립트
+# 순서(고객사 저장소 hotel-booking-app/legacy에서): terraform.tfvars에 is_load_test = true → apply → start-db.sh → start-app.sh <이미지:태그> → 이 스크립트
 #
 #   bash run-baseline.sh                         본 실행 (약 37분)
 #   TARGET=aws bash run-baseline.sh              3단계: 이관 뒤 새 주소로 같은 시험 (이름 baseline-aws-*, 옛 서버 기록 · 정합성 검사 없음)
@@ -24,7 +24,7 @@ APP=$(terraform -chdir="$LEGACY_DIR" output -raw web_instance_1_public_ip | tr -
 DB=$(terraform -chdir="$LEGACY_DIR" output -raw db_instance_1_private_ip | tr -d '\r')
 LOAD=$(terraform -chdir="$LEGACY_DIR" output -raw load_test_instance_1_public_ip 2>/dev/null | tr -d '\r' || true)
 [ -n "$LOAD" ] && [ "$LOAD" != null ] || {
-  echo '발생기가 없음: terraform apply -var is_load_test=true 로 켜기' >&2
+  echo "발생기가 없음: legacy terraform.tfvars에 is_load_test = true → terraform apply" >&2
   exit 1
 }
 ON_APP=(ssh "ec2-user@$APP")
@@ -76,7 +76,7 @@ if [ "${1:-}" = collect ]; then
 fi
 
 # 3단계(이관 뒤): TARGET=aws bash run-baseline.sh → 새 주소를 부르고 옛 서버 기록은 건너뜀.
-# 발생기 IP는 global apply 때 -var 'loadtest_ips=["<발생기 IP>/32"]'로 WAF 요청 수 한도에서 빼 둔다 (infra/README.md 5-4)
+# 발생기 IP는 global terraform.tfvars의 loadtest_ips = ["<발생기 IP>/32"]로 WAF 요청 수 한도에서 빼 둔다 (infra/README.md 5-4)
 if [ "${TARGET:-legacy}" = aws ]; then pre=baseline-aws; base=https://hotel.vundle34.cloud; else pre=baseline; base=http://$APP; fi
 name=$pre-$(date +%Y%m%d-%H%M%S)
 [ $# -gt 0 ] && name=$pre-try-$(date +%Y%m%d-%H%M%S)

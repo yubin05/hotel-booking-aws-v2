@@ -16,7 +16,8 @@ unset AWS_PROFILE
 aws sts get-caller-identity --query Arn --output text   # user/vundle34 (평소 사용자)여야 함
 ```
 
-- 세션이 끝났으면 `aws login`(평소) / `aws login --profile admin`(관리자, 1시간).
+- 세션이 끝났으면 `aws login`(평소) / `aws login --profile admin`(관리자, 콘솔에서 역할을 전환한 때부터 2시간).
+- **변수는 `-var` 대신 각 루트의 `terraform.tfvars`에 씁니다(2026-11-22~).** 파일은 커밋하지 않고(`.gitignore`), 쓸 수 있는 줄은 루트마다 `terraform.tfvars.example`에 있습니다. Terraform 문서도 평소에는 파일을 권하고(*"In most cases we recommend using the `-var-file` option instead"*, [plan](https://developer.hashicorp.com/terraform/cli/commands/plan)), CLI 값은 일회성 덮어쓰기용으로 둡니다([변수](https://developer.hashicorp.com/terraform/language/values/variables)). `terraform.tfvars`는 자동으로 읽힙니다. 우리에겐 "다음 apply에서 `-var`를 빼먹어 설정이 되돌아가는" 사고(예: 도쿄 전환 중 global apply가 서울로 돌아감)를 막는 효과가 큽니다. 실험이 끝나면 그 줄을 지우고 apply합니다.
 - **관리자 명령은 그 명령 앞에만 붙입니다:** `AWS_PROFILE=admin terraform apply`. `export AWS_PROFILE=admin`은 쓰지 않습니다. 남은 관리자 프로필로 긴 apply가 돌다 세션이 끝나면 state 저장이 실패합니다(2026-11-15 도쿄).
 - apply · destroy는 `date; terraform apply; date`로 시각을 남기고, plan 숫자를 먼저 예측합니다.
 - 측정 · 드릴 날은 먼저 `bash scripts/preflight.sh`(읽기만): 도구 · SSH 키 · `~/.hotel-legacy` · legacy tfvars의 IP = 지금 IP · 루트마다 `terraform init`을 확인하고 NG만 고칩니다.
@@ -85,11 +86,12 @@ date; terraform apply; date
 
 # 3) 전환: 도쿄 입구 열기 → CloudFront 원본 교체 → 서울 입구 닫기
 cd ../global
-terraform plan  -var active_region=ap-northeast-1    # 1 to add, 1 to change, 1 to destroy (입구가 +/-)
-date; terraform apply -var active_region=ap-northeast-1; date   # 2026-11-15: 1분 27초, 손님 오류 0
+echo 'active_region = "ap-northeast-1"' >> terraform.tfvars
+terraform plan                      # 1 to add, 1 to change, 1 to destroy (입구가 +/-)
+date; terraform apply; date         # 2026-11-15: 1분 27초, 손님 오류 0
 ```
 
-- **전환한 동안은 global의 모든 plan · apply에 `-var active_region=ap-northeast-1`을 붙입니다.** 빼면 기본값(서울)으로 되돌아갑니다.
+- **전환한 동안은 `infra/global/terraform.tfvars`에 `active_region = "ap-northeast-1"`을 둡니다.** 그 줄을 지우고 apply하면 기본값(서울)으로 되돌아갑니다(4절).
 - plan에서 `no matching EC2 Security Group found`가 나면 도쿄 apply 직후라 보안 그룹이 아직 없는 것입니다. 1~2분 뒤 다시 plan합니다. plan 단계에서 멈추므로 손님 영향은 없습니다.
 - 실제 서울 장애에서는 서울 API가 안 돼 "서울 입구 닫기"가 실패할 수 있습니다(원본 교체 뒤라 손님 영향은 없음, 가설). 5단계에서 확인합니다.
 
@@ -150,7 +152,9 @@ aws application-autoscaling describe-scaling-activities --service-namespace ecs 
 ```bash
 cd infra/security
 AWS_PROFILE=admin terraform init                                              # 처음 한 번
-date; AWS_PROFILE=admin terraform apply -var posture_check=true; date        # 점검 켜기
+echo 'posture_check = true' >> terraform.tfvars
+date; AWS_PROFILE=admin terraform apply; date                                 # 점검 켜기
+sed -i '/^posture_check/d' terraform.tfvars
 date; AWS_PROFILE=admin terraform apply; date                                 # 점검 끄기 (CloudTrail · GuardDuty는 남음)
 ```
 
@@ -197,7 +201,8 @@ date; AWS_PROFILE=admin terraform apply; date
 
 # 1) 올리기: 옛 환경(+ 발생기) → 서울 → global. 서울 CD(migrate)는 돌리지 않음 (빈 RDS에 시드가 들어가 복원과 겹침)
 cd /c/dev/hotel-booking-app/legacy
-date; terraform apply -var is_load_test=true; date   # 19개
+grep -q '^is_load_test' terraform.tfvars || echo 'is_load_test = true' >> terraform.tfvars   # 고객사 legacy 루트도 tfvars로. 끝나면 줄을 지움
+date; terraform apply; date   # 19개
 bash start-db.sh && bash start-app.sh yubin05/hotel-booking-aws-v2:<태그>
 cd /c/dev/hotel-booking-aws-v2/infra/seoul
 terraform plan                      # 51 to add (1번 매일 올리기와 같음)
@@ -205,8 +210,9 @@ date; terraform apply; date
 cd ../global
 # k6 발생기 IP를 WAF 요청 수 한도에서만 뺌 (관리형 규칙은 그대로). 평소 apply에는 안 붙임
 LOAD_IP=$(terraform -chdir=/c/dev/hotel-booking-app/legacy output -raw load_test_instance_1_public_ip | tr -d '\r')
-terraform plan -var "loadtest_ips=[\"$LOAD_IP/32\"]"      # 14 to add (매일 13 + 발생기 IP 세트. 허용 규칙은 웹 ACL 안)
-date; terraform apply -var "loadtest_ips=[\"$LOAD_IP/32\"]"; date
+echo "loadtest_ips = [\"$LOAD_IP/32\"]" >> terraform.tfvars   # 시험이 끝나면 이 줄을 지우고 apply (발생기 IP 반납 전에)
+terraform plan                      # 14 to add (매일 13 + 발생기 IP 세트. 허용 규칙은 웹 ACL 안)
+date; terraform apply; date
 
 # 2) 사전 (손님 영향 없음). 관리자 세션은 2시간(11-21부터, 콘솔 역할 전환 시점부터)이라 여기서 새로 로그인
 aws login --profile admin
@@ -316,8 +322,9 @@ node scripts/coupon-report.mjs load/results/coupon-*/coupon-*.json.gz
 ```bash
 # 태스크 종료 · 깨진 배포: 평소 서울. RDS · AZ: Multi-AZ로 (NAT 2 + RDS Multi-AZ, 시간당 비용이 늘어 그날만)
 cd /c/dev/hotel-booking-aws-v2/infra/seoul
-terraform plan -var multi_az=true          # 이미 떠 있으면 NAT · EIP · 경로 추가 + RDS 1 to change
-date; terraform apply -var multi_az=true; date
+echo 'multi_az = true' >> terraform.tfvars   # 끝나면 이 줄을 지우고 apply(또는 destroy)
+terraform plan                             # 처음부터 53 to add, 이미 떠 있으면 NAT · EIP · 경로 추가 + RDS 1 to change
+date; terraform apply; date
 
 cd /c/dev/hotel-booking-aws-v2
 aws login --profile admin
@@ -325,13 +332,13 @@ BASELINE=10 TAIL=10 bash drill/fault.sh task   # 스모크(기록 안 함)
 bash drill/fault.sh task      # × 3 (회차 사이 태스크 2 · 정상 2를 스크립트가 확인)
 bash drill/fault.sh deploy    # × 3 (깨진 리비전은 끝나면 등록 해제)
 bash drill/fault.sh rds       # × 3 (multi_az=true)
-bash drill/fault.sh az        # × 3 (multi_az=true, 10분 막음 · +60초 zonal shift → 되돌림 · 취소. 11-21 기준선 조건은 SHIFT_AFTER=off)
+bash drill/fault.sh az        # × 3 (multi_az = true, 10분 막음 · +60초 zonal shift → 되돌림 · 취소. 11-21 기준선 조건은 SHIFT_AFTER=off)
 ```
 
 - 회차마다 `drill/results/fault-<종류>-<시각>/report.md`(손님 쪽 끊김 · 오류 · 중복 예약)와 `marks.log`(주입 · 감지 · 회복 시각).
 - **az가 중간에 끊기면** 서브넷이 막힌 채, zonal shift가 켜진 채 남을 수 있습니다: `bash drill/fault.sh az-undo drill/results/fault-az-<시각>`(서브넷 되돌림 → shift 취소). 스크립트는 끝날 때(Ctrl+C 포함) 스스로 되돌리고, shift는 차단 시간 + 10분 뒤 스스로 만료됩니다.
 - zonal shift를 쓰려면 ALB에 `enable_zonal_shift`가 켜져 있어야 합니다(모듈 코드, 11-22~). 서울이 이미 떠 있으면 서울 apply에서 ALB 1 to change로 붙습니다([ADR-067](../docs/04-decisions.md#adr-067)).
-- Multi-AZ는 끝나면 `-var` 없이 apply(또는 destroy)해서 평소로 돌립니다. 3단계 비교는 Multi-AZ를 끈 채로 해야 1단계와 조건이 같습니다.
+- Multi-AZ는 끝나면 `terraform.tfvars`에서 `multi_az` 줄을 지우고 apply(또는 destroy)해서 평소로 돌립니다. 3단계 비교는 Multi-AZ를 끈 채로 해야 1단계와 조건이 같습니다.
 
 ## 5-8. 리전 복원 드릴 (5단계)
 
@@ -359,7 +366,7 @@ bash drill/region.sh run      # 장애 선언 → 승격 plan · yes → 도쿄 
 cd infra/tokyo && date; terraform destroy; date; cd ../..   # 51개. 다음 회차는 standby부터
 ```
 
-- **중간에 멈추면** 손님 측정기 · 도쿄 DB 상태 기록기는 계속 돕니다(11-21 시도 2 · 3은 같이 꺼져 RTO를 잃음). 남은 단계를 손으로 끝까지 한 뒤(예: `cd infra/tokyo && terraform apply` → `cd ../global && terraform apply -var active_region=ap-northeast-1`) `bash drill/region.sh stop drill/results/region-<시각>`으로 끝내면 보고서가 나옵니다. 서울로 되돌리려면 `bash drill/region.sh seoul-up` → `cd infra/global && terraform apply`(-var 없이), 도쿄는 destroy.
+- **중간에 멈추면** 손님 측정기 · 도쿄 DB 상태 기록기는 계속 돕니다(11-21 시도 2 · 3은 같이 꺼져 RTO를 잃음). `region.sh`는 변수를 각 루트의 `terraform.tfvars`에 써 두므로(도쿄 `replica_source_arn`, global `active_region`) 손으로 이어 가도 같은 값이 쓰입니다. 남은 단계를 손으로 끝까지 한 뒤(예: `cd infra/tokyo && terraform apply` → global `terraform.tfvars`에 `active_region = "ap-northeast-1"` 확인 → `cd ../global && terraform apply`) `bash drill/region.sh stop drill/results/region-<시각>`으로 끝내면 보고서가 나옵니다. 서울로 되돌리려면 `bash drill/region.sh seoul-up`(global의 `active_region` 줄도 지움) → `cd infra/global && terraform apply`, 도쿄는 destroy.
 - 첫 회차에서 확인할 것(문서로 못 정한 가설): 도쿄 AWS 관리 키로 다른 리전 복제본이 되는지, 승격 apply에서 도쿄 관리자 금고까지 붙는지(안 되면 같은 승격 plan · apply를 한 번 더), standby 시간.
 - 결과: `drill/results/region-<시각>/` `steps.log`(단계 시각), `db-state.log`(도쿄 DB 10초마다), `report.md`(RTO(측정기 원본) · RPO · 끊김 · 중복), `lost-in-seoul.txt`(대조), `tokyo.sum` · `seoul.sum`(체크섬).
 - 예전 Backup & Restore(서울 `-var backup_replication=true`, `region.sh cleanup`)는 2026-11-22에 뺐습니다([ADR-066](../docs/04-decisions.md#adr-066)). 11-21 시도 기록은 [region-drill](../docs/experiments/region-drill.md)에 있습니다.

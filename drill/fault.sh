@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 4단계 장애 테스트 1회 (docs/experiments/faults.md): 손님 역할(writer)을 2분 돌린 뒤 장애를 넣고, 회복까지 상태를 기록한다
 #   bash drill/fault.sh task       앱 태스크 1개 강제 종료 → 대체 태스크가 뜨고 대상 그룹에서 정상 2가 될 때까지
-#   bash drill/fault.sh rds        RDS 강제 장애 조치(재부팅 + failover) → 장애 조치 완료 이벤트 · available까지 (서울 -var multi_az=true)
+#   bash drill/fault.sh rds        RDS 강제 장애 조치(재부팅 + failover) → 장애 조치 완료 이벤트 · available까지 (서울 terraform.tfvars에 multi_az = true)
 #   bash drill/fault.sh deploy     일부러 깨진 버전(뜨자마자 종료) 배포 → circuit breaker가 실패로 보고 이전 버전으로 돌아갈 때까지
 #   bash drill/fault.sh az [AZ]    한 AZ(기본: RDS 주 DB가 있는 AZ)의 서브넷을 빈 네트워크 ACL로 10분 막고, 그 AZ의 DB면 강제 장애 조치 (multi_az=true)
 #                                  SHIFT_AFTER초(기본 60) 뒤 ALB zonal shift로 그 AZ 출입구(노드)를 뺌, SHIFT_AFTER=off면 11-21 기준선과 같은 조건 (ADR-067)
@@ -53,7 +53,7 @@ steady() { [ "$(aws_t ecs describe-services --cluster "$CLUSTER" --services app 
 for _ in $(seq 60); do [ "$(running)" = 2 ] && [ "$(healthy)" = 2 ] && steady && break; echo "$(date +%T) 태스크 2 · 정상 2 · 배포 1개를 기다림"; sleep 5; done
 [ "$(running)" = 2 ] && [ "$(healthy)" = 2 ] && steady || { echo "5분 기다려도 태스크 2 · 정상 2 · 배포 1개가 아님" >&2; exit 1; }
 if [[ $kind == rds || $kind == az ]]; then
-  [ "$(db MultiAZ)" = True ] || { echo "RDS가 Multi-AZ가 아님: 서울 apply -var multi_az=true 먼저" >&2; exit 1; }
+  [ "$(db MultiAZ)" = True ] || { echo "RDS가 Multi-AZ가 아님: infra/seoul/terraform.tfvars에 multi_az = true → 서울 apply 먼저" >&2; exit 1; }
 fi
 
 OUT=results/fault-$kind-$(date +%Y%m%d-%H%M%S)

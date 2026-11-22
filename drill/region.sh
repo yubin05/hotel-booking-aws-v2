@@ -40,7 +40,7 @@ wait_for() { # $1 설명, $2 최대 초, 나머지: 조건
   until "$@"; do ((SECONDS - t < max)) || { echo "$what: ${max}초 안에 안 됨" >&2; exit 1; }; sleep 3; done
 }
 
-tf_apply() { # $1 루트, $2 이름, 나머지 -var. plan → 사람 확인 → 그 plan 그대로 apply
+tf_apply() { # $1 루트, $2 이름, 나머지 plan 인자(-target 등. 변수는 terraform.tfvars로). plan → 사람 확인 → 그 plan 그대로 apply
   local root=$1 name=$2 ok t
   shift 2
   mark "${name}_plan"
@@ -58,6 +58,14 @@ tf_apply() { # $1 루트, $2 이름, 나머지 -var. plan → 사람 확인 → 
   mark "${name}_done"
 }
 
+# terraform.tfvars의 한 줄을 쓰거나(값) 지움(값 없음). -var 대신 파일에 남겨, 손으로 하는 plan · apply도 같은 값을 쓴다 (infra/README.md 0절)
+tfvar() { # $1 루트, $2 변수 이름, $3 HCL 값(따옴표 포함, 없으면 줄 삭제)
+  local f="$INFRA/$1/terraform.tfvars"
+  touch "$f"
+  sed -i "/^$2[[:space:]]*=/d" "$f"
+  if [ -n "${3:-}" ]; then echo "$2 = $3" >>"$f"; fi
+}
+
 tokyo_db() { in_region "$TOKYO" rds describe-db-instances --db-instance-identifier "$CLUSTER" --query 'DBInstances[0].[DBInstanceStatus,ReadReplicaSourceDBInstanceIdentifier]' --output text 2>/dev/null | tr '\t' ' '; }
 
 standby() { # 도쿄 = 서울 DB의 읽기 복제본 + 그 DB가 놓일 네트워크(7개). 나머지 도쿄 인프라는 장애 선언 뒤 run이 만든다
@@ -65,7 +73,8 @@ standby() { # 도쿄 = 서울 DB의 읽기 복제본 + 그 DB가 놓일 네트�
   src=$(admin rds describe-db-instances --db-instance-identifier "$CLUSTER" --query 'DBInstances[0].DBInstanceArn' --output text)
   [[ $src == arn:aws:rds:* ]] || { echo "서울 DB가 없음: 서울 apply 먼저" >&2; exit 1; }
   # shortcut: -target으로 DB와 그 의존(VPC · DB 서브넷 · 보안 그룹 · 설정표)만 만든다. Terraform은 평소 쓰지 말라고 경고하지만 대기 상태 한 단계에만 씀. 상시 운영이면 모듈에 standby 변수로 나눔
-  date; terraform -chdir="$INFRA/tokyo" apply -target=module.regional.aws_db_instance.this -var "replica_source_arn=$src"; date
+  tfvar tokyo replica_source_arn "\"$src\""
+  date; terraform -chdir="$INFRA/tokyo" apply -target=module.regional.aws_db_instance.this; date
   echo "도쿄 DB (available + 서울 ARN이면 대기 완료): $(tokyo_db)"
 }
 
@@ -80,7 +89,8 @@ stop() { # $1 결과 폴더 (drill/results/... 또는 results/...)
 
 seoul_up() {
   scale_app "$SEOUL" 2 4 2 # autoscaling.tf의 평소 범위
-  echo "서울 앱 2 ~ 4로 되돌림. global이 도쿄면: cd infra/global && terraform apply (-var 없이 = 서울)"
+  tfvar global active_region # 기본값(서울)
+  echo "서울 앱 2 ~ 4로 되돌림, global terraform.tfvars를 서울로. global이 도쿄면: cd infra/global && terraform apply"
 }
 
 run() {
@@ -99,7 +109,7 @@ run() {
   # 측정기 · DB 상태 기록기는 스크립트가 멈춰도 계속 돈다(11-21 시도 2 · 3은 스크립트와 함께 꺼져 RTO를 못 잼). 끝은 run 마지막 또는 region.sh stop
   node writer.mjs "$OUT/writer.log" "$BASE" >"$OUT/writer.out" 2>&1 &
   echo $! >"$OUT/writer.pid"
-  trap 'echo "멈춤(위 단계). 측정기는 계속 돎 → 남은 단계를 손으로 끝낸 뒤 bash drill/region.sh stop drill/$OUT. 서울로 되돌리기: bash drill/region.sh seoul-up → global terraform apply(-var 없이)" >&2' ERR
+  trap 'echo "멈춤(위 단계). 측정기는 계속 돎 → 남은 단계를 손으로 끝낸 뒤 bash drill/region.sh stop drill/$OUT. 서울로 되돌리기: bash drill/region.sh seoul-up → cd infra/global && terraform apply" >&2' ERR
   sleep 8
   kill -0 "$(cat "$OUT/writer.pid")" 2>/dev/null || { cat "$OUT/writer.out" >&2; exit 1; }
   # 평소 사용자 권한으로 10초마다 도쿄 DB 상태. Terraform 대기와 따로 "DB를 쓸 수 있게 된 시각"(승격 끝 = available + 원본 없음)을 남김
@@ -133,6 +143,7 @@ run() {
 
   # ③ 도쿄 DB 승격: replica_source_arn을 빼면 공급자가 승격하고 도쿄 금고를 붙인다. 이관 태스크 정의가 그 금고 주소를 써서 DB만 먼저(-target)
   #    shortcut: 승격과 금고 붙이기가 한 apply에서 되는지는 첫 드릴에서 확인. 실패하면 같은 명령을 한 번 더(금고만 붙음)
+  tfvar tokyo replica_source_arn
   tf_apply tokyo tokyo_promote -target=module.regional.aws_db_instance.this
   # ③' 나머지 도쿄 인프라(ALB · ECS · NAT · 통로 · 태스크 정의)
   tf_apply tokyo tokyo
@@ -154,7 +165,8 @@ SQL
   check || { max=; mark check_failed; echo "확인 SQL 실패 → 전환은 계속, 순번은 되돌리기 전에 다시 셈" >&2; }
 
   # ⑤ CloudFront 원본을 도쿄로 (ADR-035)
-  tf_apply global global_to_tokyo -var "active_region=$TOKYO"
+  tfvar global active_region "\"$TOKYO\"" # 전환한 동안 손으로 하는 global apply도 도쿄를 유지
+  tf_apply global global_to_tokyo
   # ⑥ 손님 쓰기가 도쿄 앱에서 성공 = 복구 끝
   wait_for "도쿄에서 손님 쓰기 성공" 900 write_ok_in "$t0" "$TOKYO"
   mark rto_end
@@ -206,6 +218,7 @@ SQL
   healthy_seoul() { [ "$(healthy "$SEOUL")" = 2 ]; }
   wait_for "서울 정상 2" 600 healthy_seoul
   mark seoul_healthy
+  tfvar global active_region
   tf_apply global global_to_seoul
   wait_for "서울에서 손님 쓰기 성공" 900 write_ok_in "$(mark_ms failback_start)" "$SEOUL"
   mark failback_end
