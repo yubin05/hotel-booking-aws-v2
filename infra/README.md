@@ -381,4 +381,5 @@ cd infra/tokyo && date; terraform destroy; date; cd ../..   # 51개. 다음 회�
 | `Value for undeclared variable "active_region"` | global이 아닌 폴더에서 실행 | 프롬프트의 폴더 확인 → `infra/global` |
 | 같은 PC에서 로그인 · 가입이 403 | WAF 로그인 한도(IP당 5분 100번)에 걸림 | 몇 분 뒤 풀림([10 보안 점검](../docs/10-security.md)) |
 | `ssm put-parameter`가 `Parameter name must be a fully qualified name` | Git Bash가 `/hotel-booking/...`를 `C:/Program Files/Git/hotel-booking/...`로 바꿔 넘김 (2026-11-18) | 명령 앞에 `MSYS_NO_PATHCONV=1` (런북 5-3) |
+| 서울 apply가 `creating CloudWatch Logs Log Group (/aws/ecs/containerinsights/hotel-booking-aws-v2/performance) ... ResourceAlreadyExistsException`로 멈춤 | 지난 destroy 뒤 같은 이름 로그 그룹이 AWS에 남음(2026-11-22, 11-21 20:20 생성분. 내릴 때 멈추는 태스크의 마지막 성능 로그로 ECS가 다시 만든 것으로 추정 = 가설) | 지우지 말고 가져오기: `MSYS_NO_PATHCONV=1 terraform import 'module.regional.aws_cloudwatch_log_group.container_insights' /aws/ecs/containerinsights/hotel-booking-aws-v2/performance` → plan(0 to destroy 확인) → apply |
 | 같은 이메일 로그인이 429 | 계정 잠금(15분 안에 5번 틀림, [ADR-054](../docs/04-decisions.md#adr-054)) | 15분 뒤 풀림 |
