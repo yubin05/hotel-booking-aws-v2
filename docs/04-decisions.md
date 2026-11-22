@@ -1491,7 +1491,7 @@
   | zonal autoshift | AWS 내부 지표로만 시작해 우리 쪽 원인 장애에는 안 움직이고, 매주 연습 실행이 필수라 그때마다 한 AZ로 몰려 태스크를 미리 늘려야 함([autoshift 문서](https://docs.aws.amazon.com/r53recovery/latest/dg/arc-zonal-autoshift.html)) |
 
 - **결정:** ALB `enable_zonal_shift = true`(기본 꺼짐, zonal shift · autoshift 모두 추가 요금 없음 — [ARC 요금](https://aws.amazon.com/application-recovery-controller/pricing/)). cross-zone이 켜진 ALB도 지원하고, 시작하면 그 AZ의 노드 IP를 DNS에서 빼고 그 AZ 대상으로 가는 트래픽을 막는다([ALB zonal shift](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/zonal-shift.html)). 운영 대응: 감지(손님 오류 증가 + 한 AZ 노드의 요청 수 급감) → 사람이 zonal shift 시작 → AZ 회복 확인 뒤 취소. 드릴: `fault.sh az`가 주입 +60초에 시작(감지 · 판단 흉내), 서브넷을 되돌린 뒤 취소, 만료(차단 시간 + 10분)는 안전장치. 드릴은 AZ 차단과 같은 관리자 세션으로 실행해 평소 권한은 늘리지 않는다.
-- **결과:** 다음 AZ 드릴 3회로 효과를 잰다(예측: 차단 중 실패 14.6% → 3 ~ 6%, [faults](experiments/faults.md#az-장애--zonal-shift-재시험-계획-2026-11-22)). ALB가 fail open(모든 대상 비정상) 상태면 zonal shift는 효과가 없다(문서). CloudFront VPC 원본이 DNS 변경을 얼마나 빨리 따라가는지는 문서에 없어 드릴로 잰다. 고객사 운영자가 zonal shift를 시작하는 권한(그 ALB ARN 범위)은 고객사 운영 권한 설계 때 정한다.
+- **결과:** **2026-11-22 AZ 드릴 3회: 차단 중 실패 중앙 14.6% → 1.1%, zonal shift 뒤 22 ~ 35초에 손님 정상화, 이후 실패 0**([faults](experiments/faults.md#az-장애--zonal-shift-결과-2026-11-22-사용자-실행)). 실행 전 예측은 차단 중 실패 14.6% → 3 ~ 6%( [faults](experiments/faults.md#az-장애--zonal-shift-재시험-계획-2026-11-22)). ALB가 fail open(모든 대상 비정상) 상태면 zonal shift는 효과가 없다(문서). CloudFront VPC 원본이 DNS 변경을 얼마나 빨리 따라가는지는 문서에 없어 드릴로 잰다. 고객사 운영자가 zonal shift를 시작하는 권한(그 ALB ARN 범위)은 고객사 운영 권한 설계 때 정한다.
 
 <a name="adr-068"></a>
 ## ADR-068 서울에 읽기 복제본을 두지 않는다 — 실측 병목이 DB 읽기가 아님, 조건이 되면 다시 본다 (2026-11-22)
