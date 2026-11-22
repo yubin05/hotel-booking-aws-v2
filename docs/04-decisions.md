@@ -1569,4 +1569,5 @@
 - **결과 · 받아들인 위험:**
   - CloudFront 오류 페이지는 배포 전체에 걸린다(경로별로 나눌 수 없음, [CloudFront 문서](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/DownloadDistValuesErrorPages.html)). 앱이 일부러 보내는 503(DB 혼잡 "지금은 처리할 수 없습니다", 카카오 · 결제 미설정)도 본문이 이 페이지로 바뀔 수 있다. 캐시를 끈 `/api/*`에서도 바뀌는지는 문서에 없어 가설 → 적용 뒤 확인. 상태 코드는 그대로라 측정기 · 부하 실험의 성공 · 실패 판정은 같고, 메시지로 나누던 옛 보고서 스크립트(앱 저장소 e04 ~ e06)는 다시 돌리면 503 분류가 달라질 수 있다
   - 장애 선언 즉시 CloudFront에서 서울로 가는 쓰기를 끊는 것(fencing)은 이번에 하지 않는다. 서울 태스크가 손님에게서 빠지는 16 ~ 19초 동안 쓰기를 받는 문제([region-drill](experiments/region-drill.md#결과--pilot-light))의 후보로 남김
-  - 확인 방법(적용 뒤): 서울 앱을 0으로 → 브라우저에 점검 페이지 · `curl` 상태 503 · `/api` 503 본문 확인 → 앱 다시
+  - **확인 (2026-11-22 23:1x, 사용자 실행):** `region.sh seoul-down`(서울 앱 0) → `/` 503 + 점검 페이지, `/api/health/deep` 503 + 점검 페이지 HTML(**캐시를 끈 경로도 본문이 바뀐다는 가설이 맞음** → 화면 코드의 JSON 없는 502 · 503 · 504 문구가 필요) → `seoul-up` 뒤 `{"status":"ok","db":"ok"}` 200
+  - 디자인(11-22 밤 사용자 요청): 앱과 같은 로고 · 색 · 카드 모양, 문구는 [GOV.UK 서비스 이용 불가 패턴](https://design-system.service.gov.uk/patterns/service-unavailable-pages/)(언제 돌아오는지 · 진행 중이던 일이 어떻게 됐는지를 분명하게, "점검" 같은 모호한 말 대신)
