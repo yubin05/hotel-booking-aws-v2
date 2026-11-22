@@ -32,6 +32,33 @@ resource "aws_iam_role_policy" "grafana_read" {
       Resource = "*"
       # 서울(평소) · 도쿄(리전 복원)만
       Condition = { StringEquals = { "aws:RequestedRegion" = ["ap-northeast-2", "ap-northeast-1"] } }
+    },
+    # CloudWatch Container Insights 기본 모드의 TaskId별 CPU / 메모리는
+    # 성능 로그에서 Logs Insights로 조회해야 함. Enhanced 지표는 비용상 사용하지 않음.
+    # DescribeLogGroups는 로그 그룹 선택 UI용, QueryResults/StopQuery는 query ID 수준 동작이어서 "*"가 필요함.
+    {
+      Sid      = "FindContainerInsightsLogGroups"
+      Effect   = "Allow"
+      Action   = ["logs:DescribeLogGroups"]
+      Resource = "*"
+      Condition = { StringEquals = { "aws:RequestedRegion" = ["ap-northeast-2", "ap-northeast-1"] } }
+    },
+    {
+      Sid      = "ReadContainerInsightsPerformanceOnly"
+      Effect   = "Allow"
+      Action   = ["logs:StartQuery", "logs:GetLogGroupFields"]
+      Resource = [
+        "arn:aws:logs:ap-northeast-2:${local.account_id}:log-group:/aws/ecs/containerinsights/${local.project_name}/performance:*",
+        "arn:aws:logs:ap-northeast-1:${local.account_id}:log-group:/aws/ecs/containerinsights/${local.project_name}/performance:*"
+      ]
+      Condition = { StringEquals = { "aws:RequestedRegion" = ["ap-northeast-2", "ap-northeast-1"] } }
+    },
+    {
+      Sid      = "ReadContainerInsightsQueryResults"
+      Effect   = "Allow"
+      Action   = ["logs:GetQueryResults", "logs:StopQuery"]
+      Resource = "*"
+      Condition = { StringEquals = { "aws:RequestedRegion" = ["ap-northeast-2", "ap-northeast-1"] } }
     }]
   })
 }
