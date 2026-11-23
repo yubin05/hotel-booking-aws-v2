@@ -127,7 +127,7 @@ v2 0~5단계는 AWS 이관·부하·장애·DR까지입니다. 이 절은 **별�
 | 임계값 | 정상 k6 시나리오의 평소 최댓값 × 배수로 정하고 근거 기록 |
 | 사건 보고서 (AI, Bedrock) | 규칙이 판정 · 조치하고 AI(Bedrock Claude Sonnet 5, 서울 안에서 호출)는 고객 보고용 초안만 씀. AI가 실패해도 차단 동작 |
 | 통합 대시보드 (CloudWatch, Terraform) | 경보 상태 · 서비스 · 보안 · 대응 기록이 한 화면. WAF 지표 · 경보는 us-east-1 |
-| 권한 재설계 (2026-11-23 사용자 결정) | 11-23 점검(관리자 읽기만): 사람 계정 1개(액세스 키 없음 · MFA), 허용된 18개 서비스를 모두 11-22에 씀(last accessed), IAM · 감사(CloudTrail · GuardDuty · Config) · state 버킷 · JWT 금고는 막힘(시뮬레이션). 넓은 곳: 서울 · 도쿄 안 VPC · RDS 등을 이름 구분 없이 생성 · 삭제, CloudFront · WAF는 계정 전체, 정책 하나가 6,004 / 6,144자. 할 일: ① 작업별 역할(운영 apply · 읽기 전용 · 관리자), 로그인 사용자는 역할 전환만 ② 태그 조건으로 이 프로젝트 리소스만 ③ 사용 기록 · Access Analyzer로 점검. 알림만 보는 사람은 Slack 채널(IAM 사용자 만들지 않음, [IAM 모범 사례](https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html)). 완료: 매일 apply가 새 운영 역할로 성공, 프로젝트 밖 리소스 삭제가 막힘을 시뮬레이션으로 보임, 전 · 후 권한 표 |
+| 권한 재설계 (2026-11-23 사용자 결정) | 11-23 점검(관리자 읽기만): 사람 계정 1개(액세스 키 없음 · MFA), 허용된 18개 서비스를 모두 11-22에 씀(last accessed), IAM · 감사(CloudTrail · GuardDuty · Config) · state 버킷 · JWT 금고는 막힘(시뮬레이션). 넓은 곳: 서울 · 도쿄 안 VPC · RDS 등을 이름 구분 없이 생성 · 삭제, CloudFront · WAF는 계정 전체, 정책 하나가 6,004 / 6,144자. 할 일: ① 작업별 역할(운영 apply · 읽기 전용 · 관리자), 로그인 사용자는 역할 전환만. 읽기 전용이 필요한 근거: 11-23 앱 로그 검색 · 지표 조회처럼 "보기만" 하는 일에 평소 권한이 없어 관리자 역할을 씀 ② 태그 조건으로 이 프로젝트 리소스만 ③ 사용 기록 · Access Analyzer로 점검. 알림만 보는 사람은 Slack 채널(IAM 사용자 만들지 않음, [IAM 모범 사례](https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html)). 완료: 매일 apply가 새 운영 역할로 성공, 프로젝트 밖 리소스 삭제가 막힘을 시뮬레이션으로 보임, 전 · 후 권한 표 |
 | DR 장애 알림 | 도쿄로 넘어간 동안에도 경보 → Slack([ADR-071](04-decisions.md#adr-071): 지금은 서울만) |
 
 **통합 대시보드 구성** (6단계를 시작할 때 확정)
