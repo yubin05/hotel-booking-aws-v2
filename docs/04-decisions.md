@@ -1350,7 +1350,7 @@
   | 접속 · 인수인계 | 인터넷에 열지 않는다. SSM 포트 포워딩으로 접속(AWS 로그인 + 관제용 읽기 전용 역할이 있어야 하고 접속 기록이 CloudTrail에 남음). EC2 역할로 CloudWatch를 읽어 키를 만들지 않는다. 데이터 소스 · 대시보드는 파일로 정의해 저장소에 두고(Grafana 프로비저닝), 관제팀에는 Terraform · 파일 · 런북 · 역할을 넘긴다. 데이터는 CloudWatch에 있어 서버를 다시 만들어도 같은 화면 |
   | 바깥에 보여 주기 | 시험이 끝나면 그 구간의 관제 화면을 Grafana 스냅샷으로 만들어 링크를 포트폴리오에 둔다. 보는 사람이 링크로 실제 Grafana 화면을 열어 확대 · 값 확인을 할 수 있다(실시간이 아닌 그 시점 사본). 쿼리 · 패널 링크는 지우고 보이는 값과 시계열 이름만 남으며, 외부 스냅샷 서버(기본 snapshots.raintank.io)에 올려 우리 Grafana는 비공개로 둔다([Grafana 공유](https://grafana.com/docs/grafana/latest/visualizations/dashboards/share-dashboards-panels/)). 녹화 영상은 백업. 화면 공유는 쓰지 않는다(사용자) |
   | 화면 구성 | 지표 그래프 + 기준선(Grafana 임계선). 경보 상태판은 경보를 만든 뒤에 더한다. Grafana는 화면만 맡는다 |
-  | 경보 · 알림 · 자동 대응 | **알림 채널은 Slack으로 정함(2026-11-22 사용자):** v3 보안 운영의 경보 · 자동 대응 · AI 사건 보고서도 같은 채널로 모을 수 있어서(Slack 워크스페이스는 새로 만듦, SNS → Amazon Q Developer in chat applications). v3 첫 작업(11-23)으로 만들고, 그 전에는 장애 알림이 없다(지금 알림은 예산 메일뿐). 경보 기준 · 자동 대응은 아래 원칙대로 v3에서. **보류(2026-11-18).** 실제 관제에서 경보를 누가 어떻게 받는지 데이터센터 관제 경력 동료에게 들은 뒤 정한다. 6단계 대응 자동화 시나리오도 바뀔 수 있어 이번 구현은 화면만. 정할 때의 원칙(기록): 경보는 CloudWatch에 두고 Grafana가 꺼져도 AWS가 감시, 알림은 SNS, 이메일은 공개 저장소에 커밋하지 않음(ADR-027), 기준은 정상 k6 최댓값 × 배수. 동료에게 확인할 것: "문제가 나면 관제 직원이 고객사 담당자에게 정해진 시간(예: 15분) 안에 문자로 무슨 일인지 · 조치 요청을 통보한다". 자료로는 국내 관제에서 15분 기준을 찾지 못했고(Akamai는 심각도별 30분 이내 대응), 해외 MSP SLA 예시에 심각도 1 = 15분 내 확인 · 통보, 4시간 내 해결이 흔하다(업체 · 템플릿 자료라 표준 아님, 시계 시작점과 통보 · 확인 · 대응 구분은 계약마다). 정하면 "탐지 → 통보 시간"을 6단계 보고서 지표로 |
+  | 경보 · 알림 · 자동 대응 | **알림 채널은 Slack으로 정함(2026-11-22 사용자):** v3 보안 운영의 경보 · 자동 대응 · AI 사건 보고서도 같은 채널로 모을 수 있어서(Slack 워크스페이스는 새로 만듦, SNS → Amazon Q Developer in chat applications). v3 첫 작업(11-23)으로 만들고, 그 전에는 장애 알림이 없다(지금 알림은 예산 메일뿐). 경보 기준 · 자동 대응은 아래 원칙대로 v3에서. **보류(2026-11-18).** 실제 관제에서 경보를 누가 어떻게 받는지 데이터센터 관제 경력 동료에게 들은 뒤 정한다. 6단계 대응 자동화 시나리오도 바뀔 수 있어 이번 구현은 화면만. 정할 때의 원칙(기록): 경보는 CloudWatch에 두고 Grafana가 꺼져도 AWS가 감시, 알림은 SNS, 이메일은 공개 저장소에 커밋하지 않음(ADR-027), 기준은 정상 k6 최댓값 × 배수. 동료에게 확인할 것: "문제가 나면 관제 직원이 고객사 담당자에게 정해진 시간(예: 15분) 안에 문자로 무슨 일인지 · 조치 요청을 통보한다". 자료로는 국내 관제에서 15분 기준을 찾지 못했고(Akamai는 심각도별 30분 이내 대응), 해외 MSP SLA 예시에 심각도 1 = 15분 내 확인 · 통보, 4시간 내 해결이 흔하다(업체 · 템플릿 자료라 표준 아님, 시계 시작점과 통보 · 확인 · 대응 구분은 계약마다). 정하면 "탐지 → 통보 시간"을 6단계 보고서 지표로. **11-23 확인(사용자가 관제 경력 동료에게 들음):** 트래픽 이상을 확인하면 15분 안에 담당자에게 문자로 통보하고 바로 조치 → 목표 15분, 경로 · 경보는 [ADR-071](#adr-071) |
   | 받아들인 위험 | 도쿄 장애 때는 운영 도구가 멈춘다: Terraform 상태(ADR-025) · 백업 복제본 · Grafana. 서비스(서울)와 경보(서울 · us-east-1)는 그대로. DR로 도쿄가 주 리전이 되면 관찰 리전과 같아진다. 앱이 쓰지 않는 제3 관찰 리전은 우리 규모에 과해 두지 않는다 |
   | 고해상도 켜는 시간 | 서울을 시험할 때만 올리므로 켜져 있는 동안 늘 1초. 상시 운영이면 이벤트 때만 1초로 올리는 것을 고객사 권고로 |
   | 손님 쪽 1초 | k6 요청별 원본으로 3단계 보고서에 함께 쓴다(관제 화면에는 넣지 않음) |
@@ -1571,3 +1571,35 @@
   - 장애 선언 즉시 CloudFront에서 서울로 가는 쓰기를 끊는 것(fencing)은 이번에 하지 않는다. 서울 태스크가 손님에게서 빠지는 16 ~ 19초 동안 쓰기를 받는 문제([region-drill](experiments/region-drill.md#결과--pilot-light))의 후보로 남김
   - **확인 (2026-11-22 23:1x, 사용자 실행):** `region.sh seoul-down`(서울 앱 0) → `/` 503 + 점검 페이지, `/api/health/deep` 503 + 점검 페이지 HTML(**캐시를 끈 경로도 본문이 바뀐다는 가설이 맞음** → 화면 코드의 JSON 없는 502 · 503 · 504 문구가 필요) → `seoul-up` 뒤 `{"status":"ok","db":"ok"}` 200
   - 디자인(11-22 밤 사용자 요청): 앱과 같은 로고 · 색 · 카드 모양, 문구는 [GOV.UK 서비스 이용 불가 패턴](https://design-system.service.gov.uk/patterns/service-unavailable-pages/)(언제 돌아오는지 · 진행 중이던 일이 어떻게 됐는지를 분명하게, "점검" 같은 모호한 말 대신)
+
+## ADR-071 결제 · 메일 · 카톡 배포 연결과 Slack 장애 알림: 키는 SSM, 메일은 앱 태스크 역할, 경보 → SNS → Amazon Q Developer → Slack (2026-11-23)
+
+- **상황:** 결제 · 알림 앱 코드는 11-18에 끝났지만(앱 APP-001 ~ 003) 배포 환경에는 키 · 메일 권한 · 장애 알림 경로가 없다. 11-22 결정대로 v3 첫 주에 Slack 장애 알림([ADR-061](#adr-061))과 함께 연결하고, 멘토링 전에 전체 인프라를 한 번 올린다(2026-11-23 사용자). 같은 날 사용자가 데이터센터 관제 경력 동료에게 들은 것: **트래픽 이상(눌림)을 확인하면 15분 안에 담당자에게 문자로 통보하고 바로 조치한다.**
+- **결정:**
+
+  | 항목 | 고른 것 |
+  |---|---|
+  | 키 | 토스(시크릿 · 클라이언트) · 카카오(REST API · 클라이언트 시크릿) 4개를 SSM SecureString `/hotel-booking/*`에 사람이 직접 넣음(런북 5-9, 시연 계정 비밀번호와 같은 방식이라 저장소 · state에 없음). 실행 역할의 기존 `parameter/hotel-booking/*` 읽기 권한을 그대로 씀. 클라이언트 키 · REST API 키는 화면에 드러나는 값이지만 한 방식으로 묶음 |
+  | 메일 권한 | 앱 태스크 역할 `hotel-booking-aws-v2-ecs-task`를 bootstrap에 새로 만듦(평소 사용자는 IAM을 못 만듦, [ADR-025](#adr-025)). `ses:SendEmail`, 서울 `identity/*`, 조건 `ses:FromAddress = no-reply@vundle34.cloud`([SES 권한 문서](https://docs.aws.amazon.com/ses/latest/dg/control-user-access.html)) |
+  | 보내는 도메인 | `vundle34.cloud` SES 신원(Easy DKIM, CNAME 3개를 Route 53에, bootstrap 상시). 샌드박스 유지(인증한 주소로만, 하루 200통). 시연 받는 주소는 `terraform.tfvars`(개인 주소라 커밋 안 함) |
+  | 알림 경로 | CloudWatch 경보(서울) → SNS 주제(bootstrap 상시, 서울) → Amazon Q Developer in chat applications(옛 AWS Chatbot) → Slack 채널. 채널 연결은 `us-east-2`(API가 us-east-2 · us-west-2 · ap-southeast-1 · eu-west-1에만 있음, [API 문서](https://docs.aws.amazon.com/chatbot/latest/APIReference/Welcome.html)). 채널 권한 한도는 `CloudWatchReadOnlyAccess`(비우면 AdministratorAccess가 기본, Terraform 문서) |
+  | 경보 | 정상 태스크(ALB `HealthyHostCount` 최솟값)가 3분 연속 2개 미만 → 알림, 돌아오면 복구 알림. 트래픽 눌림(CPU · 5xx · p95)은 기준값(정상 k6 최댓값 × 배수)을 정하는 v3 임계값 작업에서 |
+  | 통보 목표 | **탐지 → 통보 15분 이내**(동료 경험 기준, 표준 아님). v3 보고서 지표 |
+  | 도쿄 | `app_integrations` · `alerts` 모두 false. 키 · 주제가 서울에만 있음 |
+  | 비용 | SES 메일 1,000통 $0.10, 신원 인증 요금 항목 없음([SES 요금](https://aws.amazon.com/ses/pricing/)). Amazon Q Developer 알림 자체의 요금 항목은 요금 페이지에 없음. SNS · 경보 1개 요금은 확인하지 않음(보낸 만큼, 시연 수준) |
+
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | Lambda + Slack 웹훅 | 문구를 마음대로 쓰지만 함수 · 웹훅 비밀값 관리가 늘어남. v3 대응 Lambda가 생기면 사건 보고 메시지는 그쪽에서 다시 검토 |
+  | SNS 이메일 구독 | 장애 알림 채널로 약함(["이메일 알림은 가치가 매우 낮고 잡음에 쉽게 묻힌다"](https://sre.google/sre-book/monitoring-distributed-systems/)) |
+  | SNS 문자(SMS) | 고객사 통보는 관제 직원이 사람으로 하는 일. 한국 번호 발신 규칙 · 요금을 확인하지 않아 후보로 남김 |
+  | 호출 도구(PagerDuty 등: 푸시 → 전화 → 문자, ack · 에스컬레이션) | 1인 포트폴리오에 과함. 실서비스라면 같은 SNS에 하나 더 붙임([PagerDuty 에스컬레이션](https://support.pagerduty.com/main/docs/escalation-policies)) |
+
+- **결과 · 받아들인 위험:**
+  - Slack 채널 역할의 신뢰 주체 `chatbot.amazonaws.com`은 공식 문서에서 JSON을 찾지 못한 가설(공개 Terraform 모듈들이 쓰는 값). 콘솔 테스트 메시지로 확인
+  - 태스크가 모두 빠져 대상이 0이면 `HealthyHostCount`가 안 나올 수 있다(가설). 그러면 판단 보류(`missing`)라 **서비스 전체 중단을 이 경보가 놓칠 수 있다.** 확인 뒤 5xx 경보 등으로 보완. `breaching`은 매일 apply 직후 거짓 알림이라 쓰지 않음
+  - 평소 사용자 정책 6,004 / 6,144자. PassRole을 `hotel-booking-aws-v2-ecs-*`(실행 · 태스크)로 묶고 경보 태그 읽기를 더함
+  - Pilot Light로 도쿄에 넘어간 동안은 결제 · 메일 · 카톡이 꺼진다(키가 서울 SSM에만). 후속 후보
+  - 아무에게나 메일을 보내려면 SES 프로덕션 승인(첫 답변 최대 96시간, [03 계획](03-plan.md))
