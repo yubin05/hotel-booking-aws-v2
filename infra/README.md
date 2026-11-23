@@ -425,8 +425,9 @@ for r in ap-northeast-2 ap-northeast-1; do AWS_PROFILE=admin aws sesv2 get-email
 # 결제: 사이트 가입(2)의 받을 주소) → 숙소 예약 → 토스 결제창(테스트 키, 돈 안 빠짐) → 내 예약 "결제 완료"
 # 메일: 같은 주소로 예약 확정 메일 (스팸함도 확인)
 # 카톡: 내 예약 → "카카오톡 알림 받기" → 다음 결제 뒤 나와의 채팅방에 메시지
-# 앱 로그에서 발송 실패 이유 찾기
-MSYS_NO_PATHCONV=1 aws logs tail /ecs/hotel-booking-aws-v2 --region ap-northeast-2 --since 15m | grep -iE "mail|kakao|toss|error"
+# 앱 로그에서 발송 실패 이유 찾기 (평소 사용자에겐 로그 검색 권한이 없어 관리자)
+# 예: "Email address is not verified ... failed the check in region AP-NORTHEAST-2" = 샌드박스에서 인증 안 한 주소로 보냄 (11-23)
+MSYS_NO_PATHCONV=1 AWS_PROFILE=admin aws logs tail /ecs/hotel-booking-aws-v2 --region ap-northeast-2 --since 15m | grep -iE "mail|kakao|toss|error|알림"
 
 # Slack 경보: 일부러 울렸다가(평소 사용자에겐 SetAlarmState 권한이 없어 관리자) 다음 평가(1분)에 실제 값으로 돌아오며 복구 알림
 AWS_PROFILE=admin aws cloudwatch set-alarm-state --region ap-northeast-2 --alarm-name hotel-booking-aws-v2-app-unhealthy \
