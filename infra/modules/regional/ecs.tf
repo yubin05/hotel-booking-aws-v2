@@ -9,6 +9,10 @@ locals {
   image = "${local.account_id}.dkr.ecr.${local.region}.amazonaws.com/${local.name}:${data.aws_ecr_image.latest.image_tags[0]}"
   # 실행 역할은 bootstrap이 만듦(ADR-029). 이름으로 주소를 조립해 IAM 조회 권한 없이 씀
   execution_role_arn = "arn:aws:iam::${local.account_id}:role/${local.name}-ecs-execution"
+  # 앱이 실행 중에 쓰는 역할(SES 메일, ADR-071). 역시 bootstrap이 만듦
+  task_role_arn = "arn:aws:iam::${local.account_id}:role/${local.name}-ecs-task"
+  # 결제 · 카카오 키 (ADR-071). 사람이 SSM에 직접 넣음(런북 5-9), 서울에만 있음
+  ssm_prefix = "arn:aws:ssm:${local.region}:${local.account_id}:parameter/hotel-booking"
 }
 
 # 처음 서비스를 만들 때 쓸 이미지: 가장 마지막에 push된 것 (ADR-039 변경 메모). 매일 apply할 때 번호를 손으로 바꾸지 않게
@@ -64,6 +68,7 @@ resource "aws_ecs_task_definition" "app" {
   cpu                      = 512  # 0.5 vCPU (09 가정, 3단계 부하 뒤 확정)
   memory                   = 1024 # 1GB
   execution_role_arn       = local.execution_role_arn
+  task_role_arn            = local.task_role_arn
 
   container_definitions = jsonencode([{
     name         = "app"
@@ -72,20 +77,31 @@ resource "aws_ecs_task_definition" "app" {
     portMappings = [{ containerPort = local.app_port, protocol = "tcp" }]
 
     # DB 접속 정보 (비밀이 아닌 것만). 앱은 관리자가 아니라 앱 전용 계정으로 붙음 (ADR-031)
-    environment = [
+    environment = concat([
       { name = "DB_HOST", value = aws_db_instance.this.address },
       { name = "DB_NAME", value = aws_db_instance.this.db_name },
       { name = "DB_USER", value = "app" },
       { name = "DB_TLS", value = "rds" }, # RDS 인증서 · 주소까지 확인하는 TLS 접속 (ADR-045)
       # 관제 화면용 1초 지표(요청 수 · 5xx · p95)를 EMF 로그로 남김 → CloudWatch 사용자 지표 HotelBooking/App (ADR-061)
       { name = "METRICS_EMF", value = "1" },
-    ]
+      # 결제 성공 · 실패 주소, 메일 속 링크, 카카오 Redirect URI(APP_URL/kakao/callback)의 바탕. 전환해도 손님 주소는 같음
+      { name = "APP_URL", value = "https://hotel.${local.zone_name}" },
+      ], var.app_integrations ? [
+      # 보내는 주소. bootstrap ses.tf의 mail_from · 태스크 역할의 ses:FromAddress 조건과 같아야 메일이 나감
+      { name = "MAIL_FROM", value = "no-reply@${local.zone_name}" },
+    ] : [])
 
-    # 값이 아니라 금고 주소. ECS가 태스크를 띄울 때 꺼내 환경 변수로 넣음
-    secrets = [
+    # 값이 아니라 금고 · SSM 주소. ECS가 태스크를 띄울 때 꺼내 환경 변수로 넣음
+    # 키가 없으면 앱은 결제 · 카카오만 끈 채 동작(APP-001 · 003). 없는 파라미터를 참조하면 태스크가 못 떠서 서울만 true
+    secrets = concat([
       { name = "JWT_SECRET", valueFrom = data.aws_secretsmanager_secret.jwt.arn },
       { name = "DB_PASSWORD", valueFrom = data.aws_secretsmanager_secret.db_app.arn },
-    ]
+      ], var.app_integrations ? [
+      { name = "TOSS_SECRET_KEY", valueFrom = "${local.ssm_prefix}/toss-secret-key" },
+      { name = "TOSS_CLIENT_KEY", valueFrom = "${local.ssm_prefix}/toss-client-key" },
+      { name = "KAKAO_REST_API_KEY", valueFrom = "${local.ssm_prefix}/kakao-rest-api-key" },
+      { name = "KAKAO_CLIENT_SECRET", valueFrom = "${local.ssm_prefix}/kakao-client-secret" },
+    ] : [])
 
     logConfiguration = {
       logDriver = "awslogs"

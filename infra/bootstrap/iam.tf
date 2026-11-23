@@ -145,13 +145,13 @@ resource "aws_iam_role_policy" "github_deploy" {
         ]
       },
       {
-        # 태스크 정의에 적힌 실행 역할을 ECS에 건네기 (ADR-029). 이 역할만, ECS 태스크에게만
+        # 태스크 정의에 적힌 실행 역할 · 태스크 역할을 ECS에 건네기 (ADR-029 · 071). 이 두 역할만, ECS 태스크에게만
         Sid    = "iamPassExecutionRole"
         Effect = "Allow"
         Action = [
           "iam:PassRole"
         ]
-        Resource = aws_iam_role.ecs_execution.arn
+        Resource = [aws_iam_role.ecs_execution.arn, aws_iam_role.ecs_task.arn]
         Condition = {
           StringEquals = {
             "iam:PassedToService" = "ecs-tasks.amazonaws.com"
@@ -244,6 +244,40 @@ resource "aws_iam_role_policy" "ecs_execution" {
         Resource = "arn:aws:ssm:${local.main_region}:${local.account_id}:parameter/hotel-booking/*"
       }
     ]
+  })
+}
+
+# 앱이 실행 중에 쓰는 역할 (ADR-071). 실행 역할(ECS가 태스크를 띄울 때 씀)과 다름: 앱 코드의 AWS SDK가 이 역할로 SES를 부름
+resource "aws_iam_role" "ecs_task" {
+  name = "${local.project_name}-ecs-task" # 모듈이 이 이름으로 주소를 조립함
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "ecs_task" {
+  name = "${local.project_name}-ecs-task-policy"
+  role = aws_iam_role.ecs_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      # 예약 확정 메일(APP-002). 보내는 주소 하나로 묶음(ses:FromAddress, SES 문서)
+      # 리소스를 도메인 신원 하나로 좁히지 않는 이유: 샌드박스에서 받는 주소 신원으로도 권한을 검사했다는 사례가 있음(문서로는 미확인)
+      Sid      = "SendBookingMail"
+      Effect   = "Allow"
+      Action   = ["ses:SendEmail"]
+      Resource = "arn:aws:ses:${local.main_region}:${local.account_id}:identity/*"
+      Condition = {
+        StringEquals = { "ses:FromAddress" = local.mail_from }
+      }
+    }]
   })
 }
 

@@ -4,7 +4,7 @@
 
 | 루트 | 들어 있는 것 | 수명 |
 |---|---|---|
-| `bootstrap` | state 버킷, IAM(평소 정책 · 역할), ECR, 금고, 예산, Route 53 영역, 사진 · 이관 버킷 | 상시. 관리자만 |
+| `bootstrap` | state 버킷, IAM(평소 정책 · 역할), ECR, 금고, 예산, Route 53 영역, 사진 · 이관 버킷, SES 도메인 · 장애 알림 주제 · Slack 연결([ADR-071](../docs/04-decisions.md#adr-071)) | 상시. 관리자만 |
 | `seoul` · `tokyo` | `modules/regional`: VPC, NAT, ALB(HTTPS), ECS, RDS, **CloudFront 통로(VPC Origin)** | 쓸 때만. 도쿄는 전환 시험 · DR 때만 |
 | `global` | CloudFront, WAF, 인증서(us-east-1), ALB 입구 규칙, `hotel` 레코드 | 서울과 함께 매일 ([ADR-052](../docs/04-decisions.md#adr-052)) |
 | `security` | CloudTrail(감사 로그 버킷 90일), GuardDuty(서울 · 도쿄 · us-east-1), 점검(Config + Security Hub CSPM, `posture_check`) | 상시. 관리자만. 점검만 켜고 끔 ([ADR-057](../docs/04-decisions.md#adr-057)) |
@@ -375,6 +375,63 @@ cd infra/tokyo && date; terraform destroy; date; cd ../..   # 50개(11-22 9분 3
 - 11-22 첫 standby는 RDS가 관리자 금고를 관리하는 서울 DB라 거부됨 → 관리자 비밀번호를 bootstrap 금고로 옮김([ADR-069](../docs/04-decisions.md#adr-069)). 바꾼 뒤 처음 서울 apply는 서울 DB 비밀번호 방식을 바꾸는 그 자리 수정(`~ update in-place`)이어야 함
 - 결과: `drill/results/region-<시각>/` `steps.log`(단계 시각), `db-state.log`(도쿄 DB 10초마다), `report.md`(RTO(측정기 원본) · RPO · 끊김 · 중복), `lost-in-seoul.txt`(대조), `tokyo.sum` · `seoul.sum`(체크섬).
 - 예전 Backup & Restore(서울 `-var backup_replication=true`, `region.sh cleanup`)는 2026-11-22에 뺐습니다([ADR-066](../docs/04-decisions.md#adr-066)). 11-21 시도 기록은 [region-drill](../docs/experiments/region-drill.md)에 있습니다.
+
+## 5-9. 결제 · 메일 · 카톡 배포 연결과 Slack 장애 알림 (v3 첫 주, 한 번)
+
+서울 앱이 토스 결제 · 예약 확정 메일(SES) · 카카오톡을 실제로 쓰고, 장애 경보가 Slack으로 옵니다([ADR-071](../docs/04-decisions.md#adr-071)). 키 · Slack ID는 저장소에 없고 사람이 넣습니다. **서울(`app_integrations = true`)을 올리기 전에 1) ~ 4)를 끝내야** 앱 태스크가 뜹니다(없는 SSM 키를 참조하면 태스크가 시작되지 않음).
+
+```bash
+# 1) Slack (처음 한 번, 브라우저)
+#    - 새 워크스페이스 만들기: Slack 시작 페이지 → 새로 만들기 → 이메일 확인 코드 (Slack 도움말 "Create a Slack workspace")
+#    - 알림 채널 만들기(예: #hotel-alerts)
+#    - 앱 설치: Slack 왼쪽 Automations(없으면 More) → Browse Apps Directory → Amazon Q Developer → Add
+#    - AWS 콘솔(관리자 역할) https://console.aws.amazon.com/chatbot/ (us-east-2 콘솔만 됨)
+#      → Configure a chat client에서 Slack → Configure → 오른쪽 위에서 워크스페이스 고르기 → Allow
+#      → Workspace details의 Workspace ID 복사. 채널 설정(Configure new channel)은 콘솔에서 하지 않음(Terraform이 만듦)
+#    - Slack 알림 채널에서 /invite @Amazon Q → Invite Them
+#    - 채널 이름 오른쪽 클릭 → Copy Link → 링크 끝 문자열(C로 시작)이 Channel ID
+
+# 2) bootstrap terraform.tfvars에 세 줄 (예시: terraform.tfvars.example)
+#    slack_team_id = "T..."   slack_channel_id = "C..."   ses_test_recipients = ["받을 주소"]
+#    받을 주소 = 시연할 때 사이트에 가입할 이메일(예약 확정 메일이 회원 이메일로 감. 샌드박스는 인증한 주소로만 받음)
+
+# 3) 결제 · 카카오 키 4개를 SSM에 (5-3과 같은 방식, 값은 hotel-booking-app/docs/local-integrations.md의 콘솔 위치)
+for name in toss-secret-key toss-client-key kakao-rest-api-key kakao-client-secret; do
+  read -rsp "/hotel-booking/$name: " V; echo
+  MSYS_NO_PATHCONV=1 AWS_PROFILE=admin aws ssm put-parameter --region ap-northeast-2 --name "/hotel-booking/$name" --type SecureString --value "$V"
+done; unset V
+MSYS_NO_PATHCONV=1 AWS_PROFILE=admin aws ssm get-parameters-by-path --region ap-northeast-2 --path /hotel-booking --recursive --query "Parameters[].Name"   # 7개(시연 계정 3 + 키 4)
+
+# 4) bootstrap: SES 도메인 인증 · DKIM 레코드 · 받는 주소, SNS 주제, Slack 채널 연결, 태스크 역할, 평소 · CD 정책 수정
+cd /c/dev/hotel-booking-aws-v2/infra/bootstrap
+AWS_PROFILE=admin terraform plan          # 숫자를 먼저 예측
+date; AWS_PROFILE=admin terraform apply; date
+
+# 받는 주소 메일함의 SES 확인 메일 링크 누르기. 도메인은 DKIM 레코드가 보이면 인증됨
+AWS_PROFILE=admin aws sesv2 get-email-identity --region ap-northeast-2 --email-identity vundle34.cloud \
+  --query "[VerifiedForSendingStatus, DkimAttributes.Status]"                # [true, "SUCCESS"]
+# Slack 경로: 콘솔(us-east-2) → Slack → 워크스페이스 → 채널 hotel-booking-aws-v2-alerts → Send test message
+
+# 5) 1절대로 서울 → global → CD
+```
+
+확인 (서울 · global · CD 뒤):
+
+```bash
+# 결제: 사이트 가입(2)의 받을 주소) → 숙소 예약 → 토스 결제창(테스트 키, 돈 안 빠짐) → 내 예약 "결제 완료"
+# 메일: 같은 주소로 예약 확정 메일 (스팸함도 확인)
+# 카톡: 내 예약 → "카카오톡 알림 받기" → 다음 결제 뒤 나와의 채팅방에 메시지
+# 앱 로그에서 발송 실패 이유 찾기
+MSYS_NO_PATHCONV=1 aws logs tail /ecs/hotel-booking-aws-v2 --region ap-northeast-2 --since 15m | grep -iE "mail|kakao|toss|error"
+
+# Slack 경보: 일부러 울렸다가(평소 사용자에겐 SetAlarmState 권한이 없어 관리자) 다음 평가(1분)에 실제 값으로 돌아오며 복구 알림
+AWS_PROFILE=admin aws cloudwatch set-alarm-state --region ap-northeast-2 --alarm-name hotel-booking-aws-v2-app-unhealthy \
+  --state-value ALARM --state-reason "런북 5-9 경로 시험"
+```
+
+- 경보는 "정상 태스크가 3분 동안 2개 미만" 하나입니다. 트래픽 눌림(CPU · 5xx · p95) 경보는 v3 임계값 작업에서 더합니다.
+- 도쿄(`app_integrations = false`)는 결제 · 메일 · 카톡이 꺼진 채 뜹니다. 키는 서울 SSM에만 있습니다.
+- Slack 채널 역할의 신뢰 주체(`chatbot.amazonaws.com`)는 공식 문서에서 찾지 못한 가설입니다. 테스트 메시지가 안 오면 여기부터 봅니다.
 
 ## 6. 자주 만난 문제
 

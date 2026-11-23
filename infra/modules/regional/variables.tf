@@ -56,6 +56,18 @@ variable "replica_source_arn" {
   default     = null
 }
 
+variable "app_integrations" {
+  description = "결제(토스) · 카카오 키를 SSM에서 앱 태스크로 넣고 MAIL_FROM을 켤지 (ADR-071). 파라미터는 서울에만 있어 서울만 true. 끄면 결제 · 메일 · 카톡이 꺼진 채 동작"
+  type        = bool
+  default     = false
+}
+
+variable "alerts" {
+  description = "장애 경보를 만들어 bootstrap의 SNS 주제(→ Slack)로 보낼지 (ADR-071, alarms.tf). 주제가 서울에만 있어 서울만 true"
+  type        = bool
+  default     = false
+}
+
 variable "demo_accounts" {
   description = "시연용 호스트 · 관리자 계정 비밀번호를 SSM에서 migrate 태스크로 넣을지 (ADR-060). 파라미터는 서울에만 있어 서울만 true. 없는 파라미터를 참조하면 태스크가 못 뜰 수 있어 도쿄 복원은 false"
   type        = bool

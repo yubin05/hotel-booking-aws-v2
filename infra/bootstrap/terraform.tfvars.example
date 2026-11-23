@@ -3,3 +3,8 @@ budget_alert_email = "you@example.com"
 # Grafana Cloud → Connections → CloudWatch 데이터 소스 → Settings 탭 "How to create an IAM role for grafana to assume"
 grafana_account_id  = "000000000000"
 grafana_external_id = "<External ID>"
+# Amazon Q Developer in chat applications 콘솔(us-east-2) → Slack 워크스페이스 → Workspace details의 Workspace ID / Slack 채널 링크 끝 문자열 (런북 5-9)
+slack_team_id    = "T00000000"
+slack_channel_id = "C00000000"
+# SES 샌드박스에서 시연 메일을 받을 주소. apply 뒤 SES가 보낸 확인 메일의 링크를 눌러야 받을 수 있음
+ses_test_recipients = ["you@example.com"]
