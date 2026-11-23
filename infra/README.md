@@ -383,13 +383,13 @@ cd infra/tokyo && date; terraform destroy; date; cd ../..   # 50개(11-22 9분 3
 ```bash
 # 1) Slack (처음 한 번, 브라우저)
 #    - 새 워크스페이스 만들기: Slack 시작 페이지 → 새로 만들기 → 이메일 확인 코드 (Slack 도움말 "Create a Slack workspace")
-#    - 알림 채널 만들기(예: #hotel-alerts)
+#    - 알림 채널 만들기(예: #hotel-alerts, 비공개 권장: 경보에 내부 정보가 오가고, 채널 ID 얻는 법이 문서에 비공개 기준으로 있음)
 #    - 앱 설치: Slack 왼쪽 Automations(없으면 More) → Browse Apps Directory → Amazon Q Developer → Add
 #    - AWS 콘솔(관리자 역할) https://console.aws.amazon.com/chatbot/ (us-east-2 콘솔만 됨)
 #      → Configure a chat client에서 Slack → Configure → 오른쪽 위에서 워크스페이스 고르기 → Allow
 #      → Workspace details의 Workspace ID 복사. 채널 설정(Configure new channel)은 콘솔에서 하지 않음(Terraform이 만듦)
 #    - Slack 알림 채널에서 /invite @Amazon Q → Invite Them
-#    - 채널 이름 오른쪽 클릭 → Copy Link → 링크 끝 문자열(C로 시작)이 Channel ID
+#    - 채널 이름 오른쪽 클릭 → Copy Link → 링크 맨 끝 문자열이 Channel ID (문서 예: AB3BBLZZ8YY)
 
 # 2) bootstrap terraform.tfvars에 세 줄 (예시: terraform.tfvars.example)
 #    slack_team_id = "T..."   slack_channel_id = "C..."   ses_test_recipients = ["받을 주소"]
