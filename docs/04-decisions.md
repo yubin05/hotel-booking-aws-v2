@@ -1579,19 +1579,20 @@
 
   | 항목 | 고른 것 |
   |---|---|
-  | 키 | 토스(시크릿 · 클라이언트) · 카카오(REST API · 클라이언트 시크릿) 4개를 SSM SecureString `/hotel-booking/*`에 사람이 직접 넣음(런북 5-9, 시연 계정 비밀번호와 같은 방식이라 저장소 · state에 없음). 실행 역할의 기존 `parameter/hotel-booking/*` 읽기 권한을 그대로 씀. 클라이언트 키 · REST API 키는 화면에 드러나는 값이지만 한 방식으로 묶음 |
+  | 키 | 토스(시크릿 · 클라이언트) · 카카오(REST API · 클라이언트 시크릿) 4개를 **Secrets Manager 금고 하나(JSON) + 도쿄 복제본**(`hotel-booking-aws-v2/app-integrations`, JWT · DB 비밀번호와 같은 방식 [ADR-041](#adr-041)). 값은 사람이 CLI로 넣음(런북 5-9, 저장소 · state에 없음). ECS가 키별로 꺼냄(`ARN:키::`, [ECS 문서](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/secrets-envvar-secrets-manager.html)). 클라이언트 키 · REST API 키는 화면에 드러나는 값이지만 한 방식으로 묶음. 처음 안은 SSM(서울만)이었으나 도쿄 전환 중 결제가 꺼져 바꿈(2026-11-23 사용자) |
   | 메일 권한 | 앱 태스크 역할 `hotel-booking-aws-v2-ecs-task`를 bootstrap에 새로 만듦(평소 사용자는 IAM을 못 만듦, [ADR-025](#adr-025)). `ses:SendEmail`, 서울 `identity/*`, 조건 `ses:FromAddress = no-reply@vundle34.cloud`([SES 권한 문서](https://docs.aws.amazon.com/ses/latest/dg/control-user-access.html)) |
-  | 보내는 도메인 | `vundle34.cloud` SES 신원(Easy DKIM, CNAME 3개를 Route 53에, bootstrap 상시). 샌드박스 유지(인증한 주소로만, 하루 200통). 시연 받는 주소는 `terraform.tfvars`(개인 주소라 커밋 안 함) |
+  | 보내는 도메인 | `vundle34.cloud` SES 신원을 **서울 · 도쿄 각각**(Easy DKIM, CNAME 3개씩 Route 53에, bootstrap 상시). 신원 · 샌드박스 · DNS 확인 레코드가 리전마다 따로라서([SES 신원 문서](https://docs.aws.amazon.com/ses/latest/dg/creating-identities.html)). 앱은 `SES_REGION` = 자기 리전. 샌드박스 유지(인증한 주소로만, 하루 200통). 시연 받는 주소는 `terraform.tfvars`(개인 주소라 커밋 안 함)이고 리전마다 인증 |
   | 알림 경로 | CloudWatch 경보(서울) → SNS 주제(bootstrap 상시, 서울) → Amazon Q Developer in chat applications(옛 AWS Chatbot) → Slack 채널. 채널 연결은 `us-east-2`(API가 us-east-2 · us-west-2 · ap-southeast-1 · eu-west-1에만 있음, [API 문서](https://docs.aws.amazon.com/chatbot/latest/APIReference/Welcome.html)). 채널 권한 한도는 `CloudWatchReadOnlyAccess`(비우면 AdministratorAccess가 기본, Terraform 문서) |
   | 경보 | 정상 태스크(ALB `HealthyHostCount` 최솟값)가 3분 연속 2개 미만 → 알림, 돌아오면 복구 알림. 트래픽 눌림(CPU · 5xx · p95)은 기준값(정상 k6 최댓값 × 배수)을 정하는 v3 임계값 작업에서 |
   | 통보 목표 | **탐지 → 통보 15분 이내**(동료 경험 기준, 표준 아님). v3 보고서 지표 |
-  | 도쿄 | `app_integrations` · `alerts` 모두 false. 키 · 주제가 서울에만 있음 |
-  | 비용 | SES 메일 1,000통 $0.10, 신원 인증 요금 항목 없음([SES 요금](https://aws.amazon.com/ses/pricing/)). Amazon Q Developer 알림 자체의 요금 항목은 요금 페이지에 없음. SNS · 경보 1개 요금은 확인하지 않음(보낸 만큼, 시연 수준) |
+  | 도쿄 | `app_integrations = true`: 전환해도 결제 · 메일 · 카톡이 돼야 복구로 침(DR 사이트 설정 일치, 2026-11-23 사용자). `alerts`는 false(주제 · 경보가 서울에만) |
+  | 비용 | 금고 $0.40/월, 복제본도 금고 하나로 따로 과금([요금](https://aws.amazon.com/secrets-manager/pricing/), [AWS 블로그](https://aws.amazon.com/blogs/security/how-to-replicate-secrets-aws-secrets-manager-multiple-regions/)) → 약 $0.80/월. SES 메일 1,000통 $0.10, 신원 인증 요금 항목 없음([SES 요금](https://aws.amazon.com/ses/pricing/)). Amazon Q Developer 알림 자체의 요금 항목은 요금 페이지에 없음. SNS · 경보 1개 요금은 확인하지 않음(보낸 만큼, 시연 수준) |
 
 - **검토한 대안:**
 
   | 대안 | 버린 이유 |
   |---|---|
+  | 키를 SSM에 서울 · 도쿄 따로 입력 | 무료지만 키를 바꿀 때 한쪽을 빠뜨리면 전환한 날에야 결제 장애로 드러남 |
   | Lambda + Slack 웹훅 | 문구를 마음대로 쓰지만 함수 · 웹훅 비밀값 관리가 늘어남. v3 대응 Lambda가 생기면 사건 보고 메시지는 그쪽에서 다시 검토 |
   | SNS 이메일 구독 | 장애 알림 채널로 약함(["이메일 알림은 가치가 매우 낮고 잡음에 쉽게 묻힌다"](https://sre.google/sre-book/monitoring-distributed-systems/)) |
   | SNS 문자(SMS) | 고객사 통보는 관제 직원이 사람으로 하는 일. 한국 번호 발신 규칙 · 요금을 확인하지 않아 후보로 남김 |
@@ -1601,5 +1602,6 @@
   - Slack 채널 역할의 신뢰 주체 `chatbot.amazonaws.com`은 공식 문서에서 JSON을 찾지 못한 가설(공개 Terraform 모듈들이 쓰는 값). 콘솔 테스트 메시지로 확인
   - 태스크가 모두 빠져 대상이 0이면 `HealthyHostCount`가 안 나올 수 있다(가설). 그러면 판단 보류(`missing`)라 **서비스 전체 중단을 이 경보가 놓칠 수 있다.** 확인 뒤 5xx 경보 등으로 보완. `breaching`은 매일 apply 직후 거짓 알림이라 쓰지 않음
   - 평소 사용자 정책 6,004 / 6,144자. PassRole을 `hotel-booking-aws-v2-ecs-*`(실행 · 태스크)로 묶고 경보 태그 읽기를 더함
-  - Pilot Light로 도쿄에 넘어간 동안은 결제 · 메일 · 카톡이 꺼진다(키가 서울 SSM에만). 후속 후보
+  - 도쿄로 넘어간 동안은 장애 경보 → Slack이 없다(주제 · 경보가 서울에만). 같은 "DR 설정 일치" 원칙으로 v3에서
+  - 금고에 값이 없거나 키 이름이 틀리면 앱 태스크가 시작되지 않는다(키가 빠져도 결제만 꺼지던 SSM 이전 안보다 엄격). 런북 5-9의 확인 명령으로 키 이름 4개를 본다
   - 아무에게나 메일을 보내려면 SES 프로덕션 승인(첫 답변 최대 96시간, [03 계획](03-plan.md))
