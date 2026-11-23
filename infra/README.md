@@ -434,11 +434,54 @@ AWS_PROFILE=admin aws cloudwatch set-alarm-state --region ap-northeast-2 --alarm
   --state-value ALARM --state-reason "런북 5-9 경로 시험"
 ```
 
-- 경보는 "정상 태스크가 3분 동안 2개 미만" 하나입니다. 트래픽 눌림(CPU · 5xx · p95) 경보는 v3 임계값 작업에서 더합니다.
+- 경보는 "정상 태스크가 3분 동안 2개 미만"과 "적립금 보류 세션 생김"([5-10](#5-10-시나리오-a-적립금-보류-경보-대응-운영자)) 두 개입니다. 트래픽 눌림(CPU · 5xx · p95) 경보는 v3 임계값 작업에서 더합니다.
 - 도쿄도 결제 · 메일 · 카톡이 켜진 채 뜹니다(키는 금고 도쿄 복제본, 메일은 도쿄 SES). 장애 경보 → Slack은 아직 서울만입니다(주제 · 경보가 서울에만).
 - 키 JSON은 `printf`로 만들어 값에 `"` · `\`가 있으면 깨집니다. 지금 토스 · 카카오 키는 영문 · 숫자 · `_`뿐입니다.
 - Slack 채널 역할의 신뢰 주체(`chatbot.amazonaws.com`)는 문서에 없어 가설이었고 11-23 테스트 메시지 도착으로 확인했습니다.
 - **PC마다 `terraform.tfvars`가 따로입니다(커밋 안 함).** 11-23 이 PC에는 Grafana 두 줄이 없어(→ 역할 삭제 plan) AWS 역할에서 복원했고, 예산 주소도 PC마다 달랐습니다(gmail로 통일). 다른 PC에서 처음 plan할 때 grafana · budget 줄이 바뀌면 apply하지 말고 tfvars부터 맞춥니다.
+
+## 5-10. 시나리오 A: 적립금 보류 경보 대응 (운영자)
+
+Slack에 `hotel-booking-aws-v2-points-hold` 경보가 오면, 앱이 계정 탈취 의심 세션의 적립금 사용을 **이미 보류한 뒤**입니다(규칙: [10 보안 8절](../docs/10-security.md#8-계정-탈취-탐지--세션-보류-v3-시나리오-a-adr-072-2026-11-23), [ADR-072](../docs/04-decisions.md#adr-072)). 운영자는 확인 → 복구 또는 보류 해제 → 시각 기록을 합니다. 배포는 앱 CD(`sessions` 테이블은 migrate가 만듦) + 서울 apply(경보 2개)입니다.
+
+```bash
+# 0) 처음 한 번: 지표 필터 패턴 시험 (평소 사용자에겐 TestMetricFilter 권한이 없어 관리자). 1이 나오면 보류 로그만 잡힘
+AWS_PROFILE=admin aws logs test-metric-filter --region ap-northeast-2 --filter-pattern '{ $.event = "points_hold_applied" }' \
+  --log-event-messages '{"log":"security","event":"points_hold_applied","booking_id":"b-1"}' '{"log":"security","event":"booking_created","booking_id":"b-1"}' \
+  --query 'matches[].eventNumber' --output text
+
+# 1) 무엇이 보류됐나: 최근 1시간 보류 로그 (session_id · user_id · booking_id · points_used · balance_before · minutes_since_login)
+MSYS_NO_PATHCONV=1 AWS_PROFILE=admin aws logs tail /ecs/hotel-booking-aws-v2 --region ap-northeast-2 --since 1h --format short \
+  --filter-pattern '{ $.event = "points_hold_applied" }'
+
+# 2) 그 세션이 한 일: 로그인(ip · ua) → 예약 → 보류 → 막힌 시도(points_hold_blocked)
+S=<1)의 session_id>
+MSYS_NO_PATHCONV=1 AWS_PROFILE=admin aws logs tail /ecs/hotel-booking-aws-v2 --region ap-northeast-2 --since 24h --format short \
+  --filter-pattern "{ \$.session_id = \"$S\" }"
+
+# 3) 관리자 토큰 (시연 관리자 계정, 비밀번호는 5-3의 SSM). 화면 · 명령 기록에 안 남음
+read -rsp "관리자 비밀번호: " P; echo
+T=$(curl -s https://hotel.vundle34.cloud/api/auth/login -H 'content-type: application/json' \
+  -d "{\"email\":\"admin@spongetrip.local\",\"password\":\"$P\"}" | python -c "import json,sys; print(json.load(sys.stdin)['data']['token'])"); unset P
+
+# 4-a) 공격이면 복구: 그 세션이 쓴 적립금 환원 + 그 적립금으로 만든 확정 예약 취소. 다시 해도 404라 잔액이 두 번 늘지 않음
+curl -s -X POST https://hotel.vundle34.cloud/api/admin/recover -H "authorization: Bearer $T" \
+  -H 'content-type: application/json' -d "{\"session_id\":\"$S\"}"
+
+# 4-b) 오탐이면(회원 본인 확인) 보류 해제: 그 세션은 다시 적립금을 쓸 수 있음. 해제 전 보류 시각 · 이유는 hold_released 로그에 남음
+curl -s -X POST https://hotel.vundle34.cloud/api/admin/release-hold -H "authorization: Bearer $T" \
+  -H 'content-type: application/json' -d "{\"session_id\":\"$S\"}"
+unset T
+
+# 5) 시각 기록(초동 대응 리포트 재료): 경보 상태 변경 시각. 첫 거래 · 보류 시각은 1) · 2)의 로그 시각(커밋 직후)
+AWS_PROFILE=admin aws cloudwatch describe-alarm-history --region ap-northeast-2 --alarm-name hotel-booking-aws-v2-points-hold \
+  --history-item-type StateUpdate --query 'AlarmHistoryItems[].[Timestamp,HistorySummary]' --output text
+```
+
+- 회원 원장(어느 세션이 어느 예약에 얼마를 썼나)은 관리자 화면 `/admin`에서 **이메일로** 찾습니다. 보류 로그에는 이메일이 없고(개인정보) `user_id`만 있어, 회원 연락처는 따로 확인합니다.
+- 공격이면 회원에게 비밀번호 변경을 안내합니다. 토큰은 만료(1시간)까지 살아 있지만 그 세션은 적립금을 못 씁니다. 같은 새 환경에서 다시 로그인해도 24시간 동안 못 씁니다.
+- 오탐이면 걸린 조건(로그의 `minutes_since_login` · `balance_before` 대비 `points_used`)을 [v3 시나리오 A 3-7](../docs/v3-scenario-a.md#3-7-검증-정상--이상)에 적고, 임계값을 고칠지 제안합니다.
+- 경보는 1분 뒤 OK로 돌아가도 복구 알림을 보내지 않습니다(사건은 운영자가 끝냄).
 
 ## 6. 자주 만난 문제
 
