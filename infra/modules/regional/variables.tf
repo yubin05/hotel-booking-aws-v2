@@ -57,7 +57,7 @@ variable "replica_source_arn" {
 }
 
 variable "app_integrations" {
-  description = "결제(토스) · 카카오 키를 SSM에서 앱 태스크로 넣고 MAIL_FROM을 켤지 (ADR-071). 파라미터는 서울에만 있어 서울만 true. 끄면 결제 · 메일 · 카톡이 꺼진 채 동작"
+  description = "결제(토스) · 카카오 키를 금고(서울 원본 · 도쿄 복제본)에서 앱 태스크로 넣고 메일을 켤지 (ADR-071). 금고에 값을 넣은 뒤에만 true. 끄면 결제 · 메일 · 카톡이 꺼진 채 동작"
   type        = bool
   default     = false
 }

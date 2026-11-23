@@ -229,7 +229,7 @@ resource "aws_iam_role_policy" "ecs_execution" {
         # 서울 금고 + 도쿄 복제본. 복제본 주소는 리전만 달라서 replace로 리전 글자만 바꿈
         Resource = flatten([
           # db_admin은 스키마 · 이관 태스크만 태스크 정의에 적음(ADR-044 · 069). 앱 태스크 정의에는 없음
-          for s in [aws_secretsmanager_secret.jwt, aws_secretsmanager_secret.db_app, aws_secretsmanager_secret.db_admin] : [
+          for s in [aws_secretsmanager_secret.jwt, aws_secretsmanager_secret.db_app, aws_secretsmanager_secret.db_admin, aws_secretsmanager_secret.app_integrations] : [
             s.arn,
             replace(s.arn, local.main_region, local.backup_region),
           ]
@@ -268,12 +268,15 @@ resource "aws_iam_role_policy" "ecs_task" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      # 예약 확정 메일(APP-002). 보내는 주소 하나로 묶음(ses:FromAddress, SES 문서)
+      # 예약 확정 메일(APP-002). 보내는 주소 하나로 묶음(ses:FromAddress, SES 문서). 앱은 자기 리전 SES로 보냄(서울 · 도쿄)
       # 리소스를 도메인 신원 하나로 좁히지 않는 이유: 샌드박스에서 받는 주소 신원으로도 권한을 검사했다는 사례가 있음(문서로는 미확인)
-      Sid      = "SendBookingMail"
-      Effect   = "Allow"
-      Action   = ["ses:SendEmail"]
-      Resource = "arn:aws:ses:${local.main_region}:${local.account_id}:identity/*"
+      Sid    = "SendBookingMail"
+      Effect = "Allow"
+      Action = ["ses:SendEmail"]
+      Resource = [
+        "arn:aws:ses:${local.main_region}:${local.account_id}:identity/*",
+        "arn:aws:ses:${local.backup_region}:${local.account_id}:identity/*",
+      ]
       Condition = {
         StringEquals = { "ses:FromAddress" = local.mail_from }
       }

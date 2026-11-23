@@ -11,4 +11,7 @@ module "regional" {
   # 5단계 리전 복원 (ADR-066 Pilot Light): 평소 서울 DB의 읽기 복제본만 두고, 장애 때 승격. 되돌릴 때 dump 태스크로 덤프를 서울에 넘김
   replica_source_arn = var.replica_source_arn
   migration_tasks    = true
+
+  # 전환해도 결제 · 메일 · 카톡이 돼야 복구 (ADR-071). 키는 금고 도쿄 복제본, 메일은 도쿄 SES. 장애 경보(alerts)는 주제가 서울에만 있어 아직 없음
+  app_integrations = true
 }

@@ -32,6 +32,17 @@ resource "aws_secretsmanager_secret" "db_admin" {
   }
 }
 
+# 결제 · 카카오 키 4개를 JSON 하나로 (ADR-071). 외부 서비스가 준 값이라 Terraform이 만들지 않고 사람이 넣음(런북 5-9, state에 안 남음)
+# 도쿄로 전환해도 결제 · 카톡이 되게 복제. 서울에 넣으면 도쿄 복제본도 같아짐
+resource "aws_secretsmanager_secret" "app_integrations" {
+  provider = aws.seoul
+  name     = "${local.project_name}/app-integrations"
+
+  replica {
+    region = local.backup_region
+  }
+}
+
 # ── 2. 임시 랜덤 값: apply 동안만 메모리에 있고 state에 안 남음 ─────────
 ephemeral "random_password" "jwt" {
   length  = 48

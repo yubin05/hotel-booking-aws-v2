@@ -378,7 +378,7 @@ cd infra/tokyo && date; terraform destroy; date; cd ../..   # 50개(11-22 9분 3
 
 ## 5-9. 결제 · 메일 · 카톡 배포 연결과 Slack 장애 알림 (v3 첫 주, 한 번)
 
-서울 앱이 토스 결제 · 예약 확정 메일(SES) · 카카오톡을 실제로 쓰고, 장애 경보가 Slack으로 옵니다([ADR-071](../docs/04-decisions.md#adr-071)). 키 · Slack ID는 저장소에 없고 사람이 넣습니다. **서울(`app_integrations = true`)을 올리기 전에 1) ~ 4)를 끝내야** 앱 태스크가 뜹니다(없는 SSM 키를 참조하면 태스크가 시작되지 않음).
+서울 · 도쿄 앱이 토스 결제 · 예약 확정 메일(SES) · 카카오톡을 실제로 쓰고, 서울 장애 경보가 Slack으로 옵니다([ADR-071](../docs/04-decisions.md#adr-071)). 키 · Slack ID는 저장소에 없고 사람이 넣습니다. **서울 · 도쿄(`app_integrations = true`)를 올리기 전에 1) ~ 4)를 끝내야** 앱 태스크가 뜹니다(금고에 값이 없거나 키가 빠지면 태스크가 시작되지 않음).
 
 ```bash
 # 1) Slack (처음 한 번, 브라우저)
@@ -395,21 +395,25 @@ cd infra/tokyo && date; terraform destroy; date; cd ../..   # 50개(11-22 9분 3
 #    slack_team_id = "T..."   slack_channel_id = "C..."   ses_test_recipients = ["받을 주소"]
 #    받을 주소 = 시연할 때 사이트에 가입할 이메일(예약 확정 메일이 회원 이메일로 감. 샌드박스는 인증한 주소로만 받음)
 
-# 3) 결제 · 카카오 키 4개를 SSM에 (5-3과 같은 방식, 값은 hotel-booking-app/docs/local-integrations.md의 콘솔 위치)
-for name in toss-secret-key toss-client-key kakao-rest-api-key kakao-client-secret; do
-  read -rsp "/hotel-booking/$name: " V; echo
-  MSYS_NO_PATHCONV=1 AWS_PROFILE=admin aws ssm put-parameter --region ap-northeast-2 --name "/hotel-booking/$name" --type SecureString --value "$V"
-done; unset V
-MSYS_NO_PATHCONV=1 AWS_PROFILE=admin aws ssm get-parameters-by-path --region ap-northeast-2 --path /hotel-booking --recursive --query "Parameters[].Name"   # 7개(시연 계정 3 + 키 4)
-
-# 4) bootstrap: SES 도메인 인증 · DKIM 레코드 · 받는 주소, SNS 주제, Slack 채널 연결, 태스크 역할, 평소 · CD 정책 수정
+# 3) bootstrap: 키 금고(서울 → 도쿄 복제), SES 도메인 · DKIM · 받는 주소(서울 · 도쿄 각각), SNS 주제, Slack 채널 연결, 태스크 역할, 평소 · CD 정책 수정
 cd /c/dev/hotel-booking-aws-v2/infra/bootstrap
 AWS_PROFILE=admin terraform plan          # 숫자를 먼저 예측
 date; AWS_PROFILE=admin terraform apply; date
 
-# 받는 주소 메일함의 SES 확인 메일 링크 누르기. 도메인은 DKIM 레코드가 보이면 인증됨
-AWS_PROFILE=admin aws sesv2 get-email-identity --region ap-northeast-2 --email-identity vundle34.cloud \
-  --query "[VerifiedForSendingStatus, DkimAttributes.Status]"                # [true, "SUCCESS"]
+# 4) 결제 · 카카오 키 4개를 금고 하나에 JSON으로 (값 위치: hotel-booking-app/docs/local-integrations.md). 화면 · 명령 기록에 안 남음
+#    서울에 넣으면 도쿄 복제본도 같아짐. 키를 바꿀 때도 이 명령 한 번
+for k in TOSS_SECRET_KEY TOSS_CLIENT_KEY KAKAO_REST_API_KEY KAKAO_CLIENT_SECRET; do read -rsp "$k: " v; echo; printf -v "$k" '%s' "$v"; done; unset v
+J=$(printf '{"TOSS_SECRET_KEY":"%s","TOSS_CLIENT_KEY":"%s","KAKAO_REST_API_KEY":"%s","KAKAO_CLIENT_SECRET":"%s"}' \
+  "$TOSS_SECRET_KEY" "$TOSS_CLIENT_KEY" "$KAKAO_REST_API_KEY" "$KAKAO_CLIENT_SECRET")
+AWS_PROFILE=admin aws secretsmanager put-secret-value --region ap-northeast-2 --secret-id hotel-booking-aws-v2/app-integrations --secret-string "$J" --query VersionId
+unset J TOSS_SECRET_KEY TOSS_CLIENT_KEY KAKAO_REST_API_KEY KAKAO_CLIENT_SECRET
+# 확인: 도쿄 복제본에서 키 이름 4개만 (값은 안 나옴)
+AWS_PROFILE=admin aws secretsmanager get-secret-value --region ap-northeast-1 --secret-id hotel-booking-aws-v2/app-integrations \
+  --query SecretString --output text | python -c "import json,sys; print(sorted(json.load(sys.stdin)))"
+
+# SES: 받는 주소 메일함에 확인 메일이 2통(서울 · 도쿄) → 둘 다 링크 누르기. 도메인은 DKIM 레코드가 보이면 인증됨
+for r in ap-northeast-2 ap-northeast-1; do AWS_PROFILE=admin aws sesv2 get-email-identity --region $r --email-identity vundle34.cloud \
+  --query "[VerifiedForSendingStatus, DkimAttributes.Status]" --output text; done   # 두 줄 모두 True SUCCESS
 # Slack 경로: 콘솔(us-east-2) → Slack → 워크스페이스 → 채널 hotel-booking-aws-v2-alerts → Send test message
 
 # 5) 1절대로 서울 → global → CD
@@ -430,7 +434,8 @@ AWS_PROFILE=admin aws cloudwatch set-alarm-state --region ap-northeast-2 --alarm
 ```
 
 - 경보는 "정상 태스크가 3분 동안 2개 미만" 하나입니다. 트래픽 눌림(CPU · 5xx · p95) 경보는 v3 임계값 작업에서 더합니다.
-- 도쿄(`app_integrations = false`)는 결제 · 메일 · 카톡이 꺼진 채 뜹니다. 키는 서울 SSM에만 있습니다.
+- 도쿄도 결제 · 메일 · 카톡이 켜진 채 뜹니다(키는 금고 도쿄 복제본, 메일은 도쿄 SES). 장애 경보 → Slack은 아직 서울만입니다(주제 · 경보가 서울에만).
+- 키 JSON은 `printf`로 만들어 값에 `"` · `\`가 있으면 깨집니다. 지금 토스 · 카카오 키는 영문 · 숫자 · `_`뿐입니다.
 - Slack 채널 역할의 신뢰 주체(`chatbot.amazonaws.com`)는 공식 문서에서 찾지 못한 가설입니다. 테스트 메시지가 안 오면 여기부터 봅니다.
 
 ## 6. 자주 만난 문제

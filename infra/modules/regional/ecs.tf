@@ -11,8 +11,12 @@ locals {
   execution_role_arn = "arn:aws:iam::${local.account_id}:role/${local.name}-ecs-execution"
   # 앱이 실행 중에 쓰는 역할(SES 메일, ADR-071). 역시 bootstrap이 만듦
   task_role_arn = "arn:aws:iam::${local.account_id}:role/${local.name}-ecs-task"
-  # 결제 · 카카오 키 (ADR-071). 사람이 SSM에 직접 넣음(런북 5-9), 서울에만 있음
-  ssm_prefix = "arn:aws:ssm:${local.region}:${local.account_id}:parameter/hotel-booking"
+}
+
+# 결제 · 카카오 키 금고 (ADR-071). 서울 원본 · 도쿄 복제본이라 같은 이름으로 그 리전 것이 잡힘
+data "aws_secretsmanager_secret" "integrations" {
+  count = var.app_integrations ? 1 : 0
+  name  = "${local.name}/app-integrations"
 }
 
 # 처음 서비스를 만들 때 쓸 이미지: 가장 마지막에 push된 것 (ADR-039 변경 메모). 매일 apply할 때 번호를 손으로 바꾸지 않게
@@ -89,19 +93,17 @@ resource "aws_ecs_task_definition" "app" {
       ], var.app_integrations ? [
       # 보내는 주소. bootstrap ses.tf의 mail_from · 태스크 역할의 ses:FromAddress 조건과 같아야 메일이 나감
       { name = "MAIL_FROM", value = "no-reply@${local.zone_name}" },
+      # 자기 리전 SES로 보냄. 서울이 죽으면 서울 SES도 못 쓴다고 보고 도쿄에도 신원을 따로 둠(SES 신원은 리전마다)
+      { name = "SES_REGION", value = local.region },
     ] : [])
 
-    # 값이 아니라 금고 · SSM 주소. ECS가 태스크를 띄울 때 꺼내 환경 변수로 넣음
-    # 키가 없으면 앱은 결제 · 카카오만 끈 채 동작(APP-001 · 003). 없는 파라미터를 참조하면 태스크가 못 떠서 서울만 true
+    # 값이 아니라 금고 주소. ECS가 태스크를 띄울 때 꺼내 환경 변수로 넣음
+    # 결제 · 카카오 키는 JSON 금고 하나의 키별로 꺼냄(ARN:키::, ECS 문서). 금고에 값이 없거나 키가 빠지면 태스크가 못 뜸(런북 5-9)
     secrets = concat([
       { name = "JWT_SECRET", valueFrom = data.aws_secretsmanager_secret.jwt.arn },
       { name = "DB_PASSWORD", valueFrom = data.aws_secretsmanager_secret.db_app.arn },
-      ], var.app_integrations ? [
-      { name = "TOSS_SECRET_KEY", valueFrom = "${local.ssm_prefix}/toss-secret-key" },
-      { name = "TOSS_CLIENT_KEY", valueFrom = "${local.ssm_prefix}/toss-client-key" },
-      { name = "KAKAO_REST_API_KEY", valueFrom = "${local.ssm_prefix}/kakao-rest-api-key" },
-      { name = "KAKAO_CLIENT_SECRET", valueFrom = "${local.ssm_prefix}/kakao-client-secret" },
-    ] : [])
+      ], [for k in ["TOSS_SECRET_KEY", "TOSS_CLIENT_KEY", "KAKAO_REST_API_KEY", "KAKAO_CLIENT_SECRET"] :
+    { name = k, valueFrom = "${data.aws_secretsmanager_secret.integrations[0].arn}:${k}::" } if var.app_integrations])
 
     logConfiguration = {
       logDriver = "awslogs"
