@@ -1599,7 +1599,8 @@
   | 호출 도구(PagerDuty 등: 푸시 → 전화 → 문자, ack · 에스컬레이션) | 1인 포트폴리오에 과함. 실서비스라면 같은 SNS에 하나 더 붙임([PagerDuty 에스컬레이션](https://support.pagerduty.com/main/docs/escalation-policies)) |
 
 - **결과 · 받아들인 위험:**
-  - Slack 채널 역할의 신뢰 주체 `chatbot.amazonaws.com`은 공식 문서에서 JSON을 찾지 못한 가설(공개 Terraform 모듈들이 쓰는 값). 콘솔 테스트 메시지로 확인
+  - Slack 채널 역할의 신뢰 주체 `chatbot.amazonaws.com`은 공식 문서에서 JSON을 찾지 못한 가설(공개 Terraform 모듈들이 쓰는 값) → **11-23 콘솔 테스트 메시지가 Slack에 도착해 확인**
+  - Amazon Q Developer는 콘솔에서 글로벌로 보이고 어느 리전 SNS든 받지만(사용자 관찰 11-23, 문서 "모든 리전에 접근 필요"), 설정 API는 4개 리전에만 있어 Terraform은 `region = "us-east-2"`가 필요. 콘솔 리전 전환은 필요 없었음
   - 태스크가 모두 빠져 대상이 0이면 `HealthyHostCount`가 안 나올 수 있다(가설). 그러면 판단 보류(`missing`)라 **서비스 전체 중단을 이 경보가 놓칠 수 있다.** 확인 뒤 5xx 경보 등으로 보완. `breaching`은 매일 apply 직후 거짓 알림이라 쓰지 않음
   - 평소 사용자 정책 6,004 / 6,144자. PassRole을 `hotel-booking-aws-v2-ecs-*`(실행 · 태스크)로 묶고 경보 태그 읽기를 더함
   - 도쿄로 넘어간 동안은 장애 경보 → Slack이 없다(주제 · 경보가 서울에만). 같은 "DR 설정 일치" 원칙으로 v3에서

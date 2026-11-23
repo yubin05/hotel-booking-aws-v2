@@ -17,7 +17,7 @@ resource "aws_iam_role" "chatbot" {
   count = local.slack ? 1 : 0
   name  = "${local.project_name}-chatbot"
 
-  # 신뢰 주체: 공식 문서에서 JSON을 찾지 못해 공개 Terraform 모듈들이 쓰는 값(가설). 런북 5-9의 테스트 알림이 Slack에 오면 맞음
+  # 신뢰 주체: 공식 문서에서 JSON을 찾지 못해 공개 Terraform 모듈들이 쓰는 값을 씀. 11-23 콘솔 테스트 메시지가 Slack에 와서 확인
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{

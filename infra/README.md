@@ -436,7 +436,8 @@ AWS_PROFILE=admin aws cloudwatch set-alarm-state --region ap-northeast-2 --alarm
 - 경보는 "정상 태스크가 3분 동안 2개 미만" 하나입니다. 트래픽 눌림(CPU · 5xx · p95) 경보는 v3 임계값 작업에서 더합니다.
 - 도쿄도 결제 · 메일 · 카톡이 켜진 채 뜹니다(키는 금고 도쿄 복제본, 메일은 도쿄 SES). 장애 경보 → Slack은 아직 서울만입니다(주제 · 경보가 서울에만).
 - 키 JSON은 `printf`로 만들어 값에 `"` · `\`가 있으면 깨집니다. 지금 토스 · 카카오 키는 영문 · 숫자 · `_`뿐입니다.
-- Slack 채널 역할의 신뢰 주체(`chatbot.amazonaws.com`)는 공식 문서에서 찾지 못한 가설입니다. 테스트 메시지가 안 오면 여기부터 봅니다.
+- Slack 채널 역할의 신뢰 주체(`chatbot.amazonaws.com`)는 문서에 없어 가설이었고 11-23 테스트 메시지 도착으로 확인했습니다.
+- **PC마다 `terraform.tfvars`가 따로입니다(커밋 안 함).** 11-23 이 PC에는 Grafana 두 줄이 없어(→ 역할 삭제 plan) AWS 역할에서 복원했고, 예산 주소도 PC마다 달랐습니다(gmail로 통일). 다른 PC에서 처음 plan할 때 grafana · budget 줄이 바뀌면 apply하지 말고 tfvars부터 맞춥니다.
 
 ## 6. 자주 만난 문제
 
