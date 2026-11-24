@@ -1543,6 +1543,7 @@
   - 첫 드릴에서 확인할 가설: 승격과 같은 apply에서 `password_wo_version`(null → 1)이 함께 바뀌어도 공급자가 승격을 먼저 해 오류가 없는지. 오류가 나면 같은 apply를 한 번 더 한다(값은 같은 비밀번호).
 
 
+<a name="adr-070"></a>
 ## ADR-070 앱 서버가 없을 때 CloudFront가 503 대신 점검 안내 페이지를 보여 준다 (2026-11-22)
 
 - **상황:** 5단계 Pilot Light 2회차에 사용자가 실제 사이트를 열어 보니, 전환 · 되돌리기 동안 503 글자만 보이거나(화면 요청) 화면은 뜨고 요청만 "요청을 처리하지 못했습니다"였다. 손님은 사이트가 없어졌는지, 결제가 됐는지 알 수 없다. Pilot Light는 전환 동안 앱이 없어(RTO 약 12 ~ 13분) 이 구간이 반드시 생긴다. 2026-11-22 사용자와 정함.
@@ -1572,6 +1573,7 @@
   - **확인 (2026-11-22 23:1x, 사용자 실행):** `region.sh seoul-down`(서울 앱 0) → `/` 503 + 점검 페이지, `/api/health/deep` 503 + 점검 페이지 HTML(**캐시를 끈 경로도 본문이 바뀐다는 가설이 맞음** → 화면 코드의 JSON 없는 502 · 503 · 504 문구가 필요) → `seoul-up` 뒤 `{"status":"ok","db":"ok"}` 200
   - 디자인(11-22 밤 사용자 요청): 앱과 같은 로고 · 색 · 카드 모양, 문구는 [GOV.UK 서비스 이용 불가 패턴](https://design-system.service.gov.uk/patterns/service-unavailable-pages/)(언제 돌아오는지 · 진행 중이던 일이 어떻게 됐는지를 분명하게, "점검" 같은 모호한 말 대신)
 
+<a name="adr-071"></a>
 ## ADR-071 결제 · 메일 · 카톡 배포 연결과 Slack 장애 알림: 키는 SSM, 메일은 앱 태스크 역할, 경보 → SNS → Amazon Q Developer → Slack (2026-11-23)
 
 - **상황:** 결제 · 알림 앱 코드는 11-18에 끝났지만(앱 APP-001 ~ 003) 배포 환경에는 키 · 메일 권한 · 장애 알림 경로가 없다. 11-22 결정대로 v3 첫 주에 Slack 장애 알림([ADR-061](#adr-061))과 함께 연결하고, 멘토링 전에 전체 인프라를 한 번 올린다(2026-11-23 사용자). 같은 날 사용자가 데이터센터 관제 경력 동료에게 들은 것: **트래픽 이상(눌림)을 확인하면 15분 안에 담당자에게 문자로 통보하고 바로 조치한다.**
@@ -1608,6 +1610,7 @@
   - 아무에게나 메일을 보내려면 SES 프로덕션 승인(첫 답변 최대 96시간, [03 계획](03-plan.md)). **11-23 사용자: 샌드박스 유지.** 다른 사람 주소는 SES가 거절(앱 로그 `Email address is not verified`, 예약은 그대로)하므로 다른 테스터는 카카오톡 알림으로만 확인하고, 주소를 하나씩 인증하지 않는다
 
 
+<a name="adr-072"></a>
 ## ADR-072 시나리오 A 계정 탈취 탐지 · 자동 대응: 예약 트랜잭션 안에서 판정해 의심 세션의 포인트 사용을 보류하고, 경보는 CloudWatch → Slack (2026-11-23)
 
 - **상황:** v3 대표 시나리오 A는 탈취된 회원 계정의 포인트 사용이다([ADR-058](03-plan.md#adr-058)). 채용 공고 27개를 조사한 결론은 "보완해서 간다"였다. 탐지 · 관제 공고가 공통으로 요구하는 것이 로그 · 탐지 룰 · 자동화 · 사고 대응이고, 수업(4과목 이상탐지 · 5과목 SOAR)도 같은 흐름이다. 그런데 `booking_created` 로그는 예약 커밋 뒤에 남는다. 그래서 로그를 보고 판단하면 첫 거래를 못 막고, 후속 거래도 경보 지연만큼 늦게 막는다. 상세 설계 · 검증 표 · 공고 근거는 [v3-scenario-a.md](v3-scenario-a.md) 1 ~ 3절에 있다.
@@ -1643,6 +1646,7 @@
   - 앱 로그 그룹 보관이 7일이라 90일 원칙과 다르다. 후속 후보로 둔다
   - 2026년 현행 시행령 본문은 확인하지 못했다(2008년 조문과 기업 방침으로 판단). 경보 1개 · 지표 필터 1개 요금은 확인하지 않았다(시연 수준)
 
+<a name="adr-073"></a>
 ## ADR-073 리전 전환 뒤 도쿄를 서울 설계 수준으로: ① 복구(NAT 2 · ALB · ECS 2 ~ 4) → ② 보강(DB Multi-AZ) 두 단계, 도쿄 장애 경보 추가 (2026-11-24)
 
 - **상황:**
@@ -1677,3 +1681,16 @@
   - 같이 고친 것: 평소 사용자 정책에 지표 필터 권한(`logs:*MetricFilter*`)이 없어 ADR-072 지표 필터 apply가 막힐 상태였다(11-23은 plan만 해서 드러나지 않음). 같은 bootstrap apply로 넣는다(공백 뺀 6,004 → 6,026 / 6,144자)
   - 3단계 성능(k6 3회)은 Single-AZ 조건이었다. Multi-AZ로 1회 비교해 미리 정한 기준 안이면 Single-AZ 기록을 대표값으로 쓴다([3단계 기록](experiments/migration.md#multi-az-조건-비교-1회-2026-11-24-계획))
   - 근거 문서: [RDS 복제본 승격](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.Promote.html), [RDS Multi-AZ](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZSingleStandby.html), [MySQL Multi-AZ 읽기 복제본](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_MySQL.Replication.ReadReplicas.MultiAZ.html), [AWS DR 백서](https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html), [terraform apply `-parallelism`](https://developer.hashicorp.com/terraform/cli/commands/apply#parallelism-n)
+
+<a name="adr-074"></a>
+## ADR-074 DB 크기 · 서버 상한은 실제 손님 부하 시험으로 정한다 (micro · 4대는 1단계 비교용 임시값) (2026-11-25)
+
+- **상황:** RDS `db.t4g.micro`와 서버(태스크) 상한 4대는 1단계 옛 DB 서버(t3.micro)와 같은 급으로 맞춰 "구조만 바꾼 효과"를 비교하려고 정한 가설값이었다(`rds.tf`, [ADR-015](#adr-015) "3단계 부하 뒤 확정"). 3단계에서 태스크 크기만 실측으로 정했고([migration 4절](experiments/migration.md#4-실측-기반-라이트사이징)), DB 크기 · 상한은 확정하지 않았다. 11-24 회차 3,000명 층: 서버 CPU 99%가 먼저 막혔고, DB는 CPU 47% · 연결 40 / 약 60 · 여유 메모리 98MB · 스왑 약 200MB(부하 전부터). 상한 4대가 DB 연결 보호용이라 **DB가 몇 명까지 받는지는 잴 수 없었다**. 측정 중 사용자가 직접 접속하니 첫 화면이 약 1분 걸렸고, k6는 API만 불러 손님 체감을 재지 않았다.
+- **결정 (사용자, 2026-11-25):** 고객사 옛 서버 · DB는 운영 중이라 건드리지 않는다. AWS 쪽 DB 크기와 서버 상한은 **실제 손님 행동 부하 시험으로 크기를 바꿔 가며 재고** 목표를 지키는 가장 싼 조합으로 정한다. 순서는 ① 지금 설정(micro · 4대) 한계 → ② DB는 micro 그대로 서버 상한을 올려 **DB 한계** → ③ DB를 키워(small, 2GB) 한계가 얼마나 오르는지. micro · 4대 기록은 "1단계와 같은 급 비교"로 그대로 둔다.
+- **근거:** AWS Well-Architected 비용 원칙 COST06-BP01: *"Perform benchmark activities for the workload under different predicted loads and compare the costs."* · *"find the correct size for each resource in the workload, given a specific level of performance."* ([문서](https://docs.aws.amazon.com/wellarchitected/latest/cost-optimization-pillar/cost_type_size_number_resources_cost_modeling.html), 과거 참고용 표시가 있는 페이지). 한계점을 계단으로 찾는 방식은 k6 용어로 breakpoint test(*"Breakpoint testing aims to find system limits."*, [k6](https://grafana.com/docs/k6/latest/testing-guides/test-types/breakpoint-testing/)).
+- **정할 것 (Claude 제안, 사용자 확인 대기):**
+  - 손님 행동: 방문마다 HTML, 처음 온 손님만 JS · CSS(브라우저 캐시), 로그인은 필요할 때 한 번 뒤 유지, 예약은 방문당 3%(업계 2 ~ 3% 확인, [migration](experiments/migration.md)) + 여정 측정 손님 20명([load/journey.js](../load/journey.js))
+  - 판정(손님 기준): 예약 성공률 99% · 첫 화면 p95 3초 · 예약까지 기다린 시간 합 p95 10초를 모두 지키는 맨 위 층. 숫자는 출처 없는 제안값
+  - 계단: 500명씩 무너질 때까지(최대 4,000명, 8층 49분). ②는 DB 연결 한도(약 60)를 넘지 않게 서버당 연결 수를 줄여야 해 앱 설정 변경이 같이 필요
+  - 쿠폰 스파이크 규모는 이 결과(평소 한계)를 보고 정한다. 그동안 1,000명은 로컬 E-03 비교용 숫자였다
+- **받아들인 위험:** 조합마다 측정 시간 · 비용이 늘고 3 ~ 6단계 마감 11-30([ADR-063](03-plan.md#adr-063))과 겹친다. t4g는 CPU 크레딧형이라 오래 몰리면 크레딧이 줄어(11-24 회차 46 → 34) 판정에 크레딧 잔량도 같이 본다.
