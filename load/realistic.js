@@ -78,7 +78,7 @@ export default function (data) {
   const page = http.get(`${BASE}/`, { tags: { name: 'page' } });
   check(page, { 'HTML 200': ok });
   if (!assetsCached && ok(page)) {
-    const assets = [...page.body.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((m) => get(m[1], 'asset'));
+    const assets = [...page.body.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((m) => ({ method: 'GET', url: `${BASE}${m[1]}`, params: { tags: { name: 'asset' }, responseType: 'none' } })); // 내용은 안 씀: 버려야 발생기 메모리가 버틴다(11-25 2,000명 근처 메모리 부족)
     const files = http.batch(assets);
     assetsCached = check(null, { 'JS · CSS 200': () => assets.length > 0 && files.every(ok) });
   }

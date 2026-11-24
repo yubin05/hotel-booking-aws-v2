@@ -72,7 +72,7 @@ export default function (data) {
   const cities = run('home', () => {
     const page = http.get(`${BASE}/`, { tags: { name: 'page' } });
     if (!ok(page)) return false;
-    const assets = [...page.body.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((m) => get(m[1], 'asset'));
+    const assets = [...page.body.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((m) => ({ method: 'GET', url: `${BASE}${m[1]}`, params: { tags: { name: 'asset' }, responseType: 'none' } })); // 내용은 안 씀: 버려야 발생기 메모리가 버틴다(11-25 2,000명 근처 메모리 부족)
     const files = assets.length ? http.batch(assets) : [];
     const api = http.batch([get('/api/hotels/featured', 'featured'), get('/api/hotels/cities', 'cities'), get('/api/coupons', 'coupons')]);
     return check(null, { '첫 화면': () => assets.length > 0 && files.every(ok) && api.every(ok) }) && api[1].json('data').map((c) => c.city);
