@@ -1696,3 +1696,20 @@
   - 계단: 500명씩 무너질 때까지(최대 4,000명, 8층 49분). ②는 DB 연결 한도(약 60)를 넘지 않게 서버당 연결 수를 줄여야 해 앱 설정 변경이 같이 필요
   - 쿠폰 스파이크 규모는 이 결과(평소 한계)를 보고 정한다. 그동안 1,000명은 로컬 E-03 비교용 숫자였다
 - **받아들인 위험:** 조합마다 측정 시간 · 비용이 늘고 3 ~ 6단계 마감 11-30([ADR-063](03-plan.md#adr-063))과 겹친다. t4g는 CPU 크레딧형이라 오래 몰리면 크레딧이 줄어(11-24 회차 46 → 34) 판정에 크레딧 잔량도 같이 본다.
+
+<a name="adr-075"></a>
+## ADR-075 이미지 provenance 증명서를 끄고, 공급망은 태그 불변 · push 스캔 · OIDC로 지킨다 (2026-11-25)
+
+- **상황:** CD는 `docker build`만 썼는데 Docker 기본값으로 provenance 증명서가 붙었다(*"Provenance attestations with the `mode=min` level are added to images by default."*, [Docker](https://docs.docker.com/build/metadata/attestations/)). 우리가 고른 적 없는 값이다(러너 Docker가 언제부터 붙였는지는 확인 못 함). 그래서 push마다 ECR 항목이 3개(커밋 태그가 붙은 OCI 이미지 인덱스 + 태그 없는 이미지 · 증명서)였고, 수명 주기 "최근 10개(태그 무관)"가 11-25 기준 12개 = **배포 4번분(11-22 ~ 11-24)**만 남겨 롤백 범위가 의도한 10번보다 줄었다(정책이 3개를 따로 센 것으로 봄, 가설). 인덱스가 가리키는 이미지는 인덱스보다 먼저 지워지지 않아 이미지가 깨지지는 않는다(*"it cannot be expired or archived without the manifest list being deleted or archived first"*, [ECR](https://docs.aws.amazon.com/AmazonECR/latest/userguide/LifecyclePolicies.html)).
+- **결정 (사용자, 2026-11-25):** 앱 저장소 CD를 `docker build --provenance=false`로.
+- **근거:** 증명서를 배포에서 검증하지 않아 쓰임이 없다. 공급망 통제는 이미 있다: 태그 불변(IMMUTABLE, [ADR-022](#adr-022)) · push 때 취약점 스캔 · GitHub → AWS OIDC(오래 쓰는 키 없음) · Action 커밋 해시 고정.
+- **버린 안:** 켜 두고 수명 주기를 "태그 붙은 것 10개"로(콘솔은 그대로 지저분, bootstrap apply 필요) · 켜 두고 배포 때 서명 · 검증(공급망 다음 단계 후보, 11-30 마감과 겹침).
+- **롤백 (사용자 질문 "덮어쓰기 불가인데 수동 롤백 괜찮나"):** 태그 불변은 같은 태그를 **덮어쓰는 것**만 막는다. 롤백은 이미 있는 옛 태그 이미지를 다시 쓰는 것이라 문제없다. 자동: ECS deployment circuit breaker `rollback = true`(새 배포가 실패하면 직전 성공 배포로). 수동: 지금 태스크 정의 개정 번호를 보고 하나 앞 개정으로 서비스를 바꾼다(평소 사용자 권한 `ecs:DescribeServices` · `DescribeTaskDefinition` · `UpdateService`).
+  ```bash
+  aws ecs describe-services --cluster hotel-booking-aws-v2 --services app --region ap-northeast-2 --query 'services[0].taskDefinition' --output text   # …:N
+  aws ecs describe-task-definition --task-definition hotel-booking-aws-v2-app:<N-1> --region ap-northeast-2 --query 'taskDefinition.containerDefinitions[0].image' --output text   # 되돌릴 이미지 확인
+  aws ecs update-service --cluster hotel-booking-aws-v2 --service app --task-definition hotel-booking-aws-v2-app:<N-1> --region ap-northeast-2
+  ```
+  - 같은 커밋을 CD로 다시 돌리면 태그가 이미 있어 빌드를 건너뛰고 배포만 한다. 남아 있는 옛 이미지(인덱스 형식)도 그대로 배포된다.
+  - 한계: 되돌릴 이미지가 수명 주기로 지워졌으면 못 돌린다(10번분). 앱만 되돌리고 DB 스키마는 되돌리지 않으므로, 스키마가 바뀐 배포는 옛 앱과 맞는지 먼저 본다(추론).
+- **확인할 것:** 다음 push 뒤 ECR에 항목이 1개만 생기는지.
