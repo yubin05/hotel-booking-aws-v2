@@ -1711,5 +1711,6 @@
   aws ecs update-service --cluster hotel-booking-aws-v2 --service app --task-definition hotel-booking-aws-v2-app:<N-1> --region ap-northeast-2
   ```
   - 같은 커밋을 CD로 다시 돌리면 태그가 이미 있어 빌드를 건너뛰고 배포만 한다. 남아 있는 옛 이미지(인덱스 형식)도 그대로 배포된다.
+- **배포는 됐는데 앱 코드에 버그가 있을 때(사용자 질문, 11-25):** health는 정상이라 자동 롤백이 안 걸린다. 개발자는 AWS 권한 없이 GitHub에서 **직전 정상 배포의 CI 실행을 Re-run**하면 된다. 다시 실행은 그때의 커밋으로 돈다(*"the same `GITHUB_SHA` (commit SHA) and `GITHUB_REF`"*, 처음 실행 뒤 30일 안 · 50번까지, [GitHub](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs)) → 태그가 있어 빌드 없이 옛 이미지로 배포(테스트는 다시 돎). 더 급하면 운영자가 위 `update-service`(빌드 · 테스트 없이 바로). 그 뒤 개발자가 `git revert`로 main을 고친다: 되돌린 커밋은 새 해시라 새 태그로 올라가 태그 불변과 부딪히지 않고, 안 고치면 다음 push가 버그를 다시 배포한다
   - 한계: 되돌릴 이미지가 수명 주기로 지워졌으면 못 돌린다(10번분). 앱만 되돌리고 DB 스키마는 되돌리지 않으므로, 스키마가 바뀐 배포는 옛 앱과 맞는지 먼저 본다(추론).
 - **확인할 것:** 다음 push 뒤 ECR에 항목이 1개만 생기는지.
