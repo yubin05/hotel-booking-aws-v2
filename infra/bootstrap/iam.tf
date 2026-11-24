@@ -374,3 +374,26 @@ moved {
   from = aws_iam_group_policy_attachment.operator_v2
   to   = aws_iam_group_policy_attachment.operator_v2[0]
 }
+
+# 운영 · 관제 그룹 (ADR-076): 지표 · 로그 · 이미지 · 스캔 결과 · 태스크 · 이벤트 · 보안 탐지 결과를 "보는" 권한만.
+# 바꾸는 권한은 위 운영 그룹(normal-user-group). 운영자(vundle34)는 관제도 하므로 두 그룹 모두에 속한다
+resource "aws_iam_policy" "monitoring" {
+  name        = "${local.project_name}-monitoring-read"
+  description = "Monitoring: read metrics, logs, images, scan findings, tasks, events, security findings"
+  policy      = file("${path.module}/../iam/v2-monitoring-policy.json")
+}
+
+resource "aws_iam_group" "monitoring" {
+  name = "${local.project_name}-monitoring"
+}
+
+resource "aws_iam_group_policy_attachment" "monitoring" {
+  group      = aws_iam_group.monitoring.name
+  policy_arn = aws_iam_policy.monitoring.arn
+}
+
+# 이 사용자의 다른 그룹 소속(normal-user-group 등)은 건드리지 않는 방식(non-exclusive)
+resource "aws_iam_user_group_membership" "operator_monitoring" {
+  user   = "vundle34"
+  groups = [aws_iam_group.monitoring.name]
+}

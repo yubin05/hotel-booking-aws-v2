@@ -1,0 +1,136 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "MetricsAlarmsDashboards",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:GetMetricData",
+        "cloudwatch:GetMetricStatistics",
+        "cloudwatch:ListMetrics",
+        "cloudwatch:GetMetricWidgetImage",
+        "cloudwatch:DescribeAlarms",
+        "cloudwatch:DescribeAlarmHistory",
+        "cloudwatch:ListDashboards",
+        "cloudwatch:GetDashboard"
+      ],
+      "Resource": "*",
+      "Condition": { "StringEquals": { "aws:RequestedRegion": ["ap-northeast-2", "ap-northeast-1", "us-east-1"] } }
+    },
+    {
+      "Sid": "LogsRead",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams",
+        "logs:GetLogEvents",
+        "logs:FilterLogEvents",
+        "logs:StartQuery",
+        "logs:StopQuery",
+        "logs:GetQueryResults",
+        "logs:DescribeQueries",
+        "logs:GetLogGroupFields",
+        "logs:DescribeMetricFilters"
+      ],
+      "Resource": "*",
+      "Condition": { "StringEquals": { "aws:RequestedRegion": ["ap-northeast-2", "ap-northeast-1"] } }
+    },
+    {
+      "Sid": "ImagesAndScans",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:DescribeRepositories",
+        "ecr:ListImages",
+        "ecr:DescribeImages",
+        "ecr:DescribeImageScanFindings",
+        "ecr:GetLifecyclePolicy",
+        "ecr:DescribeRegistry",
+        "ecr:GetRegistryScanningConfiguration"
+      ],
+      "Resource": "*",
+      "Condition": { "StringEquals": { "aws:RequestedRegion": ["ap-northeast-2", "ap-northeast-1"] } }
+    },
+    {
+      "Sid": "ContainersAndScaling",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:ListClusters",
+        "ecs:DescribeClusters",
+        "ecs:ListServices",
+        "ecs:DescribeServices",
+        "ecs:ListTasks",
+        "ecs:DescribeTasks",
+        "ecs:ListTaskDefinitions",
+        "ecs:ListTaskDefinitionFamilies",
+        "ecs:DescribeTaskDefinition",
+        "application-autoscaling:DescribeScalableTargets",
+        "application-autoscaling:DescribeScalingPolicies",
+        "application-autoscaling:DescribeScalingActivities",
+        "application-autoscaling:DescribeScheduledActions"
+      ],
+      "Resource": "*",
+      "Condition": { "StringEquals": { "aws:RequestedRegion": ["ap-northeast-2", "ap-northeast-1"] } }
+    },
+    {
+      "Sid": "NetworkLoadBalancerDatabase",
+      "Effect": "Allow",
+      "Action": [
+        "elasticloadbalancing:DescribeLoadBalancers",
+        "elasticloadbalancing:DescribeTargetGroups",
+        "elasticloadbalancing:DescribeTargetHealth",
+        "elasticloadbalancing:DescribeListeners",
+        "ec2:DescribeVpcs",
+        "ec2:DescribeSubnets",
+        "ec2:DescribeSecurityGroups",
+        "ec2:DescribeRouteTables",
+        "ec2:DescribeNatGateways",
+        "ec2:DescribeNetworkInterfaces",
+        "rds:DescribeDBInstances",
+        "rds:DescribeEvents",
+        "rds:DescribeEventCategories"
+      ],
+      "Resource": "*",
+      "Condition": { "StringEquals": { "aws:RequestedRegion": ["ap-northeast-2", "ap-northeast-1"] } }
+    },
+    {
+      "Sid": "EdgeAndAlerts",
+      "Effect": "Allow",
+      "Action": [
+        "cloudfront:ListDistributions",
+        "cloudfront:GetDistribution",
+        "wafv2:ListWebACLs",
+        "wafv2:GetWebACL",
+        "wafv2:GetSampledRequests",
+        "sns:ListTopics",
+        "sns:GetTopicAttributes",
+        "sns:ListSubscriptionsByTopic"
+      ],
+      "Resource": "*",
+      "Condition": { "StringEquals": { "aws:RequestedRegion": ["ap-northeast-2", "ap-northeast-1", "us-east-1"] } }
+    },
+    {
+      "Sid": "SecurityFindings",
+      "Effect": "Allow",
+      "Action": [
+        "cloudtrail:LookupEvents",
+        "cloudtrail:DescribeTrails",
+        "guardduty:ListDetectors",
+        "guardduty:ListFindings",
+        "guardduty:GetFindings",
+        "securityhub:DescribeHub",
+        "securityhub:GetFindings",
+        "access-analyzer:ListAnalyzers",
+        "access-analyzer:ListFindings",
+        "access-analyzer:GetFinding"
+      ],
+      "Resource": "*",
+      "Condition": { "StringEquals": { "aws:RequestedRegion": ["ap-northeast-2", "ap-northeast-1", "us-east-1"] } }
+    },
+    {
+      "Sid": "AwsHealth",
+      "Effect": "Allow",
+      "Action": ["health:DescribeEvents", "health:DescribeEventDetails", "health:DescribeAffectedEntities"],
+      "Resource": "*"
+    }
+  ]
+}
