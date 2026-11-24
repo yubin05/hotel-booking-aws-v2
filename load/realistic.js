@@ -15,8 +15,11 @@ const FLOORS = Number(__ENV.FLOORS ?? 8); // 무너질 때까지: 기본 4,000�
 const PASSWORD = 'k6-password';
 const bookingsCreated = new Counter('bookings_created');
 
-const BOOKING_RATE = 0.03;
-const MY_BOOKINGS_RATE = 0.05;
+// 스모크(run-baseline.sh에 k6 옵션을 붙인 짧은 실행 → SMOKE=1)는 로그인 · 예약 · 내 예약 경로를 반드시 타게 100% · 생각 1초.
+// 11-25 첫 스모크는 3% · 5 ~ 20초라 40초 동안 이 경로를 한 번도 안 탔다
+const SMOKE = __ENV.SMOKE === '1';
+const BOOKING_RATE = SMOKE ? 1 : 0.03;
+const MY_BOOKINGS_RATE = SMOKE ? 1 : 0.05;
 
 export const options = {
   stages: [
@@ -34,7 +37,7 @@ http.setResponseCallback(http.expectedStatuses(200, 201, 409));
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const pick = (list) => list[Math.floor(Math.random() * list.length)];
 const isoDate = (days) => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
-const think = () => sleep(5 + Math.random() * 15); // 화면을 읽고 다음을 누르기까지 5 ~ 20초 (baseline.js와 같음)
+const think = () => sleep(SMOKE ? 1 : 5 + Math.random() * 15); // 화면을 읽고 다음을 누르기까지 5 ~ 20초 (baseline.js와 같음)
 const get = (path, name, token) => ({
   method: 'GET',
   url: `${BASE}${path}`,

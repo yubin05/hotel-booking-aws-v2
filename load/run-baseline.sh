@@ -132,8 +132,9 @@ if [ "$rw" = 1 ]; then # 쿠폰과 같게 1초마다 p95 · p99 · 최대. 요�
     -e K6_SYSTEM_TAGS=status,method,name,group,check,error,error_code,scenario,expected_response)
   out+=(-o experimental-prometheus-rw --tag "testid=$name")
 fi
+smoke=0; [ $# -gt 0 ] && smoke=1 # 뒤에 k6 옵션을 붙인 짧은 실행: realistic.js가 로그인 · 예약 경로를 반드시 타게 (baseline.js는 안 씀)
 sudo docker run -d --name k6 --network host --user "$(id -u):$(id -g)" -v ~/load:/load "${grafana[@]}" \
-  -e BASE_URL="$base" -e FLOORS="$floors" -e K6_WEB_DASHBOARD=true -e K6_WEB_DASHBOARD_EXPORT="/load/results/$name.html" \
+  -e BASE_URL="$base" -e FLOORS="$floors" -e SMOKE="$smoke" -e K6_WEB_DASHBOARD=true -e K6_WEB_DASHBOARD_EXPORT="/load/results/$name.html" \
   grafana/k6:1.0.0 run "${out[@]}" "$@" "/load/$script" >/dev/null
 rm -f ~/load/grafana.env # docker는 컨테이너를 만들 때 읽어 이제 필요 없음
 # 손님 여정(journey.js, 3단계만): 같은 시간 동안 손님 20명이 첫 화면부터 예약까지 반복. 부하와 따로 띄워 baseline.js는 그대로 (2026-11-24)
