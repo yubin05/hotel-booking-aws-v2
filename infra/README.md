@@ -203,6 +203,10 @@ cd /c/dev/hotel-booking-aws-v2/infra/bootstrap
 date; AWS_PROFILE=admin terraform apply; date
 
 # 1) 올리기: 옛 환경(+ 발생기) → 서울 → global. 서울 CD(migrate)는 돌리지 않음 (빈 RDS에 시드가 들어가 복원과 겹침)
+# legacy 날만 관리자가 평소 사용자에게 legacy 권한을 붙임 (고객사 legacy/README "legacy 권한 붙이기"). 빠뜨리면 키 페어 · EC2에서 403 (2026-11-24)
+cd /c/dev/hotel-booking-app/legacy/iam
+sed -i 's/^attach_operator_legacy = .*/attach_operator_legacy = true/' terraform.tfvars   # 끝나면 false로 되돌리고 다시 apply (1 to destroy)
+AWS_PROFILE=admin terraform plan; date; AWS_PROFILE=admin terraform apply; date   # 1 to add
 cd /c/dev/hotel-booking-app/legacy
 grep -q '^is_load_test' terraform.tfvars || echo 'is_load_test = true' >> terraform.tfvars   # 고객사 legacy 루트도 tfvars로. 끝나면 줄을 지움
 date; terraform apply; date   # 19개
