@@ -6,9 +6,11 @@ import { check, sleep } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
 
 const BASE = __ENV.BASE_URL ?? 'http://app:3000';
-const PROBES = Number(__ENV.PROBES ?? 5);
+// 20명: 3,000명 층(여정 1회 약 2분)에서도 층마다 여정 약 50번. 늘릴수록 표본은 늘지만 매 여정 로그인이라 낮은 층 부하가 커진다
+const PROBES = Number(__ENV.PROBES ?? 20);
 const PASSWORD = 'k6-password';
-const THINK = 2; // 화면 사이 2초. 기다린 시간에는 넣지 않는다
+// 화면 사이 5 ~ 20초는 baseline.js와 같은 "실제 손님" 간격. 기다린 시간에는 넣지 않는다 (2초로 쉬면 측정 손님이 로그인 부하를 크게 늘림)
+const think = () => sleep(5 + Math.random() * 15);
 
 const wait = new Trend('journey_wait', true); // 성공한 여정의 화면 6개 기다린 시간 합
 const screen = new Trend('journey_screen', true); // 화면마다 (tags.screen)
@@ -76,7 +78,7 @@ export default function (data) {
     return check(null, { '첫 화면': () => assets.length > 0 && files.every(ok) && api.every(ok) }) && api[1].json('data').map((c) => c.city);
   });
   if (!cities) return finish(false);
-  sleep(THINK);
+  think();
 
   // 2. 검색
   const hotels = run('search', () => {
@@ -85,7 +87,7 @@ export default function (data) {
     return check(res, { '검색 결과': () => list.length > 0 }) && list;
   });
   if (!hotels) return finish(false);
-  sleep(THINK);
+  think();
 
   // 3. 숙소 보기: 숙소 정보 + 리뷰
   const target = run('hotel', () => {
@@ -95,7 +97,7 @@ export default function (data) {
     return check(reviews, { '숙소 · 객실': (r) => ok(r) && !!room }) && { id, room };
   });
   if (!target) return finish(false);
-  sleep(THINK);
+  think();
 
   // 4. 예약 버튼 → 로그인 (저장된 로그인이 없는 손님)
   const token = run('login', () => {
@@ -103,7 +105,7 @@ export default function (data) {
     return check(res, { 로그인: (r) => ok(r) && !!r.json('data.token') }) && res.json('data.token');
   });
   if (!token) return finish(false);
-  sleep(THINK);
+  think();
 
   // 5. 예약 화면: 숙소 정보 + 내 쿠폰
   const form = run('booking-page', () => {
@@ -111,7 +113,7 @@ export default function (data) {
     return check(null, { '예약 화면': () => res.every(ok) });
   });
   if (!form) return finish(false);
-  sleep(THINK);
+  think();
 
   // 6. 예약: 겹치는 날짜(409)를 줄이려 30 ~ 365일 뒤 1박. 409도 "응답을 받음"으로 센다
   const res = run('booking', () => {
@@ -126,5 +128,5 @@ export default function (data) {
   if (!res) return finish(false);
   if (res.status === 201) booked.add(1);
   finish(true);
-  sleep(THINK);
+  think();
 }

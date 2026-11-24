@@ -128,9 +128,9 @@ sudo docker run -d --name k6 --network host --user "$(id -u):$(id -g)" -v ~/load
   -e BASE_URL="$base" -e K6_WEB_DASHBOARD=true -e K6_WEB_DASHBOARD_EXPORT="/load/results/$name.html" \
   grafana/k6:1.0.0 run "${out[@]}" "$@" /load/baseline.js >/dev/null
 rm -f ~/load/grafana.env # docker는 컨테이너를 만들 때 읽어 이제 필요 없음
-# 손님 여정(journey.js, 3단계만): 같은 시간 동안 손님 5명이 첫 화면부터 예약까지 반복. 부하와 따로 띄워 baseline.js는 그대로 (2026-11-24)
+# 손님 여정(journey.js, 3단계만): 같은 시간 동안 손님 20명이 첫 화면부터 예약까지 반복. 부하와 따로 띄워 baseline.js는 그대로 (2026-11-24)
 if [[ $name == baseline-aws-* ]]; then
-  jd=37m; [ $# -gt 0 ] && jd=1m # 뒤에 k6 옵션을 붙인 짧은 스모크면 여정도 1분
+  jd=37m; [ $# -gt 0 ] && jd=2m # 뒤에 k6 옵션을 붙인 짧은 스모크면 여정도 2분(여정 1회 약 1분)
   sudo docker run -d --name k6-journey --network host --user "$(id -u):$(id -g)" -v ~/load:/load -e BASE_URL="$base" -e DURATION="$jd" \
     grafana/k6:1.0.0 run --out "json=/load/results/$name.journey.gz" /load/journey.js >/dev/null
 fi

@@ -58,4 +58,4 @@ for (const f of floors) {
   const rate = tries.length ? `${success}/${tries.length} (${((success / tries.length) * 100).toFixed(0)}%)` : '-';
   console.log(`| ${f.vus} | ${tries.length} | ${rate} | ${wait} | ${perScreen.join(' | ')} | ${fails || '없음'} |`);
 }
-console.log('\n기다린 시간 합: 성공한 여정의 화면 6개(첫 화면 · 검색 · 숙소 · 로그인 · 예약 화면 · 예약)를 기다린 시간의 합. 화면 사이 2초(생각하는 시간)는 뺌');
+console.log('\n기다린 시간 합: 성공한 여정의 화면 6개(첫 화면 · 검색 · 숙소 · 로그인 · 예약 화면 · 예약)를 기다린 시간의 합. 화면 사이 생각하는 시간(5 ~ 20초)은 뺌');
