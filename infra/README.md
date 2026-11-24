@@ -248,6 +248,7 @@ bash migration/cutover.sh cleanup   # 되돌렸을 때 덤프 · 키 지우기
 cd /c/dev/hotel-booking-aws-v2
 aws ecs describe-services --cluster hotel-booking-aws-v2 --services app --region ap-northeast-2 --query 'services[0].[desiredCount,runningCount]' --output text   # "2 2"일 때 시작 (앞 회차 뒤 줄기까지 15분 넘게 걸릴 수 있음)
 TARGET=aws bash load/run-baseline.sh                                  # 37분. 태스크 수 5초 기록(tasks.log)도 같이
+# 실제 손님 행동 한계점 시험(ADR-074, 11-25~): SCRIPT=realistic.js TARGET=aws bash load/run-baseline.sh (49분, 이름 baseline-aws-real-*). 아래 두 줄의 baseline-aws-2*를 baseline-aws-real-2*로
 aws login --profile admin                                             # 끝나면 바로 (1초 지표는 시작부터 3시간만 남음)
 bash load/cw-metrics.sh "$(ls -td load/results/baseline-aws-2* | head -1)"
 node scripts/journey-report.mjs "$(ls -td load/results/baseline-aws-2* | head -1)"   # 손님 여정(11-24~): 접속부터 예약까지 층별 기다린 시간
