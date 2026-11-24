@@ -5,6 +5,7 @@
 #
 #   bash run-baseline.sh                         본 실행 (약 37분)
 #   TARGET=aws bash run-baseline.sh              3단계: 이관 뒤 새 주소로 같은 시험 (이름 baseline-aws-*, 옛 서버 기록 · 정합성 검사 없음)
+#   SCRIPT=realistic.js TARGET=aws bash run-baseline.sh   실제 손님 행동 한계점 시험(ADR-074, 이름 baseline-aws-real-*, FLOORS=8 → 4,000명 49분)
 #   bash run-baseline.sh --stage 30s:5 --stage 10s:0   뒤에 붙인 k6 옵션으로 짧게 (스모크 점검, 이름에 -try)
 #   bash run-baseline.sh collect <이름>          SSH가 끊겼을 때: k6는 발생기에서 계속 도니, 끝난 뒤 결과만 가져온다
 #
@@ -81,8 +82,15 @@ fi
 # 3단계(이관 뒤): TARGET=aws bash run-baseline.sh → 새 주소를 부르고 옛 서버 기록은 건너뜀.
 # 발생기 IP는 global terraform.tfvars의 loadtest_ips = ["<발생기 IP>/32"]로 WAF 요청 수 한도에서 빼 둔다 (infra/README.md 5-4)
 if [ "${TARGET:-legacy}" = aws ]; then pre=baseline-aws; base=https://hotel.vundle34.cloud; else pre=baseline; base=http://$APP; fi
-name=$pre-$(date +%Y%m%d-%H%M%S)
-[ $# -gt 0 ] && name=$pre-try-$(date +%Y%m%d-%H%M%S)
+# 실제 손님 행동 한계점 시험(ADR-074): SCRIPT=realistic.js TARGET=aws → 이름 baseline-aws-real-*, 계단 FLOORS층(기본 8 = 4,000명)
+SCRIPT=${SCRIPT:-baseline.js}
+case $SCRIPT in
+  baseline.js) floors=6 tag= ;;
+  realistic.js) floors=${FLOORS:-8} tag=real-; [ "$pre" = baseline-aws ] || { echo 'realistic.js는 TARGET=aws에서만' >&2; exit 1; } ;;
+  *) echo "SCRIPT는 baseline.js 또는 realistic.js" >&2; exit 1 ;;
+esac
+name=$pre-$tag$(date +%Y%m%d-%H%M%S)
+[ $# -gt 0 ] && name=$pre-${tag}try-$(date +%Y%m%d-%H%M%S)
 
 # 발생기는 매일 새 서버라 같은 IP에 다른 서버 키가 올 수 있음 → 예전 기록 삭제 (앱·DB는 start-db.sh가 지움)
 ssh-keygen -R "$LOAD" >/dev/null 2>&1 || true
@@ -91,7 +99,7 @@ if [ "$("${ON_LOAD[@]}" "sudo docker inspect -f '{{.State.Running}}' k6 2>/dev/n
   exit 1
 fi
 "${ON_LOAD[@]}" 'cloud-init status --wait >/dev/null; mkdir -p ~/load/results; sudo docker rm k6 k6-journey >/dev/null 2>&1 || true'
-scp -q baseline.js journey.js "ec2-user@$LOAD:load/"
+scp -q baseline.js realistic.js journey.js "ec2-user@$LOAD:load/"
 
 # 5초마다 CPU·메모리(MB) 기록 시작. SSH가 끊겨도 서버에서 계속 돈다
 START_VMSTAT='pkill vmstat; nohup vmstat -t -S M 5 >~/vmstat.log 2>&1 </dev/null &'
@@ -115,9 +123,9 @@ if [ "$pre" = baseline-aws ] && grep -q '^K6_PROMETHEUS_RW_PASSWORD=.' ~/.hotel-
   scp -q ~/.hotel-legacy/grafana.env "ec2-user@$LOAD:load/grafana.env" && "${ON_LOAD[@]}" 'chmod 600 ~/load/grafana.env' && rw=1
 fi
 [ "$pre" = baseline-aws ] && echo "Grafana 전송: $([ $rw = 1 ] && echo 켬 || echo '끔 (~/.hotel-legacy/grafana.env 없음 또는 토큰 빈칸)')"
-"${ON_LOAD[@]}" bash -s -- "$name" "$base" "$rw" "$@" <<'REMOTE'
+"${ON_LOAD[@]}" bash -s -- "$name" "$base" "$rw" "$SCRIPT" "$floors" "$@" <<'REMOTE'
 set -euo pipefail
-name=$1; base=$2; rw=$3; shift 3
+name=$1; base=$2; rw=$3; script=$4; floors=$5; shift 5
 grafana=() out=(--out "json=/load/results/$name.json.gz")
 if [ "$rw" = 1 ]; then # 쿠폰과 같게 1초마다 p95 · p99 · 최대. 요청 주소(url) 태그는 빼서 숙소마다 시리즈가 늘지 않게 (이름 태그로 구분)
   grafana=(--env-file "$HOME/load/grafana.env" -e 'K6_PROMETHEUS_RW_TREND_STATS=p(95),p(99),max' -e K6_PROMETHEUS_RW_PUSH_INTERVAL=1s -e K6_PROMETHEUS_RW_STALE_MARKERS=true
@@ -125,12 +133,13 @@ if [ "$rw" = 1 ]; then # 쿠폰과 같게 1초마다 p95 · p99 · 최대. 요�
   out+=(-o experimental-prometheus-rw --tag "testid=$name")
 fi
 sudo docker run -d --name k6 --network host --user "$(id -u):$(id -g)" -v ~/load:/load "${grafana[@]}" \
-  -e BASE_URL="$base" -e K6_WEB_DASHBOARD=true -e K6_WEB_DASHBOARD_EXPORT="/load/results/$name.html" \
-  grafana/k6:1.0.0 run "${out[@]}" "$@" /load/baseline.js >/dev/null
+  -e BASE_URL="$base" -e FLOORS="$floors" -e K6_WEB_DASHBOARD=true -e K6_WEB_DASHBOARD_EXPORT="/load/results/$name.html" \
+  grafana/k6:1.0.0 run "${out[@]}" "$@" "/load/$script" >/dev/null
 rm -f ~/load/grafana.env # docker는 컨테이너를 만들 때 읽어 이제 필요 없음
 # 손님 여정(journey.js, 3단계만): 같은 시간 동안 손님 20명이 첫 화면부터 예약까지 반복. 부하와 따로 띄워 baseline.js는 그대로 (2026-11-24)
 if [[ $name == baseline-aws-* ]]; then
-  jd=37m; [ $# -gt 0 ] && jd=2m # 뒤에 k6 옵션을 붙인 짧은 스모크면 여정도 2분(여정 1회 약 1분)
+  # 계단(층마다 6분) + 내려오기 1분 + 부하 쪽 준비(계정 가입) 시간만큼 2분 더. 짧은 스모크면 2분(여정 1회 약 1분)
+  jd=$((floors * 6 + 3))m; [ $# -gt 0 ] && jd=2m
   sudo docker run -d --name k6-journey --network host --user "$(id -u):$(id -g)" -v ~/load:/load -e BASE_URL="$base" -e DURATION="$jd" \
     grafana/k6:1.0.0 run --out "json=/load/results/$name.journey.gz" /load/journey.js >/dev/null
 fi
