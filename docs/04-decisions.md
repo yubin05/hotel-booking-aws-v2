@@ -1690,7 +1690,8 @@
 - **근거:** AWS Well-Architected 비용 원칙 COST06-BP01: *"Perform benchmark activities for the workload under different predicted loads and compare the costs."* · *"find the correct size for each resource in the workload, given a specific level of performance."* ([문서](https://docs.aws.amazon.com/wellarchitected/latest/cost-optimization-pillar/cost_type_size_number_resources_cost_modeling.html), 과거 참고용 표시가 있는 페이지). 한계점을 계단으로 찾는 방식은 k6 용어로 breakpoint test(*"Breakpoint testing aims to find system limits."*, [k6](https://grafana.com/docs/k6/latest/testing-guides/test-types/breakpoint-testing/)).
 - **정할 것 (Claude 제안, 사용자 확인 대기):**
   - 손님 행동: 방문마다 HTML, 처음 온 손님만 JS · CSS(브라우저 캐시), 로그인은 필요할 때 한 번 뒤 유지, 예약은 방문당 3%(업계 2 ~ 3% 확인, [migration](experiments/migration.md)) + 여정 측정 손님 20명([load/journey.js](../load/journey.js))
-  - 판정(손님 기준): 예약 성공률 99% · 첫 화면 p95 3초 · 예약까지 기다린 시간 합 p95 10초를 모두 지키는 맨 위 층. 숫자는 출처 없는 제안값
+  - 판정(손님 기준, 11-25 수정 · 사용자 "3초 · 10초는 너무 길다"): **첫 화면 p95 2.5초 이하**(Google LCP 좋음 기준 *"2.5 seconds or less"*, 75번째 백분위 기준, [web.dev](https://web.dev/articles/lcp). 우리는 더 엄한 95번째지만 화면 그리기는 빠진 HTTP 시간) · **나머지 화면(검색 · 숙소 · 로그인 · 예약 화면 · 예약) 하나마다 p95 1초 이하**(*"1.0 second is about the limit for the user's flow of thought to stay uninterrupted"*, [NN/g](https://www.nngroup.com/articles/response-times-3-important-limits/)) · 예약까지 성공률 99% 이상(출처 없는 제안값)을 모두 지키는 맨 위 층. "기다린 시간 합"은 근거 자료가 없어 기준에서 빼고 참고로만 본다. 11-24 회차 로그인 p95가 500명 층에서 이미 2.3초라 이 기준이면 한계가 500명 아래로 나올 수 있다(비밀번호 확인 scrypt가 CPU를 많이 씀)
+  - 사용자 직접 확인(11-25 결정): 맨 위 층에서 사용자가 직접 로그인 → 예약을 해 보고 화면마다 걸린 시간을 기록해 측정 손님 값과 대조
   - 계단: 500명씩 무너질 때까지(최대 4,000명, 8층 49분). ②는 DB 연결 한도(약 60)를 넘지 않게 서버당 연결 수를 줄여야 해 앱 설정 변경이 같이 필요
   - 쿠폰 스파이크 규모는 이 결과(평소 한계)를 보고 정한다. 그동안 1,000명은 로컬 E-03 비교용 숫자였다
 - **받아들인 위험:** 조합마다 측정 시간 · 비용이 늘고 3 ~ 6단계 마감 11-30([ADR-063](03-plan.md#adr-063))과 겹친다. t4g는 CPU 크레딧형이라 오래 몰리면 크레딧이 줄어(11-24 회차 46 → 34) 판정에 크레딧 잔량도 같이 본다.
