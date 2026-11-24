@@ -150,12 +150,14 @@ terraform apply는 사람이 실행 (인프라 변경은 자동 적용하지 않
 
 장애   1. 서울 장애 확인 (모니터링 알림 + 사람의 판단, ADR-012. 승격은 되돌릴 수 없어 자동으로 하지 않음)
        2. 도쿄 복제본 승격 (infra/tokyo 에서 replica_source_arn 을 빼고 DB만 apply)
-       3. infra/tokyo 를 apply (나머지: NAT, ALB, ECS, CloudFront 통로(VPC Origin))
+       3. infra/tokyo 를 apply (나머지: NAT 2, ALB, ECS 2 ~ 4, CloudFront 통로(VPC Origin), 장애 경보. ADR-073)
        4. 기능 검증 (로그인, 예약 생성·변경·취소)
        5. infra/global 을 -var active_region=ap-northeast-1 로 apply
           → 도쿄 ALB 입구를 열고 CloudFront 앱 원본을 도쿄 VPC Origin으로 전환 (DNS는 그대로)
           (2026-11-15 PoC: apply 1분 27초, 손님이 넘어가기까지 약 1분, 오류 0, ADR-035)
           사진은 CloudFront 원본 장애 조치로 이미 도쿄 S3에서 나가는 중
+       6. 보강 (RTO 밖): 손님을 받기 시작한 뒤 infra/tokyo 를 multi_az = true 로 apply → 도쿄 DB Multi-AZ
+          (1 ~ 5 동안 도쿄 DB는 한 대뿐 = 받아들인 위험. 전환 시간 · 중단 여부는 드릴로 잼, ADR-073)
 
 복귀   1. 서울 복구 확인 → 서울 ECS 태스크를 0으로 (옛 DB에 쓰기 방지)
        2. 도쿄를 점검 모드로 (쓰기 중지) → 대조할 변경분을 먼저 뽑음 → 덤프 → 서울 RDS에 로드 → 체크섬 검증

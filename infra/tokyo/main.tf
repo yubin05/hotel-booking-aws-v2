@@ -5,13 +5,17 @@ module "regional" {
   # apne1-az3은 CloudFront VPC Origin을 지원하지 않음(문서). 이 계정의 도쿄 AZ는 az1 · az2 · az4
   az_ids = ["apne1-az1", "apne1-az2"]
 
-  nat_count   = 1
-  db_multi_az = false
+  # 전환하면 도쿄가 메인이라 서울 설계와 같게 (ADR-073). NAT는 대기 상태에 없고 장애 때만 생겨 평소 비용 0
+  nat_count = 2
+  # 대기 복제본 · 장애 ① 복구는 Single-AZ, 손님을 받은 뒤 ② 보강에서 켬 (ADR-073, region.sh run이 terraform.tfvars에 씀)
+  db_multi_az = var.multi_az
 
   # 5단계 리전 복원 (ADR-066 Pilot Light): 평소 서울 DB의 읽기 복제본만 두고, 장애 때 승격. 되돌릴 때 dump 태스크로 덤프를 서울에 넘김
   replica_source_arn = var.replica_source_arn
   migration_tasks    = true
 
-  # 전환해도 결제 · 메일 · 카톡이 돼야 복구 (ADR-071). 키는 금고 도쿄 복제본, 메일은 도쿄 SES. 장애 경보(alerts)는 주제가 서울에만 있어 아직 없음
+  # 전환해도 결제 · 메일 · 카톡이 돼야 복구 (ADR-071). 키는 금고 도쿄 복제본, 메일은 도쿄 SES
   app_integrations = true
+  # 경보는 같은 리전 주제에만 보낼 수 있어 도쿄 주제(bootstrap/alerts.tf) → 같은 Slack 채널 (ADR-073)
+  alerts = true
 }

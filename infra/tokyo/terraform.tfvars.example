@@ -1,2 +1,3 @@
 # 이 루트의 실험 날 설정. terraform.tfvars로 복사해 쓴다(커밋 안 함). -var 대신 이 파일 (infra/README.md 0절)
-# replica_source_arn = "arn:aws:rds:ap-northeast-2:<계정>:db:hotel-booking-aws-v2"   # Pilot Light 대기 상태. drill/region.sh standby가 쓰고, run이 지워 승격 (ADR-066)
+# multi_az = true   # 장애 ② 보강: 손님을 받은 뒤 도쿄 DB를 Multi-AZ로. region.sh run이 쓰고, standby가 지움 (ADR-073)
+# replica_source_arn ="arn:aws:rds:ap-northeast-2:<계정>:db:hotel-booking-aws-v2"   # Pilot Light 대기 상태. drill/region.sh standby가 쓰고, run이 지워 승격 (ADR-066)

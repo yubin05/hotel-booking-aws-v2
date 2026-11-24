@@ -353,6 +353,7 @@ cd /c/dev/hotel-booking-aws-v2/infra/bootstrap
 AWS_PROFILE=admin terraform plan        # 2 to add(관리자 금고 · 값), 2 to change(평소 정책 · 실행 역할 정책)
 date; AWS_PROFILE=admin terraform apply; date
 terraform -chdir=../tokyo init              # 이 PC에서 도쿄를 처음 쓰면
+# 11-24 ADR-073 뒤 한 번 더: 도쿄 경보 주제 · Slack 연결 · 평소 정책 지표 필터 권한 → 1 to add, 2 to change 예상 (다르면 apply 말고 tfvars부터, 5-9 끝 참고)
 
 # 1) 서울 → global (매일 올리기와 같음)
 cd ../seoul && date; terraform apply; date
@@ -365,9 +366,9 @@ cd /c/dev/hotel-booking-aws-v2
 aws login --profile admin
 bash drill/region.sh standby  # 도쿄 7 to add(복제본 · VPC · DB 서브넷 2 · 보안 그룹 · 서브넷 그룹 · 설정표) → yes. 끝에 "available arn:..."
 bash drill/region.sh run      # 장애 선언 → 도쿄 plan(승격 + 나머지) → 확인 SQL → global plan → RTO
-                              # → 실제 사이트에서 예약해 보기 → Enter → 도쿄 멈춤 · 대조 · 덤프 이관 · 체크섬 → 서울 → global plan
-                              # plan이 1회차 실측(도쿄 43 · 1 · 0, global 1 · 1 · 1)과 같으면 바로 apply, 다를 때만 yes를 물음
-cd infra/tokyo && date; terraform destroy; date; cd ../..   # 50개(11-22 9분 33초). 다음 회차는 standby부터
+                              # → ② 보강(도쿄 DB Multi-AZ, RTO 밖) → 실제 사이트에서 예약해 보기 → Enter → 도쿄 멈춤 · 대조 · 덤프 이관 · 체크섬 → 서울 → global plan
+                              # plan이 기대값(도쿄 48 · 1 · 0, 보강 0 · 1 · 0, global 1 · 1 · 1)과 같으면 바로 apply, 다를 때만 yes를 물음
+cd infra/tokyo && date; terraform destroy; date; cd ../..   # 55개(11-22까지 50개, 9분 33초). 다음 회차는 standby부터
 ```
 
 - **중간에 멈추면** 손님 측정기 · 도쿄 DB 상태 기록기는 계속 돕니다(11-21 시도 2 · 3은 같이 꺼져 RTO를 잃음). `region.sh`는 변수를 각 루트의 `terraform.tfvars`에 써 두므로(도쿄 `replica_source_arn`, global `active_region`) 손으로 이어 가도 같은 값이 쓰입니다. 남은 단계를 손으로 끝까지 한 뒤(예: `cd infra/tokyo && terraform apply` → global `terraform.tfvars`에 `active_region = "ap-northeast-1"` 확인 → `cd ../global && terraform apply`) `bash drill/region.sh stop drill/results/region-<시각>`으로 끝내면 보고서가 나옵니다. 서울로 되돌리려면 `bash drill/region.sh seoul-up`(global의 `active_region` 줄도 지움) → `cd infra/global && terraform apply`, 도쿄는 destroy.
@@ -435,14 +436,14 @@ AWS_PROFILE=admin aws cloudwatch set-alarm-state --region ap-northeast-2 --alarm
 ```
 
 - 경보는 "정상 태스크가 3분 동안 2개 미만"과 "적립금 보류 세션 생김"([5-10](#5-10-시나리오-a-적립금-보류-경보-대응-운영자)) 두 개입니다. 트래픽 눌림(CPU · 5xx · p95) 경보는 v3 임계값 작업에서 더합니다.
-- 도쿄도 결제 · 메일 · 카톡이 켜진 채 뜹니다(키는 금고 도쿄 복제본, 메일은 도쿄 SES). 장애 경보 → Slack은 아직 서울만입니다(주제 · 경보가 서울에만).
+- 도쿄도 결제 · 메일 · 카톡이 켜진 채 뜹니다(키는 금고 도쿄 복제본, 메일은 도쿄 SES). 장애 경보 → Slack은 2026-11-24부터 도쿄도 같은 채널로 갑니다(도쿄 주제는 bootstrap, 경보는 도쿄 apply 때 생김, [ADR-073](../docs/04-decisions.md#adr-073)).
 - 키 JSON은 `printf`로 만들어 값에 `"` · `\`가 있으면 깨집니다. 지금 토스 · 카카오 키는 영문 · 숫자 · `_`뿐입니다.
 - Slack 채널 역할의 신뢰 주체(`chatbot.amazonaws.com`)는 문서에 없어 가설이었고 11-23 테스트 메시지 도착으로 확인했습니다.
 - **PC마다 `terraform.tfvars`가 따로입니다(커밋 안 함).** 11-23 이 PC에는 Grafana 두 줄이 없어(→ 역할 삭제 plan) AWS 역할에서 복원했고, 예산 주소도 PC마다 달랐습니다(gmail로 통일). 다른 PC에서 처음 plan할 때 grafana · budget 줄이 바뀌면 apply하지 말고 tfvars부터 맞춥니다.
 
 ## 5-10. 시나리오 A: 적립금 보류 경보 대응 (운영자)
 
-Slack에 `hotel-booking-aws-v2-points-hold` 경보가 오면, 앱이 계정 탈취 의심 세션의 적립금 사용을 **이미 보류한 뒤**입니다(규칙: [10 보안 8절](../docs/10-security.md#8-계정-탈취-탐지--세션-보류-v3-시나리오-a-adr-072-2026-11-23), [ADR-072](../docs/04-decisions.md#adr-072)). 운영자는 확인 → 복구 또는 보류 해제 → 시각 기록을 합니다. 배포는 앱 CD(`sessions` 테이블은 migrate가 만듦) + 서울 apply(경보 2개)입니다.
+Slack에 `hotel-booking-aws-v2-points-hold` 경보가 오면, 앱이 계정 탈취 의심 세션의 적립금 사용을 **이미 보류한 뒤**입니다(규칙: [10 보안 8절](../docs/10-security.md#8-계정-탈취-탐지--세션-보류-v3-시나리오-a-adr-072-2026-11-23), [ADR-072](../docs/04-decisions.md#adr-072)). 운영자는 확인 → 복구 또는 보류 해제 → 시각 기록을 합니다. 배포는 앱 CD(`sessions` 테이블은 migrate가 만듦) + 서울 apply(경보 2개)입니다. 평소 사용자의 지표 필터 권한(`logs:*MetricFilter*`)은 11-24 bootstrap apply 뒤부터 있습니다(그 전엔 서울 apply가 지표 필터에서 막힘, ADR-073).
 
 ```bash
 # 0) 처음 한 번: 지표 필터 패턴 시험 (평소 사용자에겐 TestMetricFilter 권한이 없어 관리자). 1이 나오면 보류 로그만 잡힘

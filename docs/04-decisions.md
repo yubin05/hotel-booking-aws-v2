@@ -551,7 +551,7 @@
   | NAT 앞 Network Firewall (도메인 허용 목록) | 출구 통제가 규제 요구일 때의 방식. 요금이 크고 지금 요구가 없다 |
   | 설계도 NAT 1개 | 비용은 절반이지만 NAT의 AZ가 장애 나면 다른 AZ의 대체 태스크가 ECR 매니페스트를 못 받아 뜨지 못한다. AZ 장애 목표([ADR-036](#adr-036))를 못 지킬 수 있고, "설계는 실운영 기준"(RDS Multi-AZ 상시) 원칙과도 어긋난다(2026-11-13 재검토) |
 
-- **결정:** 설계는 AZ마다 NAT Gateway + EIP를 두고, 앱 라우트 테이블도 AZ마다 두어 자기 AZ의 NAT로 나간다. 포트폴리오는 seoul 루트 파일의 `nat_count`로 평소 1개(두 AZ가 첫 NAT 공유), AZ 장애 테스트 때 2개로 켠다(RDS Multi-AZ와 같은 방식). S3 게이트웨이 엔드포인트를 앱 라우트 테이블들에 연결한다.
+- **결정:** 설계는 AZ마다 NAT Gateway + EIP를 두고, 앱 라우트 테이블도 AZ마다 두어 자기 AZ의 NAT로 나간다. 포트폴리오는 seoul 루트 파일의 `nat_count`로 평소 1개(두 AZ가 첫 NAT 공유), AZ 장애 테스트 때 2개로 켠다(RDS Multi-AZ와 같은 방식). S3 게이트웨이 엔드포인트를 앱 라우트 테이블들에 연결한다. 도쿄는 장애 때만 생기므로 늘 2개([ADR-073](#adr-073), 2026-11-24).
 - **근거:** 외부 연동을 받아들일 수 있는 출구를 두면서, S3에 저장된 ECR 이미지 레이어는 무료 게이트웨이로 받아 NAT 처리 요금을 줄인다.
 - **결과:** 상시 추정 비용에 NAT 2개가 들어가 v2가 월 약 $157에서 $204로 오른다([09 비용](09-cost-estimate.md)). 평소 1개로 돌 때는 그 NAT의 AZ가 장애 나면 다른 AZ의 출구도 끊긴다는 점을 알고 쓴다. 장악된 컨테이너가 인터넷 어디로든 나갈 수 있다는 점은 받아들이는 한계이고, 외부 연동이 없고 보안 규제가 강한 고객이면 엔드포인트만 쓰는 안을 다시 본다.
 
@@ -1444,7 +1444,7 @@
   | 항목 | 고른 것 |
   |---|---|
   | 평소 도쿄 | 서울 RDS의 다른 리전 읽기 복제본 + 그 DB의 네트워크(VPC · DB 서브넷 · 보안 그룹 · 설정표, 7개). 앱 · ALB · NAT · 통로는 없음. 코드: `modules/regional` `replica_source_arn`(넣으면 복제본, 빼고 apply하면 승격) |
-  | 장애 때 | 사람이 선언([ADR-012](#adr-012) 그대로) → 도쿄 apply 한 번에 DB 승격 + 나머지 도쿄 인프라 → 확인 SQL → CloudFront 원본 전환. (처음엔 승격만 `-target`으로 먼저 했으나 [ADR-069](#adr-069)로 관리자 금고를 따로 붙일 일이 없어져 합침) |
+  | 장애 때 | 사람이 선언([ADR-012](#adr-012) 그대로) → 도쿄 apply 한 번에 DB 승격 + 나머지 도쿄 인프라 → 확인 SQL → CloudFront 원본 전환. (처음엔 승격만 `-target`으로 먼저 했으나 [ADR-069](#adr-069)로 관리자 금고를 따로 붙일 일이 없어져 합침). **→ 2026-11-24 ① 복구(NAT 2 · 경보 포함) → ② 보강(DB Multi-AZ, RTO 밖) 두 단계로([ADR-073](#adr-073))** |
   | 목표 | **리전 RTO 30분 · RPO 1분**(잠정, 다음 드릴 3회로 확정). AZ 10분 그대로 |
   | 포트폴리오 | 드릴 날만 `region.sh standby`로 대기 상태를 만든다(Multi-AZ · NAT 2와 같은 방식). 설계는 상시 |
   | 백업 | 서울 자동 백업 7일(시점 복구)은 유지: 복제본은 실수(잘못 지운 데이터)도 그대로 복제한다. 리전 간 백업 복제는 뺀다 |
@@ -1642,3 +1642,38 @@
   - 포인트를 안 쓰는 공격자 예약은 막지 않고 로그로 찾는다(기존 한계)
   - 앱 로그 그룹 보관이 7일이라 90일 원칙과 다르다. 후속 후보로 둔다
   - 2026년 현행 시행령 본문은 확인하지 못했다(2008년 조문과 기업 방침으로 판단). 경보 1개 · 지표 필터 1개 요금은 확인하지 않았다(시연 수준)
+
+## ADR-073 리전 전환 뒤 도쿄를 서울 설계 수준으로: ① 복구(NAT 2 · ALB · ECS 2 ~ 4) → ② 보강(DB Multi-AZ) 두 단계, 도쿄 장애 경보 추가 (2026-11-24)
+
+- **상황:**
+  - 도쿄 루트가 `nat_count = 1` · `db_multi_az = false`로 고정돼 있었고 이유 기록이 없었다([ADR-034](#adr-034)는 서울만 다룸). 장애로 넘어가면 서울을 복구할 때까지 도쿄가 메인인데, NAT · DB가 AZ 한 곳뿐이면 그 AZ가 죽을 때 다른 AZ의 ECS도 바깥 연결(결제 승인 · 카카오 · 금고 · ECR)과 DB를 잃는다. ECS를 AZ 2개에 나눈 효과가 반쯤 사라진다.
+  - 도쿄에는 장애 경보가 없었다(SNS 주제가 서울에만, [ADR-071](#adr-071)). 넘어간 뒤 운영 중인 리전에 경보가 없다.
+  - 사용자 검토(11-24): 도쿄 NAT를 왜 1개로 두는지, ECS를 1개로 줄이면 어떤지, NAT 1개로 쓰다가 필요하면 늘리면 어떤지 → 아래로 정함.
+- **결정:**
+
+  | 항목 | 고른 것 |
+  |---|---|
+  | 평시(대기) | 그대로: 서울 DB의 읽기 복제본(Single-AZ) + DB 네트워크 7개([ADR-066](#adr-066)). AWS DR 백서의 Pilot Light 정의(*"Resources required to support data replication and backup, such as databases and object storage, are always on"*, 앱 서버는 *"switched off"*)와 같다 |
+  | 장애 ① 복구 (RTO 안) | 승격 + NAT 2(AZ마다) · ALB 1 · ECS 2 ~ 4 · VPC Origin · 경보를 apply 한 번에 → 확인 SQL → CloudFront 전환. DB는 아직 Single-AZ |
+  | 장애 ② 보강 (RTO 밖) | 손님 쓰기가 도쿄에서 성공한 뒤 `multi_az = true`로 apply해 DB를 Multi-AZ로. RDS 문서도 승격 뒤 선택 단계로 둔다(*"(Optional) Modify the new DB instance to be a Multi-AZ deployment"*) |
+  | 도쿄 경보 | bootstrap에 도쿄 SNS 주제를 만들고 같은 Slack 채널 설정에 연결. 도쿄 루트 `alerts = true`(경보 2 · 지표 필터 1). 경보는 같은 리전 주제에만 보낼 수 있다 |
+  | 서울 | 그대로(설계 Multi-AZ · NAT 2, 포트폴리오 평소 끔, ADR-034 · ADR-042) |
+  | 측정 | 5단계 드릴을 새 조건으로 3회 처음부터 다시 잰다(11-22 3회는 "NAT 1 · 보강 없음" 조건 기록으로 보존). ② 보강 시간과 그동안 손님 쓰기 실패 수를 같이 잰다 |
+
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | 도쿄 NAT 1개 유지, 오래 머물면 2개로 | 아끼는 돈이 장애 하루 약 $1.5(서울 기록 단가 NAT + IP $0.064/시간, [03 진행 기록](03-plan.md)). 대가로 장애 대응 중 사람이 판단 · 실행할 단계가 하나 늘고, 늘리는 순간 둘째 AZ의 진행 중 바깥 연결이 끊길 수 있다(가설) |
+  | 도쿄 ECS 최소 1개 + 오토스케일링 | 늘어나는 데 약 4분(경보 "1분 × 3번" + 태스크 준비 약 50초, [오토스케일링 실측](experiments/autoscaling/README.md) 합산 추정). 전환 직후 몰림을 1개가 받고, 태스크 하나가 죽으면 새 태스크가 뜰 때까지(약 1분 반) 전체 중단. 아끼는 건 장애 기간 태스크 1개분 |
+  | 승격과 Multi-AZ를 apply 한 번에 | 공급자의 처리 순서와 전환 중 중단 여부를 문서로 확인하지 못함 → RTO가 늘거나 apply가 실패할 위험 |
+  | 복제본 자체를 상시 Multi-AZ로 | 평시 도쿄 DB 비용 약 2배. MySQL 복제본은 Multi-AZ가 되지만(*"You can create a read replica as a Multi-AZ DB instance"*) 리전 간 복제본에 대한 명시는 찾지 못함 |
+
+- **결과 · 받아들인 위험:**
+  - ①과 ② 사이 도쿄 DB는 한 대뿐이다. 그 사이 도쿄 AZ까지 죽으면 DB가 멈춘다(서울 리전 장애와 겹칠 확률은 낮다고 보고 받아들임)
+  - 도쿄 ① apply 43 → 48개(NAT · EIP 1쌍 + 경보 2 · 지표 필터 1), destroy 50 → 55개(11-24 빈 도쿄 plan 55 to add로 확인). NAT 2개는 서로 의존이 없어 동시에 만들어지므로 RTO에 거의 영향이 없다고 본다(가설, Terraform 기본 동시 작업 10개). 병목은 그대로 VPC origin(8 ~ 9분)
+  - 장애 기간 비용: NAT 1개분($0.064/시간, 서울 단가) + ② 뒤 DB 대기 1대분. 평시 비용은 변화 없음(대기 상태에 NAT · Standby가 없음)
+  - Multi-AZ 전환 시간 · 중단 여부는 문서에서 찾지 못해 드릴에서 잰다. Multi-AZ는 쓰기 지연이 늘 수 있다(*"increased write and commit latency"*)
+  - 같이 고친 것: 평소 사용자 정책에 지표 필터 권한(`logs:*MetricFilter*`)이 없어 ADR-072 지표 필터 apply가 막힐 상태였다(11-23은 plan만 해서 드러나지 않음). 같은 bootstrap apply로 넣는다(공백 뺀 6,004 → 6,026 / 6,144자)
+  - 3단계 성능(k6 3회)은 Single-AZ 조건이었다. Multi-AZ로 1회 비교해 미리 정한 기준 안이면 Single-AZ 기록을 대표값으로 쓴다([3단계 기록](experiments/migration.md#multi-az-조건-비교-1회-2026-11-24-계획))
+  - 근거 문서: [RDS 복제본 승격](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.Promote.html), [RDS Multi-AZ](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZSingleStandby.html), [MySQL Multi-AZ 읽기 복제본](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_MySQL.Replication.ReadReplicas.MultiAZ.html), [AWS DR 백서](https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html), [terraform apply `-parallelism`](https://developer.hashicorp.com/terraform/cli/commands/apply#parallelism-n)

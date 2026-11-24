@@ -82,6 +82,7 @@ standby() { # 도쿄 = 서울 DB의 읽기 복제본 + 그 DB가 놓일 네트�
   [[ $src == arn:aws:rds:* ]] || { echo "서울 DB가 없음: 서울 apply 먼저" >&2; exit 1; }
   # shortcut: -target으로 DB와 그 의존(VPC · DB 서브넷 · 보안 그룹 · 설정표)만 만든다. Terraform은 평소 쓰지 말라고 경고하지만 대기 상태 한 단계에만 씀. 상시 운영이면 모듈에 standby 변수로 나눔
   tfvar tokyo replica_source_arn "\"$src\""
+  tfvar tokyo multi_az # 대기 복제본은 Single-AZ. 지난 회차 ② 보강의 true를 지움 (ADR-073)
   date; terraform -chdir="$INFRA/tokyo" apply -target=module.regional.aws_db_instance.this; date
   echo "도쿄 DB (available + 서울 ARN이면 대기 완료): $(tokyo_db)"
 }
@@ -113,6 +114,9 @@ run() {
   # 0) 사전: 서울이 손님을 받는 중, 도쿄는 standby(서울 DB의 복제본만)
   [ "$(code "$BASE/api/health/deep")" = 200 ] || { echo "새 주소가 안 뜸: 서울 · global 먼저" >&2; exit 1; }
   [[ "$(tokyo_db)" == "available arn:"* ]] || { echo "도쿄가 대기 상태(복제본 available)가 아님: $(tokyo_db) → bash drill/region.sh standby" >&2; exit 1; }
+  # 도쿄 경보가 보낼 주제(bootstrap). 없으면 RTO 도중 apply가 멈출 수 있어 미리 막음 (ADR-073)
+  in_region "$TOKYO" sns get-topic-attributes --topic-arn "arn:aws:sns:$TOKYO:$(cut -d: -f5 <<<"$arn"):$CLUSTER-alerts" >/dev/null ||
+    { echo "도쿄 경보 주제가 없음: bootstrap apply 먼저 (런북 5-8)" >&2; exit 1; }
 
   # 측정기 · DB 상태 기록기는 스크립트가 멈춰도 계속 돈다(11-21 시도 2 · 3은 스크립트와 함께 꺼져 RTO를 못 잼). 끝은 run 마지막 또는 region.sh stop
   node writer.mjs "$OUT/writer.log" "$BASE" >"$OUT/writer.out" 2>&1 &
@@ -149,10 +153,11 @@ run() {
   mark replica_lag_s "$lag"
   echo "    예상 RPO(장애 선언 때 복제 지연): ${lag}초"
 
-  # ③ 도쿄: replica_source_arn을 빼면 공급자가 복제본을 승격하고, 나머지 인프라(ALB · ECS · NAT · 통로 · 태스크 정의)도 같은 apply로.
+  # ③ 도쿄: replica_source_arn을 빼면 공급자가 복제본을 승격하고, 나머지 인프라(ALB · ECS · NAT 2 · 통로 · 태스크 정의 · 경보)도 같은 apply로.
   #    관리자 비밀번호는 원본에서 물려받고 bootstrap 금고가 도쿄에 복제돼 있어 승격 뒤 따로 붙일 것이 없다 (ADR-069)
+  #    11-22 실측 43개 + NAT · EIP 1쌍 + 경보 2 · 지표 필터 1 (ADR-073). DB는 아직 Single-AZ(② 보강에서 켬)
   tfvar tokyo replica_source_arn
-  tf_apply tokyo tokyo "Plan: 43 to add, 1 to change, 0 to destroy."
+  tf_apply tokyo tokyo "Plan: 48 to add, 1 to change, 0 to destroy."
 
   # ④ 승격 DB 확인(도쿄 안 sql 태스크): 장애 선언 전 손님 쓰기가 몇 번까지 들어 있나 + 주요 표 행 수
   #    created_at < t0: 되돌리기 전에 다시 셀 때도 도쿄에서 새로 받은 예약이 섞이지 않게 (DB 시각은 UTC)
@@ -179,6 +184,16 @@ SQL
   mark human_wait_sec "$HUMAN"
   local rto=$((($(mark_ms rto_end) - t0) / 1000))
   echo "    RTO ${rto}초 (사람 확인 ${HUMAN}초 포함, 빼면 $((rto - HUMAN))초)" | tee -a "$OUT/steps.log"
+
+  # ⑥-2 보강 (ADR-073): 손님을 받은 뒤 도쿄 DB를 Multi-AZ로. RTO 밖. 바꾸는 동안 손님 쓰기가 실패하는지 측정기로 봄
+  #     (전환 시간 · 중단 여부는 문서에 없어 이 단계로 잼. DB 상태 기록기가 modifying → available도 따로 남김)
+  tfvar tokyo multi_az true
+  tf_apply tokyo tokyo_multi_az "Plan: 0 to add, 1 to change, 0 to destroy."
+  local ma mb
+  ma=$(mark_ms tokyo_multi_az_apply)
+  mb=$(mark_ms tokyo_multi_az_done)
+  awk -F'\t' -v a="$ma" -v b="$mb" '$2 == "write" && $1 >= a && $1 <= b { n++; if (!($4 >= 200 && $4 < 300)) f++ }
+    END { printf "    Multi-AZ 보강 %d초, 그동안 손님 쓰기 %d건 중 실패 %d건\n", (b - a) / 1000, n, f }' "$OUT/writer.log" | tee -a "$OUT/steps.log"
 
   echo "    지금 실제 사이트(https://hotel.vundle34.cloud)에서 로그인 · 예약해 보고 예약 내용을 적어 두세요. 되돌린 뒤 서울에서도 보이면 데이터 이관까지 확인"
   read -rp "도쿄에서 운영 중. 확인 · 녹화 뒤 Enter로 되돌리기 (관리자 세션은 2시간, 필요하면 콘솔에서 역할을 새로 전환하고 다른 창에서 aws login --profile admin): " _
@@ -236,7 +251,7 @@ SQL
   trap - ERR
   stop "$OUT"
   echo "결과: drill/$OUT/"
-  echo "다음: 도쿄 내리기 cd infra/tokyo && terraform destroy (50개). 다음 회차는 standby부터"
+  echo "다음: 도쿄 내리기 cd infra/tokyo && terraform destroy (55개). 다음 회차는 standby부터"
 }
 
 case "${1:-}" in
