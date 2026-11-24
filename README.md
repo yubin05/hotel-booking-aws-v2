@@ -46,7 +46,7 @@ v2는 같은 시나리오를 **요구사항 → 설계 → 실측** 순서로 �
 | 트래픽 폭증 | CloudFront 캐시, ECS 오토스케일링 (최대 태스크 수로 비용 상한) |
 | 서버·AZ 장애 | ALB·ECS를 AZ 2개에 분산, RDS Multi-AZ 자동 장애 조치, AZ마다 NAT. AWS가 모르는 AZ 이상(회색 장애)은 ALB zonal shift로 그 AZ를 뺌 |
 | 데이터 사고 | RDS 시점 복구(PITR) |
-| 리전 장애 | 도쿄에 상시 둔 DB 복제본을 승격하고, 같은 Terraform으로 나머지를 올려 전환 (Pilot Light, 목표 RTO 30분 · RPO 1분. 2026-11-22 Backup & Restore에서 바꿈). 사진은 CDN이 도쿄 복제본으로 자동 전환 |
+| 리전 장애 | 도쿄에 상시 둔 DB 복제본을 승격하고, 같은 Terraform으로 나머지를 올려 전환 (Pilot Light, 목표 RTO 30분 · RPO 1분. 2026-11-22 Backup & Restore에서 바꿈). 넘어간 뒤 도쿄도 서울 설계처럼 AZ마다 NAT · 장애 경보, 손님을 받은 뒤 DB Multi-AZ([ADR-073](docs/04-decisions.md#adr-073)). 사진은 CDN이 도쿄 복제본으로 자동 전환 |
 
 → [아키텍처 상세](docs/02-architecture.md)
 
