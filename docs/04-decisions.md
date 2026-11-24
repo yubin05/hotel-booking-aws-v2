@@ -1723,3 +1723,11 @@
 - **범위:** 서울 · 도쿄, CloudFront · WAF · 지표처럼 us-east-1에 있는 것만 us-east-1. 읽기(Describe · List · Get)만이고 바꾸는 작업은 없다. 비용(Cost Explorer)은 관제가 아니라 뺐다. Access Analyzer 정책 검사 지적 0건(11-25), 크기 3,282자.
 - **받아들인 위험:** 로그 읽기는 민감하다. 앱 로그에 개인정보가 찍히면 관제 그룹 모두가 본다(앱은 비밀번호 · SQL을 찍지 않게 해 둠, 이메일 등은 따로 확인할 일). 리소스를 우리 것으로 좁히지 않고 리전으로만 좁혔다(이 계정은 이 프로젝트 전용이라 실질 범위는 같다).
 - **apply 주의 (11-25 발견):** 집 PC의 bootstrap `terraform.tfvars`가 11-22 판이라 plan이 Slack 경보 연결 · SES 수신자를 지우려 했다(4 to add, 1 to change, 5 to destroy). `scripts/preflight.sh`가 이제 `.example`에 주석 없이 적힌 줄이 이 PC에 있는지 본다. 기대 plan: **4 to add, 0 to change, 0 to destroy**(정책 · 그룹 · 연결 · 소속).
+
+<a name="adr-077"></a>
+## ADR-077 관리자 역할 전환은 사람(vundle34)에게만: 신뢰 정책 주체를 사용자로, 전환 권한을 그룹에서 개인으로 (2026-11-25)
+
+- **상황:** `Administrator-Role`(관리자, [ADR-018](#adr-018))의 신뢰 정책 주체가 계정 전체(`…:root`) + MFA였고, 전환 권한(`sts:AssumeRole`)은 운영 그룹 `normal-user-group`의 인라인 정책 `AssumeAdminRolePolicy`에 있었다. 계정 주체는 *"This delegates authority to the account."*라 **운영 그룹에 들어오는 사람은 누구나 관리자로 전환**할 수 있었다(지금은 vundle34 한 명). 사용자 요청: "같은 운영 그룹 안에서도 vundle34만 관리자로 바꾸게".
+- **결정 (사용자, 2026-11-25, 사용자 실행 · 집 PC):** ① 신뢰 정책 주체를 `arn:aws:iam::<계정>:user/vundle34`로(MFA 조건 유지, 01:41:21) ② 같은 내용의 전환 권한을 vundle34 개인 인라인 정책으로(01:40:52) ③ 콘솔에서 전환 확인 뒤 그룹 인라인 정책 삭제(01:4x). 그룹은 직무 권한만, 관리자 전환은 사람 단위로 지정한다.
+- **근거:** *"Principals must always name specific users."* ([IAM 주체](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_elements_principal.html)). 두 층(역할 쪽 신뢰 · 사람 쪽 권한) 모두 vundle34만 허용해, 어느 한쪽이 실수로 넓어져도 다른 쪽이 막는다.
+- **받아들인 위험 · 주의:** vundle34를 지우고 같은 이름으로 다시 만들면 신뢰 정책이 맞지 않는다(*"The policy no longer applies, even if you recreate the user."*) → 신뢰 정책을 다시 저장. 신뢰 정책을 잘못 바꾸면 관리자 전환이 막히므로 복구 수단은 루트 계정(MFA). 관리자 역할 · 이 두 정책은 처음부터 Terraform 밖이라 손으로 바꾸고 여기와 백업(집 PC `~/iam-backup-20261125/`)으로 남긴다.
