@@ -3,7 +3,7 @@ module "regional" {
   vpc_cidr = "10.0.0.0/16" # ADR-033
   az_ids   = ["apne2-az1", "apne2-az3"]
 
-  # 평소 NAT 1개 · RDS 한 AZ(비용). 4단계 RDS · AZ 장애 테스트 날만 -var multi_az=true (ADR-034 · ADR-042)
+  # 평소 NAT 1개 · RDS 한 AZ(비용). 4단계 RDS · AZ 장애 테스트 · 리전 드릴 날만 terraform.tfvars에 multi_az = true (ADR-034 · ADR-042)
   nat_count   = var.multi_az ? 2 : 1
   db_multi_az = var.multi_az
 
