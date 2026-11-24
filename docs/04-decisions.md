@@ -1714,3 +1714,12 @@
 - **배포는 됐는데 앱 코드에 버그가 있을 때(사용자 질문, 11-25):** health는 정상이라 자동 롤백이 안 걸린다. 개발자는 AWS 권한 없이 GitHub에서 **직전 정상 배포의 CI 실행을 Re-run**하면 된다. 다시 실행은 그때의 커밋으로 돈다(*"the same `GITHUB_SHA` (commit SHA) and `GITHUB_REF`"*, 처음 실행 뒤 30일 안 · 50번까지, [GitHub](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs)) → 태그가 있어 빌드 없이 옛 이미지로 배포(테스트는 다시 돎). 더 급하면 운영자가 위 `update-service`(빌드 · 테스트 없이 바로). 그 뒤 개발자가 `git revert`로 main을 고친다: 되돌린 커밋은 새 해시라 새 태그로 올라가 태그 불변과 부딪히지 않고, 안 고치면 다음 push가 버그를 다시 배포한다
   - 한계: 되돌릴 이미지가 수명 주기로 지워졌으면 못 돌린다(10번분). 앱만 되돌리고 DB 스키마는 되돌리지 않으므로, 스키마가 바뀐 배포는 옛 앱과 맞는지 먼저 본다(추론).
 - **확인할 것:** 다음 push 뒤 ECR에 항목이 1개만 생기는지.
+
+<a name="adr-076"></a>
+## ADR-076 운영 · 관제 그룹을 따로 두고 "보는 권한"을 준다: 평소 사용자(운영자)는 운영 그룹 + 관제 그룹 (2026-11-25)
+
+- **상황:** 평소 사용자 정책([ADR-038](#adr-038))은 "Terraform apply에 필요한 권한"만 모아 만들었다(크기 한도 6,144자, v2 정책 6,026자). 그래서 운영자가 **지표(GetMetricData) · 로그 읽기 · ECR 콘솔 목록 · 스캔 결과 · 태스크 목록/상세 · RDS 이벤트 · SNS 주제 · WAF 차단 샘플 · CloudTrail · GuardDuty/Security Hub 결과 · AWS Health**를 볼 수 없었다. 11-24 ~ 25에 Claude도 SNS 주제 조회 · DB 스왑 지표 조회가 막혀 관리자 세션으로 우회했다(평소 일에 가장 높은 권한을 쓴 셈). 사용자가 콘솔에서 ECR을 못 보는 것을 보고 지적했다.
+- **결정 (사용자, 2026-11-25):** 관제 그룹 `hotel-booking-aws-v2-monitoring`을 만들고 읽기 전용 정책 `hotel-booking-aws-v2-monitoring-read`([infra/iam/v2-monitoring-policy.json](../infra/iam/v2-monitoring-policy.json))를 붙인다. 운영자 vundle34는 운영 그룹(`normal-user-group`, 바꾸는 권한)과 관제 그룹(보는 권한)에 모두 속한다. 관제만 하는 사람은 관제 그룹에만 넣는다. bootstrap이 관리한다([iam.tf](../infra/bootstrap/iam.tf), 소속은 다른 그룹을 건드리지 않는 `aws_iam_user_group_membership`).
+- **범위:** 서울 · 도쿄, CloudFront · WAF · 지표처럼 us-east-1에 있는 것만 us-east-1. 읽기(Describe · List · Get)만이고 바꾸는 작업은 없다. 비용(Cost Explorer)은 관제가 아니라 뺐다. Access Analyzer 정책 검사 지적 0건(11-25), 크기 3,282자.
+- **받아들인 위험:** 로그 읽기는 민감하다. 앱 로그에 개인정보가 찍히면 관제 그룹 모두가 본다(앱은 비밀번호 · SQL을 찍지 않게 해 둠, 이메일 등은 따로 확인할 일). 리소스를 우리 것으로 좁히지 않고 리전으로만 좁혔다(이 계정은 이 프로젝트 전용이라 실질 범위는 같다).
+- **apply 주의 (11-25 발견):** 집 PC의 bootstrap `terraform.tfvars`가 11-22 판이라 plan이 Slack 경보 연결 · SES 수신자를 지우려 했다(4 to add, 1 to change, 5 to destroy). `scripts/preflight.sh`가 이제 `.example`에 주석 없이 적힌 줄이 이 PC에 있는지 본다. 기대 plan: **4 to add, 0 to change, 0 to destroy**(정책 · 그룹 · 연결 · 소속).
