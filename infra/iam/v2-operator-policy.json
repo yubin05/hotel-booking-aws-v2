@@ -181,6 +181,7 @@
         "logs:DescribeLogGroups",
         "logs:PutRetentionPolicy",
         "logs:DeleteRetentionPolicy",
+        "logs:*MetricFilter*",
         "logs:TagResource",
         "logs:UntagResource",
         "logs:ListTagsForResource"
