@@ -24,7 +24,7 @@ locals {
 }
 
 variable "loadtest_ips" {
-  description = "부하 시험 발생기 공인 IP(/32 목록). WAF 요청 수 한도에서만 빼고 관리형 규칙은 그대로 거침 (3단계). 시험 날만 -var로, 평소 빈 목록"
+  description = "부하 시험 발생기 공인 IP(/32 목록). WAF 요청 수 한도에서만 빼고 관리형 규칙은 그대로 거침 (3단계). 시험 날만 terraform.tfvars에, 평소 빈 목록 (README 0절 · 5-4)"
   type        = list(string)
   default     = []
 }

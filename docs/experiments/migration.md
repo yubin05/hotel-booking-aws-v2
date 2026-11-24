@@ -167,16 +167,17 @@ legacy(+ 발생기) apply → 서울 apply → global apply(WAF 예외 포함) �
 
 위 3회는 서울 RDS **Single-AZ**(포트폴리오 평소 값)로 쟀다. 설계 · 실사용은 Multi-AZ라 같은 시나리오를 Multi-AZ로 1회 돌려 차이를 본다([ADR-073](../04-decisions.md#adr-073), 2026-11-24 사용자 결정). Multi-AZ는 동기 복제 때문에 쓰기 · 커밋 지연이 늘 수 있다([RDS 문서](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZSingleStandby.html): *"increased write and commit latency"*).
 
-- 조건: 서울 `terraform.tfvars`에 `multi_az = true`(NAT 2 · RDS Multi-AZ). 데이터(2회차 이관 뒤) · `baseline.js` · 태스크 크기 · 최대 4개 · 발생기는 위 3회와 같게
+- 조건: 서울 `terraform.tfvars`에 `multi_az = true`(NAT 2 · RDS Multi-AZ). `baseline.js` · 태스크 크기 · 최대 4개 · 발생기(legacy `is_load_test = true`, WAF 한도 예외 `loadtest_ips`)는 위 3회와 같게
+- 데이터: 11-24 새 RDS라 이관 대신 CD migrate의 시드(`schema` → `seed` → `seed-volume`, 옛 DB 서버 초기화와 같은 파일). 위 3회와 다른 점은 표지 손님 1명과 앞 회차가 쌓은 예약(회차마다 1,463 ~ 1,876건)이 없는 것. 3,000명 층에서도 RDS CPU 43%라 영향은 작다고 본다(가설)
 - 실행: `TARGET=aws bash load/run-baseline.sh` 1회(37분), 정합성 검사도 같게. 끝나면 서울 `multi_az` 줄을 지움
-- **판정 기준 (실행 전에 고정, Claude 제안 · 사용자 확인 대기):**
+- **판정 기준 (실행 전에 고정, 2026-11-24 사용자 결정):**
 
   | 결과 | 판정 |
   |---|---|
-  | 버틴 인원 3,000명(맨 위 층) 같음 + 층별 에러율 · p95가 3회 범위 안이거나 범위 상한의 1.2배 이내 | Single-AZ 3회를 대표값으로 쓰고 "Multi-AZ 1회 확인"을 같이 적음 |
-  | 버틴 인원이 한 층 이상 줆, 또는 한 층이라도 p95가 범위 상한의 1.2배 초과 | Multi-AZ로 3회 다시 재고 그 값을 대표값으로 |
+  | 버팀 정의(에러율 1% · p95 1초)로 3,000명 층까지 버팀. Single-AZ보다 같거나 좋거나 조금 나빠도 | Single-AZ 3회를 대표값으로 쓰고 Multi-AZ 값을 옆 칸에 함께 적음. 표시는 "Multi-AZ (1회)" |
+  | 버팀 정의를 넘는 층이 하나라도 있음 | Multi-AZ로 3회 다시 재고 그 값을 대표값으로 |
 
-  1.2배를 둔 이유: 3,000명 층 p95가 3회 사이에서 404 ~ 956ms로 2배 넘게 흔들려 범위 밖의 작은 차이는 흔들림과 구분이 안 된다. 500 ~ 2,000명 층은 61 ~ 107ms로 촘촘해 쓰기 지연이 늘면 여기서 먼저 보인다
+  범위가 아니라 버팀 정의로 보는 이유: 조건이 같아도 4번째 값이 앞 3회 중 가장 나쁠 확률이 1/4이고, 층 6개 × 에러율 · p95 = 12개 지표라 차이가 없어도 하나쯤 걸리기 쉽다(지표가 독립이면 약 97%). 그래서 주장("3,000명까지 버팀")이 바뀌는지를 기준으로 삼고, 몇 ms 차이는 "Multi-AZ를 켠 대가"로 기록한다. 처음 제안한 "범위 상한의 1.2배"는 근거 없는 배수라 뺐다
 
 | 예측 (실행 전) | 뜻 | Claude (가설) | 사용자 |
 |---|---|---|---|
