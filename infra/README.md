@@ -250,6 +250,7 @@ aws ecs describe-services --cluster hotel-booking-aws-v2 --services app --region
 TARGET=aws bash load/run-baseline.sh                                  # 37분. 태스크 수 5초 기록(tasks.log)도 같이
 aws login --profile admin                                             # 끝나면 바로 (1초 지표는 시작부터 3시간만 남음)
 bash load/cw-metrics.sh "$(ls -td load/results/baseline-aws-2* | head -1)"
+node scripts/journey-report.mjs "$(ls -td load/results/baseline-aws-2* | head -1)"   # 손님 여정(11-24~): 접속부터 예약까지 층별 기다린 시간
 ```
 
 3회가 끝나면(또는 한 회차가 끊겨 따로 할 때) 아래를 **서울 destroy 전에** 관리자로:
