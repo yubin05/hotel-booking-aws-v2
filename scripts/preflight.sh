@@ -28,6 +28,13 @@ chk "legacy/terraform.tfvars SSH 허용 IP = 지금 IP(${ip:-?})" "web_app_ssh_i
 opt() { if "${@:3}" >/dev/null 2>&1; then echo "  OK  $1"; else echo "  --  $1 → $2"; fi; }
 opt "~/.hotel-legacy/grafana.env 토큰" "없으면 쿠폰 시험의 Grafana 실시간 전송만 꺼짐" grep -q '^K6_PROMETHEUS_RW_PASSWORD=.' ~/.hotel-legacy/grafana.env
 opt "infra/bootstrap/terraform.tfvars Grafana 값" "빈 채로 bootstrap apply하면 Grafana 출입증 역할이 지워짐" grep -q '^grafana_account_id *= *"[0-9]' infra/bootstrap/terraform.tfvars
+# terraform.tfvars는 커밋 안 해 PC마다 따로다. .example에 주석 없이 적힌 줄이 이 PC에 없으면 apply가 그 리소스를 지운다
+# (11-25 집 PC bootstrap: 11-23에 다른 PC에서 더한 Slack · SES 줄이 없어 plan이 Slack 경보 연결 · SES 수신자 삭제)
+for ex in infra/*/terraform.tfvars.example; do
+  for k in $(grep -oE '^[a-z_]+' "$ex"); do
+    chk "${ex%.example}의 $k" "$ex를 보고 채우기 (다른 PC의 같은 파일에서 복사)" grep -qE "^$k *=" "${ex%.example}"
+  done
+done
 
 echo "[Terraform init]"
 for r in "$APP/legacy" "$APP/legacy/iam" infra/bootstrap infra/seoul infra/global infra/tokyo; do
