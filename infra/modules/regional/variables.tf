@@ -63,7 +63,7 @@ variable "app_integrations" {
 }
 
 variable "alerts" {
-  description = "장애 경보를 만들어 bootstrap의 SNS 주제(→ Slack)로 보낼지 (ADR-071, alarms.tf). 주제가 서울에만 있어 서울만 true"
+  description = "장애 경보를 만들어 bootstrap의 SNS 주제(→ Slack)로 보낼지 (ADR-071, alarms.tf). 주제는 서울 · 도쿄에 하나씩(ADR-073), 둘 다 true"
   type        = bool
   default     = false
 }
