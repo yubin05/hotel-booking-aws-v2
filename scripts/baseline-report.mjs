@@ -63,7 +63,7 @@ const min = (v) => Math.min(...v);
 const cloud = (f) =>
   `태스크 CPU 평균 ${cwIn('ecs_cpu_avg', f, avg)}%(가장 바쁜 태스크 최대 ${cwIn('ecs_cpu_max', f, max)}%) · 메모리 평균 ${cwIn('ecs_mem_avg', f, avg)}%(최대 ${cwIn('ecs_mem_max', f, max)}%)` +
   ` · 정상 태스크 ${cwIn('healthy', f, min)} ~ ${cwIn('healthy', f, max)}개 · 앱 5xx ${cwIn('alb_5xx', f, (v) => v.reduce((s, x) => s + x, 0))}건` +
-  ` · RDS CPU 평균 ${cwIn('rds_cpu', f, avg)}% · 연결 최대 ${cwIn('rds_conn', f, max)} · 여유 메모리 최소 ${cwIn('rds_freemem', f, (v) => min(v) / 2 ** 20)}MB · CPU 크레딧 최소 ${cwIn('rds_credit', f, min)}`;
+  ` · RDS CPU 평균 ${cwIn('rds_cpu', f, avg)}% · 연결 최대 ${cwIn('rds_conn', f, max)} · 여유 메모리 최소 ${cwIn('rds_freemem', f, (v) => min(v) / 2 ** 20)}MB · 스왑 최대 ${cwIn('rds_swap', f, (v) => max(v) / 2 ** 20)}MB(11-25~) · CPU 크레딧 최소 ${cwIn('rds_credit', f, min)}`;
 
 const fmtMs = (ms) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`);
 const rows = floors.map((f) => {

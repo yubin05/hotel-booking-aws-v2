@@ -30,6 +30,7 @@ $(q ecs_mem_avg AWS/ECS MemoryUtilization Average "$ECS"),$(q ecs_mem_max AWS/EC
 $(q healthy AWS/ApplicationELB HealthyHostCount Maximum "$ALB_TG"),$(q alb_5xx AWS/ApplicationELB HTTPCode_Target_5XX_Count Sum "$ALB"),\
 $(q rds_cpu AWS/RDS CPUUtilization Average "$RDS"),$(q rds_conn AWS/RDS DatabaseConnections Maximum "$RDS"),\
 $(q rds_freemem AWS/RDS FreeableMemory Minimum "$RDS"),$(q rds_credit AWS/RDS CPUCreditBalance Minimum "$RDS"),\
+$(q rds_swap AWS/RDS SwapUsage Maximum "$RDS"),\
 $(q ci_desired ECS/ContainerInsights DesiredTaskCount Average "$ECS"),$(q ci_running ECS/ContainerInsights RunningTaskCount Average "$ECS"),\
 $(q ci_pending ECS/ContainerInsights PendingTaskCount Average "$ECS")]" # Container Insights 태스크 수 (2026-11-20 켬)
 
