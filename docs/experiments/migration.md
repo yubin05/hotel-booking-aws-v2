@@ -240,6 +240,7 @@ legacy(+ 발생기) apply → 서울 apply → global apply(WAF 예외 포함) �
 - 실행: 스모크 `SCRIPT=realistic.js TARGET=aws bash load/run-baseline.sh --stage 30s:5 --stage 10s:0`(준비 가입 100개 약 1분 + 40초, 여정 2분) → 본 실행 `SCRIPT=realistic.js TARGET=aws bash load/run-baseline.sh`(49분, 이름 `baseline-aws-real-*`) 또는 3회 `SCRIPT=realistic.js bash load/run-baseline-x3.sh`
 - 점검표: 1 연결 포함 시간 · 2 아래 예측 · 판정을 실행 전에 · 3 조건마다 3회(①부터) · 4 계단 · 손님 행동 · 계정 수 고정 · 5 발생기 같음 · 6 `baseline-report.mjs` · `journey-report.mjs` 그대로 · 7 해당 없음 · 8 스모크
 - 스모크 (11-25 01:01, 사용자, `baseline-aws-real-try-20261125-010124`): 부하 쪽 확인 49개 모두 성공 · 요청 실패 0(5명 40초라 방문 3번뿐, **로그인 · 예약 경로는 안 탐** → 본 실행 초반 k6 화면의 `✗ 로그인 200` · `✗ 예약`으로 확인). 측정 손님 여정 34번 모두 성공 · 예약 34건, 화면 p95 0.75초 · 기다린 시간 합 p95 2.2초(부하 없을 때)
+- 스모크 다시 (11-25 01:11, `baseline-aws-real-try-20261125-011121`): 스모크면 예약 · 내 예약 100% · 생각 1초(`SMOKE=1`)로 고치고, 01:06 회차가 준비(계정 100개 가입) 60초 초과로 멈춰 한도를 5분으로 늘린 뒤. **확인 11종 189개 모두 성공(로그인 · 예약 · 내 예약 포함), 예약 16건, 요청 실패 0**. 준비는 약 1분 걸림(옛 한도면 또 멈췄을 길이)
 
 | 예측 ① (실행 전) | 뜻 | Claude (가설) | 사용자 |
 |---|---|---|---|
