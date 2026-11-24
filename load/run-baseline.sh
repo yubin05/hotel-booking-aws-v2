@@ -44,6 +44,9 @@ collect() {
   # 닫힌 연결 기록은 120초 뒤 사라지므로 앱·DB에 접속될 때까지 최대 약 3분 기다린다
   [[ $name == baseline-aws-* ]] || for i in $(seq 12); do ssh -o ConnectTimeout=10 "ec2-user@$APP" true 2>/dev/null && ssh -o ConnectTimeout=10 -J "ec2-user@$APP" "ec2-user@$DB" true 2>/dev/null && break; echo "서버 접속 대기 중 ($i/12)" >&2; sleep 15; done
   "${ON_LOAD[@]}" 'sudo docker logs k6' >"$out/k6.txt" 2>&1
+  # 손님 여정 k6(3단계만)는 준비가 짧아 몇 초 늦게 끝난다 → 최대 3분 기다린 뒤 로그를 받는다 (결과 파일은 아래 scp가 같이 받음)
+  for _ in $(seq 36); do [ "$("${ON_LOAD[@]}" "sudo docker inspect -f '{{.State.Running}}' k6-journey 2>/dev/null")" = true ] || break; sleep 5; done
+  "${ON_LOAD[@]}" 'sudo docker logs k6-journey' >"$out/journey.txt" 2>&1 || rm -f "$out/journey.txt"
   scp -q "ec2-user@$LOAD:load/results/$name.*" "$out/"
   # 기록을 멈추고 가져온다 (pkill은 이미 멈췄으면 실패하므로 무시)
   "${ON_LOAD[@]}" 'pkill vmstat; cat ~/vmstat.log' >"$out/load.vmstat" || true
@@ -63,7 +66,7 @@ collect() {
   "${ON_DB[@]}" "sudo docker exec -i hotel-db sh -c 'mysql -uapp -p\"\$MYSQL_PASSWORD\" --default-character-set=utf8mb4 -t hotel_booking' 2>/dev/null" \
     <../scripts/check-consistency.sql >"$out/consistency.txt"
   fi
-  "${ON_LOAD[@]}" 'sudo docker rm k6 >/dev/null'
+  "${ON_LOAD[@]}" 'sudo docker rm k6 >/dev/null && { sudo docker rm k6-journey >/dev/null 2>&1 || true; }'
   echo "결과: load/results/$name/"
   ls -1 "$out"
   grep -E 'http_reqs\.|http_req_failed|bookings_created|vus_max' "$out/k6.txt" || true
@@ -87,8 +90,8 @@ if [ "$("${ON_LOAD[@]}" "sudo docker inspect -f '{{.State.Running}}' k6 2>/dev/n
   echo '발생기에서 k6가 이미 도는 중 (앞 실행이 안 끝남)' >&2
   exit 1
 fi
-"${ON_LOAD[@]}" 'cloud-init status --wait >/dev/null; mkdir -p ~/load/results; sudo docker rm k6 >/dev/null 2>&1 || true'
-scp -q baseline.js "ec2-user@$LOAD:load/"
+"${ON_LOAD[@]}" 'cloud-init status --wait >/dev/null; mkdir -p ~/load/results; sudo docker rm k6 k6-journey >/dev/null 2>&1 || true'
+scp -q baseline.js journey.js "ec2-user@$LOAD:load/"
 
 # 5초마다 CPU·메모리(MB) 기록 시작. SSH가 끊겨도 서버에서 계속 돈다
 START_VMSTAT='pkill vmstat; nohup vmstat -t -S M 5 >~/vmstat.log 2>&1 </dev/null &'
@@ -125,6 +128,12 @@ sudo docker run -d --name k6 --network host --user "$(id -u):$(id -g)" -v ~/load
   -e BASE_URL="$base" -e K6_WEB_DASHBOARD=true -e K6_WEB_DASHBOARD_EXPORT="/load/results/$name.html" \
   grafana/k6:1.0.0 run "${out[@]}" "$@" /load/baseline.js >/dev/null
 rm -f ~/load/grafana.env # docker는 컨테이너를 만들 때 읽어 이제 필요 없음
+# 손님 여정(journey.js, 3단계만): 같은 시간 동안 손님 5명이 첫 화면부터 예약까지 반복. 부하와 따로 띄워 baseline.js는 그대로 (2026-11-24)
+if [[ $name == baseline-aws-* ]]; then
+  jd=37m; [ $# -gt 0 ] && jd=1m # 뒤에 k6 옵션을 붙인 짧은 스모크면 여정도 1분
+  sudo docker run -d --name k6-journey --network host --user "$(id -u):$(id -g)" -v ~/load:/load -e BASE_URL="$base" -e DURATION="$jd" \
+    grafana/k6:1.0.0 run --out "json=/load/results/$name.journey.gz" /load/journey.js >/dev/null
+fi
 REMOTE
 echo "시작: $name (대상 $base, 발생기 $LOAD). 진행을 따라 보여 줌. Ctrl+C로 빠져나와도 시험은 계속됨"
 if [ "$pre" = baseline-aws ]; then # 태스크 수 5초 기록 (이 스크립트가 끝나면 멈춤. 연결이 끊기면 그 뒤는 scaling.json · ECS 이벤트로)
