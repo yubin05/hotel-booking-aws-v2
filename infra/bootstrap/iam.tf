@@ -344,6 +344,7 @@ locals {
   attach_operator_edge = true
 }
 
+# edge 정책에는 RDS 모니터링 역할 넘기기(PassRdsEnhancedMonitoringRole)도 있음: v2 정책이 관리형 정책 한도(공백 제외 6,144자)를 넘어서(11-25). 설명은 바꾸면 교체라 그대로
 resource "aws_iam_policy" "operator_edge" {
   name        = "${local.project_name}-operator-edge"
   description = "Operator: edge services (CloudFront, WAF, ACM, Route 53 records under hotel)"

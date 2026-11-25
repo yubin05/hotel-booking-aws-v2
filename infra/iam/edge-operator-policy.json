@@ -110,6 +110,20 @@
           ]
         }
       }
+    },
+    {
+      "Sid": "PassRdsEnhancedMonitoringRole",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::248563009287:role/hotel-booking-aws-v2-rds-enhanced-monitoring",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": [
+            "monitoring.rds.amazonaws.com",
+            "rds.amazonaws.com"
+          ]
+        }
+      }
     }
   ]
 }

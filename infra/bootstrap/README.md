@@ -37,8 +37,8 @@ terraform apply   # 시각과 비용을 docs/03-plan.md에 기록
 ## RDS Enhanced Monitoring IAM 역할 · 관리자 1회 작업 (2026-11-25)
 
 - `rds-monitoring.tf`가 계정 전역 서비스 역할 **`hotel-booking-aws-v2-rds-enhanced-monitoring` 하나**를 만들고 AWS 관리 정책 `AmazonRDSEnhancedMonitoringRole`을 연결합니다. 역할의 신뢰 주체는 `monitoring.rds.amazonaws.com`, SourceAccount와 서울/도쿄 DB SourceArn 두 개로 범위를 제한합니다.
-- **관리자 Bootstrap Terraform**에서 `plan` 검토 → `apply`해야 실제 IAM 역할 및 `infra/iam/v2-operator-policy.json` 수정이 운영자 정책에 반영됩니다. 기존 운영자에게 IAM 역할 생성/정책 연결 권한을 추가하지 않습니다.
-- 운영자에게는 **이 역할 하나에만** `iam:PassRole`을 추가합니다. `iam:PassedToService`는 `monitoring.rds.amazonaws.com`, `rds.amazonaws.com`으로 제한하며 실제 서비스 전달 조건은 AWS에서 적용 전 확인합니다.
+- **관리자 Bootstrap Terraform**에서 `plan` 검토 → `apply`해야 실제 IAM 역할 및 운영자 정책 수정이 반영됩니다. 기존 운영자에게 IAM 역할 생성/정책 연결 권한을 추가하지 않습니다.
+- 운영자에게는 **이 역할 하나에만** `iam:PassRole`을 추가합니다. 문장은 `infra/iam/edge-operator-policy.json`에 있습니다: `v2-operator-policy.json`에 넣었더니 관리형 정책 한도(공백 제외 6,144자)를 158자 넘어 apply가 `LimitExceeded`로 멈춤(11-25 17:51). 같은 운영자 그룹에 붙은 edge 정책은 여유가 있어 그쪽으로 옮김(v2 6,026자 · edge 2,455자). `iam:PassedToService`는 `monitoring.rds.amazonaws.com`, `rds.amazonaws.com`으로 제한하며 실제 서비스 전달 조건은 AWS에서 적용 전 확인합니다.
 - 서울/도쿄 regional 모듈은 IAM 역할을 생성하지 않고, Bootstrap이 만든 역할의 ARN만 받습니다. `rds_enhanced_monitoring=false` 또는 `multi_az=false`면 MonitoringInterval=0, MonitoringRoleArn=null이라 기본 상태에서는 사용하지 않습니다.
 - 기존 `drill/region.sh`에서 도쿄 ② 보강 기대 Plan은 **0 add, 1 change, 0 destroy**입니다. 관리 리소스가 추가되지 않도록 변경했지만, 실제 Terraform plan에서 반드시 확인해야 합니다.
 - ⚠️ `rds_enhanced_monitoring=true`를 ② Multi-AZ 보강과 한 번에 켜면 한 RDS 인스턴스의 두 설정이 함께 수정돼 보강 시간에 모니터링 켜는 시간이 섞입니다. 타이밍 비교 회차는 false로 유지하고, **Standby 관측 실험은 별도 회차로 분리**하세요.
