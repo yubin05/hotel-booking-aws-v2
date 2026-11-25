@@ -18,8 +18,7 @@ module "regional" {
 
   # 전환해도 결제 · 메일 · 카톡이 돼야 복구 (ADR-071). 키는 금고 도쿄 복제본, 메일은 도쿄 SES
   app_integrations = true
-  # 경보는 같은 리전 주제에만 보낼 수 있어 도쿄 주제(bootstrap/alerts.tf) → 같은 Slack 채널 (ADR-073)
-  alerts = true
+  # v3 경보(서버 수 · 포인트 보류)는 꺼 둠(ADR-079): 전환 뒤에도 global의 DR 판단 알림(dr-alert)이 같은 주소(도쿄)를 봄. v3 때 v3_alarms = true(도쿄 주제 → 같은 Slack, ADR-073)
 }
 
 # Bootstrap에서 관리자가 생성한 역할의 ARN을 조합 (operator IAM GetRole 불필요).

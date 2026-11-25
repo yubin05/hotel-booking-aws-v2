@@ -8,7 +8,7 @@
 
 **▶ [새 PC에서 1단계 AWS 이전 환경 올리기](https://github.com/yubin05/hotel-booking-app/blob/main/legacy/README.md)** · 준비물 → 매일 올리기 · 확인 → 지우기를 한 페이지에
 
-**▶ [2단계 인프라 런북](infra/README.md)** · 매일 올리기(seoul → global → CD) · 내리기(global → seoul), 리전 전환 · 되돌리기, 계정 보안 점검 켜고 끄기, 자주 만난 문제
+**▶ [2단계 인프라 런북](infra/README.md)** · 매일 올리기(seoul → CD → global) · 내리기(global → seoul), 리전 전환 · 되돌리기, 계정 보안 점검 켜고 끄기, 자주 만난 문제
 
 **▶ [새 PC 설정: 키 · 토큰 파일](docs/pc-setup.md)** · 학원 · 집 PC마다 채우는 파일(관리자 로그인, SSH 키, 옛 환경 IP, Grafana 토큰, 토스 결제 · 카카오 알림 `.env`)과 확인 방법
 

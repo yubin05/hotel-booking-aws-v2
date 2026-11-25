@@ -4,7 +4,7 @@
 
 | 루트 | 들어 있는 것 | 수명 |
 |---|---|---|
-| `bootstrap` | state 버킷, IAM(평소 정책 · 역할), ECR, 금고, 예산, Route 53 영역, 사진 · 이관 버킷, SES 도메인 · 장애 알림 주제 · Slack 연결([ADR-071](../docs/04-decisions.md#adr-071)) | 상시. 관리자만 |
+| `bootstrap` | state 버킷, IAM(평소 정책 · 역할), ECR, 금고, 예산, Route 53 영역, 사진 · 이관 버킷, SES 도메인 · 알림 주제 · Slack 연결([ADR-071](../docs/04-decisions.md#adr-071), Slack은 DR 판단 알림만 [ADR-079](../docs/04-decisions.md#adr-079)) | 상시. 관리자만 |
 | `seoul` · `tokyo` | `modules/regional`: VPC, NAT, ALB(HTTPS), ECS, RDS, **CloudFront 통로(VPC Origin)** | 쓸 때만. 도쿄는 전환 시험 · DR 때만 |
 | `global` | CloudFront, WAF, 인증서(us-east-1), ALB 입구 규칙, `hotel` 레코드 | 서울과 함께 매일 ([ADR-052](../docs/04-decisions.md#adr-052)) |
 | `security` | CloudTrail(감사 로그 버킷 90일), GuardDuty(서울 · 도쿄 · us-east-1), 점검(Config + Security Hub CSPM, `posture_check`) | 상시. 관리자만. 점검만 켜고 끔 ([ADR-057](../docs/04-decisions.md#adr-057)) |
@@ -22,21 +22,24 @@ aws sts get-caller-identity --query Arn --output text   # user/vundle34 (평소 
 - apply · destroy는 `date; terraform apply; date`로 시각을 남기고, plan 숫자를 먼저 예측합니다.
 - 측정 · 드릴 날은 먼저 `bash scripts/preflight.sh`(읽기만): 도구 · SSH 키 · `~/.hotel-legacy` · legacy tfvars의 IP = 지금 IP · 루트마다 `terraform init`을 확인하고 NG만 고칩니다.
 
-## 1. 매일 올리기: seoul → global → CD
+## 1. 매일 올리기: seoul → CD → global
+
+CD를 global보다 먼저 돌립니다(2026-11-25~, [ADR-079](../docs/04-decisions.md#adr-079)). global이 만드는 DR 판단 알림(바깥 상태 검사)이 `/api/health/deep`을 보는데, migrate 전에는 500이라 순서가 거꾸로면 매일 거짓 알림이 Slack에 옵니다. CD는 서울 ECS 안에서 끝나 공개 주소가 필요 없습니다.
 
 ```bash
 cd /c/dev/hotel-booking-aws-v2/infra/seoul
-terraform plan                      # 50 to add (모듈 49: 관제 대시보드 · 오토스케일링 대상 · 목표 추적 · 비운 기본 보안 그룹 · 3단계 일회성 태스크 정의 restore · sql(11-18~) · dump(11-19~) 포함 + 통로 1, 예약 이벤트가 있으면 이벤트마다 +2)
-date; terraform apply; date         # 약 9분. 이 동안 CloudFront가 서울 VPC에 보안 그룹을 만들어 둠
-
-cd ../global
-terraform plan                      # 13 to add (앱 7: 인증서 · 확인 레코드 · 발급 대기 · 입구 · WAF · CloudFront · 레코드
-                                    #  + 사진 6: img 확인 레코드 · OAC · 사진 CloudFront · 버킷 정책 서울/도쿄 · img 레코드, ADR-055)
-date; terraform apply; date         # 약 4분 반 (2026-11-16)
+terraform plan                      # 51 to add, Multi-AZ면 53 (모듈: 관제 대시보드 · 오토스케일링 대상 · 목표 추적 2 · 비운 기본 보안 그룹 · 3단계 일회성 태스크 정의 restore · sql · dump 포함 + 통로 1, 예약 이벤트가 있으면 이벤트마다 +2. 11-25 v3 경보 3개 끔)
+date; terraform apply; date         # 약 9분(Multi-AZ 약 16분). 이 동안 CloudFront가 서울 VPC에 보안 그룹을 만들어 둠
 
 # 새 RDS에 스키마 · app 계정 · 데이터를 넣는 migrate는 CD가 돌림. 안 돌리면 DB API가 500(Access denied for user 'app')
 gh workflow run cd.yml --repo yubin05/hotel-booking-app --ref main
-gh run list --repo yubin05/hotel-booking-app --limit 1
+gh run list --repo yubin05/hotel-booking-app --limit 1   # 성공(약 5분)을 본 뒤 global
+
+cd ../global
+terraform plan                      # 15 to add (앱 7: 인증서 · 확인 레코드 · 발급 대기 · 입구 · WAF · CloudFront · 레코드
+                                    #  + 사진 6: img 확인 레코드 · OAC · 사진 CloudFront · 버킷 정책 서울/도쿄 · img 레코드, ADR-055
+                                    #  + DR 판단 알림 2: Route 53 상태 검사 · us-east-1 경보, ADR-079)
+date; terraform apply; date         # 약 4분 반 (2026-11-16)
 ```
 
 확인:
@@ -59,11 +62,11 @@ global의 CloudFront와 입구 규칙이 서울의 통로 · ALB를 쓰고 있�
 
 ```bash
 cd /c/dev/hotel-booking-aws-v2/infra/global
-terraform plan -destroy             # 13 to destroy (사진 버킷 · 사진은 bootstrap이라 남음. 발생기 WAF 예외가 있으면 14)
+terraform plan -destroy             # 15 to destroy (사진 버킷 · 사진은 bootstrap이라 남음. DR 판단 알림 2 포함, 발생기 WAF 예외가 있으면 16)
 date; terraform destroy; date       # 약 4~5분 (CloudFront 끄고 지우기)
 
 cd ../seoul
-terraform plan -destroy             # 54 to destroy (restore · sql · dump 태스크 정의 · 관제 대시보드 · 경보 · 요청 수 정책 포함, 기본 보안 그룹은 state에서만 빠짐). Multi-AZ면 NAT · EIP +1쌍 = 56 (11-25)
+terraform plan -destroy             # 51 to destroy (restore · sql · dump 태스크 정의 · 관제 대시보드 · 요청 수 정책 포함, 11-25 v3 경보 3개 끔, 기본 보안 그룹은 state에서만 빠짐). Multi-AZ면 NAT · EIP +1쌍 = 53 (11-25)
 date; terraform destroy; date       # 약 9분 (통로 삭제를 기다려 예전보다 3~4분 김, 2026-11-16 9분 26초)
 ```
 
@@ -212,13 +215,13 @@ grep -q '^is_load_test' terraform.tfvars || echo 'is_load_test = true' >> terraf
 date; terraform apply; date   # 19개
 bash start-db.sh && bash start-app.sh yubin05/hotel-booking-aws-v2:<태그>
 cd /c/dev/hotel-booking-aws-v2/infra/seoul
-terraform plan                      # 51 to add (1번 매일 올리기와 같음)
+terraform plan                      # 51 to add, Multi-AZ면 53 (1번 매일 올리기와 같음)
 date; terraform apply; date
 cd ../global
 # k6 발생기 IP를 WAF 요청 수 한도에서만 뺌 (관리형 규칙은 그대로). 평소 apply에는 안 붙임
 LOAD_IP=$(terraform -chdir=/c/dev/hotel-booking-app/legacy output -raw load_test_instance_1_public_ip | tr -d '\r')
 echo "loadtest_ips = [\"$LOAD_IP/32\"]" >> terraform.tfvars   # 시험이 끝나면 이 줄을 지우고 apply (발생기 IP 반납 전에)
-terraform plan                      # 14 to add (매일 13 + 발생기 IP 세트. 허용 규칙은 웹 ACL 안)
+terraform plan                      # 16 to add (매일 15 + 발생기 IP 세트. 허용 규칙은 웹 ACL 안)
 date; terraform apply; date
 
 # 2) 사전 (손님 영향 없음). 관리자 세션은 2시간(11-21부터, 콘솔 역할 전환 시점부터)이라 여기서 새로 로그인
@@ -362,7 +365,7 @@ date; AWS_PROFILE=admin terraform apply; date
 terraform -chdir=../tokyo init              # 이 PC에서 도쿄를 처음 쓰면
 # 11-24 ADR-073 뒤 한 번 더: 도쿄 경보 주제 · Slack 연결 · 평소 정책 지표 필터 권한 → 1 to add, 2 to change 예상 (다르면 apply 말고 tfvars부터, 5-9 끝 참고)
 
-# 1) 서울 → global (매일 올리기와 같음)
+# 1) 서울 → CD → global (매일 올리기와 같음)
 cd ../seoul && date; terraform apply; date
 cd ../global && date; terraform apply; date
 
@@ -438,7 +441,8 @@ for r in ap-northeast-2 ap-northeast-1; do AWS_PROFILE=admin aws sesv2 get-email
 MSYS_NO_PATHCONV=1 AWS_PROFILE=admin aws logs tail /ecs/hotel-booking-aws-v2 --region ap-northeast-2 --since 15m | grep -iE "mail|kakao|toss|error|알림"
 
 # Slack 경보: 일부러 울렸다가(평소 사용자에겐 SetAlarmState 권한이 없어 관리자) 다음 평가(1분)에 실제 값으로 돌아오며 복구 알림
-AWS_PROFILE=admin aws cloudwatch set-alarm-state --region ap-northeast-2 --alarm-name hotel-booking-aws-v2-app-unhealthy \
+# 11-25부터 Slack 경보는 DR 판단 알림 하나(us-east-1, global이 떠 있을 때, ADR-079). v3 경보(app-unhealthy · points-hold)는 꺼 둠
+AWS_PROFILE=admin aws cloudwatch set-alarm-state --region us-east-1 --alarm-name hotel-booking-aws-v2-dr-alert \
   --state-value ALARM --state-reason "런북 5-9 경로 시험"
 ```
 

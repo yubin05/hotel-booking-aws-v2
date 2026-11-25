@@ -21,9 +21,9 @@ module "regional" {
   # 시연용 호스트 · 관리자 계정 (ADR-060). SSM 파라미터 3개를 먼저 만들어야 migrate가 뜸 (런북 5-3)
   demo_accounts = true
 
-  # 결제 · 카카오 키(금고)와 메일, 장애 경보 → Slack (ADR-071). 금고에 키를 먼저 넣어야 앱 태스크가 뜸 (런북 5-9)
+  # 결제 · 카카오 키(금고)와 메일 (ADR-071). 금고에 키를 먼저 넣어야 앱 태스크가 뜸 (런북 5-9)
   app_integrations = true
-  alerts           = true
+  # v3 경보(정상 서버 2개 미만 · 포인트 보류) → Slack은 꺼 둠(ADR-079). v3 시나리오 A 때: v3_alarms = true
 
   # 3단계 이관 · 검증용 일회성 태스크 정의 restore · sql (docs/experiments/migration.md). 태스크 정의는 무료
   migration_tasks = true

@@ -1,7 +1,14 @@
 # 장애 알림: CloudWatch 경보 → SNS → Amazon Q Developer in chat applications(옛 AWS Chatbot) → Slack (ADR-061 · 071)
-# 주제 · 채널 연결은 상시. 경보는 서울 · 도쿄 리소스와 함께 생기고 지워짐(modules/regional/alarms.tf)
+# 주제 · 채널 연결은 상시. 2026-11-25부터 Slack에 오는 경보는 DR 판단 알림 하나(global/dr-alert.tf, ADR-079)
+# 서울 · 도쿄 주제는 v3 경보(modules/regional/alarms.tf, v3_alarms) 몫이라 남겨 둠. 주제는 무료, 메시지가 올 때만 요금
 
-# 경보는 같은 리전의 주제에만 보낼 수 있어 서울. 모듈이 이 이름으로 주소를 조립함
+# DR 판단 알림 (ADR-079): 바깥 상태 검사(Route 53) 지표가 us-east-1에만 있어 경보도 거기, 경보는 같은 리전 주제에만 보냄. global이 이 이름으로 주소를 조립함
+resource "aws_sns_topic" "dr_alert" {
+  provider = aws.us_east_1
+  name     = "${local.project_name}-dr-alert"
+}
+
+# v3 경보용. 경보는 같은 리전의 주제에만 보낼 수 있어 서울. 모듈이 이 이름으로 주소를 조립함
 resource "aws_sns_topic" "alerts" {
   provider = aws.seoul
   name     = "${local.project_name}-alerts"
@@ -47,7 +54,7 @@ resource "aws_chatbot_slack_channel_configuration" "alerts" {
   iam_role_arn       = aws_iam_role.chatbot[0].arn
   slack_team_id      = var.slack_team_id
   slack_channel_id   = var.slack_channel_id
-  sns_topic_arns     = [aws_sns_topic.alerts.arn, aws_sns_topic.alerts_tokyo.arn]
+  sns_topic_arns     = [aws_sns_topic.dr_alert.arn, aws_sns_topic.alerts.arn, aws_sns_topic.alerts_tokyo.arn]
   # 비우면 AdministratorAccess가 기본 한도(Terraform 문서). 채널에서 명령을 쳐도 읽기만 되게
   guardrail_policy_arns = ["arn:aws:iam::aws:policy/CloudWatchReadOnlyAccess"]
   logging_level         = "NONE" # 켜면 CloudWatch Logs 요금

@@ -32,3 +32,9 @@ provider "aws" {
   alias  = "seoul"
   region = local.main_region
 }
+
+# DR 판단 알림 주제용 (ADR-079): 바깥 상태 검사(Route 53) 지표가 us-east-1에만 있어 경보 · 주제도 여기
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+}

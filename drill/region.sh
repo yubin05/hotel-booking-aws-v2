@@ -155,9 +155,9 @@ run() {
 
   # ③ 도쿄: replica_source_arn을 빼면 공급자가 복제본을 승격하고, 나머지 인프라(ALB · ECS · NAT 2 · 통로 · 태스크 정의 · 경보)도 같은 apply로.
   #    관리자 비밀번호는 원본에서 물려받고 bootstrap 금고가 도쿄에 복제돼 있어 승격 뒤 따로 붙일 것이 없다 (ADR-069)
-  #    11-22 실측 43개 + NAT · EIP 1쌍 + 경보 2 · 지표 필터 1 (ADR-073). DB는 아직 Single-AZ(② 보강에서 켬)
+  #    11-22 실측 43개 + NAT · EIP 1쌍 (ADR-073, 도쿄 v3 경보 3개는 11-25부터 꺼 둠 ADR-079). DB는 아직 Single-AZ(② 보강에서 켬)
   tfvar tokyo replica_source_arn
-  tf_apply tokyo tokyo "Plan: 49 to add, 1 to change, 0 to destroy." # 11-25 요청 수 정책 +1 (ADR-078)
+  tf_apply tokyo tokyo "Plan: 46 to add, 1 to change, 0 to destroy." # 11-25 요청 수 정책 +1 (ADR-078), v3 경보 -3 (ADR-079)
 
   # ④ 승격 DB 확인(도쿄 안 sql 태스크): 장애 선언 전 손님 쓰기가 몇 번까지 들어 있나 + 주요 표 행 수
   #    created_at < t0: 되돌리기 전에 다시 셀 때도 도쿄에서 새로 받은 예약이 섞이지 않게 (DB 시각은 UTC)

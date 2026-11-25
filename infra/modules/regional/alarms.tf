@@ -1,7 +1,8 @@
-# 장애 알림 (ADR-071): 정상 태스크가 3분 내내 최소 수(2)보다 적으면 Slack, 돌아오면 복구 알림
-# 주제는 bootstrap(alerts.tf, 서울). 트래픽 눌림(CPU · 5xx · p95) 경보는 기준값(정상 k6 최댓값 × 배수)을 정하는 v3 임계값 작업에서
+# v3 첫 주 경보 (ADR-071 · 072): 정상 태스크가 3분 내내 최소 수(2)보다 적으면 Slack, 포인트 보류(v3 시나리오 A)도 Slack
+# 2026-11-25부터 꺼 둠(v3_alarms 기본 false, ADR-079). Slack은 DR 판단 알림(global/dr-alert.tf) 하나만. 서버 수는 대시보드로 봄
+# 주제는 bootstrap(alerts.tf, 서울 · 도쿄). 트래픽 눌림(CPU · 5xx · p95) 경보는 기준값(정상 k6 최댓값 × 배수)을 정하는 v3 임계값 작업에서
 resource "aws_cloudwatch_metric_alarm" "app_unhealthy" {
-  count             = var.alerts ? 1 : 0
+  count             = var.v3_alarms ? 1 : 0
   alarm_name        = "${local.name}-app-unhealthy"
   alarm_description = "정상 태스크(ALB HealthyHostCount)가 3분 동안 ${local.app_min_tasks}개 미만"
 
@@ -30,7 +31,7 @@ resource "aws_cloudwatch_metric_alarm" "app_unhealthy" {
 # 계정 탈취 의심 · 세션 보류 알림 (ADR-072, 시나리오 A): 앱이 보류를 기록하고 남긴 points_hold_applied 로그 한 줄 = 지표 1
 # 보류는 앱이 같은 트랜잭션에서 이미 했다. 이 경보는 사람에게 알리는 용도라 보류 시각 ≤ 경보 시각이 정상
 resource "aws_cloudwatch_log_metric_filter" "points_hold" {
-  count          = var.alerts ? 1 : 0
+  count          = var.v3_alarms ? 1 : 0
   name           = "${local.name}-points-hold"
   log_group_name = aws_cloudwatch_log_group.app.name
   pattern        = "{ $.event = \"points_hold_applied\" }"
@@ -44,7 +45,7 @@ resource "aws_cloudwatch_log_metric_filter" "points_hold" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "points_hold" {
-  count             = var.alerts ? 1 : 0
+  count             = var.v3_alarms ? 1 : 0
   alarm_name        = "${local.name}-points-hold"
   alarm_description = "계정 탈취 의심으로 적립금 사용을 보류한 세션이 생김 (ADR-072). 운영자: infra/README.md 시나리오 A 런북"
 

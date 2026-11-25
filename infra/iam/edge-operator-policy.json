@@ -112,6 +112,23 @@
       }
     },
     {
+      "Sid": "DrCheckCreate",
+      "Effect": "Allow",
+      "Action": "route53:CreateHealthCheck",
+      "Resource": "*"
+    },
+    {
+      "Sid": "DrCheck",
+      "Effect": "Allow",
+      "Action": [
+        "route53:GetHealthCheck",
+        "route53:UpdateHealthCheck",
+        "route53:DeleteHealthCheck",
+        "route53:ChangeTagsForResource"
+      ],
+      "Resource": "arn:aws:route53:::healthcheck/*"
+    },
+    {
       "Sid": "PassRdsEnhancedMonitoringRole",
       "Effect": "Allow",
       "Action": "iam:PassRole",
