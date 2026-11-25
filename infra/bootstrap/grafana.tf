@@ -44,12 +44,15 @@ resource "aws_iam_role_policy" "grafana_read" {
       Condition = { StringEquals = { "aws:RequestedRegion" = ["ap-northeast-2", "ap-northeast-1"] } }
     },
     {
-      Sid      = "ReadContainerInsightsPerformanceOnly"
+      Sid      = "ReadContainerInsightsAndRDSOSMetrics"
       Effect   = "Allow"
       Action   = ["logs:StartQuery", "logs:GetLogGroupFields"]
       Resource = [
         "arn:aws:logs:ap-northeast-2:${local.account_id}:log-group:/aws/ecs/containerinsights/${local.project_name}/performance:*",
-        "arn:aws:logs:ap-northeast-1:${local.account_id}:log-group:/aws/ecs/containerinsights/${local.project_name}/performance:*"
+        "arn:aws:logs:ap-northeast-1:${local.account_id}:log-group:/aws/ecs/containerinsights/${local.project_name}/performance:*",
+        # RDS Enhanced Monitoring(선택형): primary 및 -secondary 로그 스트림은 RDSOSMetrics 그룹 공유
+        "arn:aws:logs:ap-northeast-2:${local.account_id}:log-group:RDSOSMetrics:*",
+        "arn:aws:logs:ap-northeast-1:${local.account_id}:log-group:RDSOSMetrics:*"
       ]
       Condition = { StringEquals = { "aws:RequestedRegion" = ["ap-northeast-2", "ap-northeast-1"] } }
     },

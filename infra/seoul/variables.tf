@@ -16,3 +16,10 @@ variable "app_requests_target" {
   type        = number
   default     = 4800
 }
+
+# RDS Standby Grafana 실측용. 평소 false(비용 0), Multi-AZ 장애 실험 때만 true로 켜고 종료 후 false.
+variable "rds_enhanced_monitoring" {
+  type        = bool
+  default     = false
+  description = "RDS Enhanced Monitoring 60초 로그 수집(CloudWatch Logs 비용 발생 가능). Multi-AZ Standby 실측용"
+}

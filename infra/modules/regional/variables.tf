@@ -28,6 +28,14 @@ variable "db_multi_az" {
   type        = bool
 }
 
+# Standby OS 세부 지표는 Enhanced Monitoring + RDSOSMetrics(-secondary) 로그가 있어야 보임.
+# 기본 false: 기존 인프라/비용 영향 없음. true + Multi-AZ 사용 구간에만 Standby 로그 발생.
+variable "rds_enhanced_monitoring" {
+  description = "RDS Enhanced Monitoring(60초 주기) 사용 여부. 기본 false, Standby 실측 시 사용자 명시적으로 true"
+  type        = bool
+  default     = false
+}
+
 variable "app_requests_target" {
   description = "요청 수 기준 늘리기: 태스크 1대의 1분 요청 수 목표. 비우면(null) CPU 기준만 (ADR-074 늘리기 개선)"
   type        = number

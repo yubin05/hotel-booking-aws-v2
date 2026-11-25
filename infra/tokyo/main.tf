@@ -9,6 +9,7 @@ module "regional" {
   nat_count = 2
   # 대기 복제본 · 장애 ① 복구는 Single-AZ, 손님을 받은 뒤 ② 보강에서 켬 (ADR-073, region.sh run이 terraform.tfvars에 씀)
   db_multi_az = var.multi_az
+  rds_enhanced_monitoring = var.rds_enhanced_monitoring # 도쿄 승격+Multi-AZ 보강 때만 ON
 
   # 5단계 리전 복원 (ADR-066 Pilot Light): 평소 서울 DB의 읽기 복제본만 두고, 장애 때 승격. 되돌릴 때 dump 태스크로 덤프를 서울에 넘김
   replica_source_arn = var.replica_source_arn
