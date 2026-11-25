@@ -1752,7 +1752,7 @@
   | 항목 | 고른 것 |
   |---|---|
   | DR 판단 알림 | `global/dr-alert.tf`: Route 53 상태 검사 `dr_check`(HTTPS `hotel.vundle34.cloud/api/health/deep`, 30초, 3번 연속 실패, 전 세계 검사기. 2초 안에 2xx · 3xx가 아니면 실패, 정상이라고 답한 검사기가 18% 이하면 비정상 — [Route 53 문서](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/dns-failover-determining-health-of-endpoints.html)) → 경보 `dr-alert`(`HealthCheckStatus` 최솟값 < 1, 1분 × 3번, us-east-1: Route 53 지표는 그 리전에서만 보임 [문서](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/monitoring-health-checks.html)) → SNS `-dr-alert`(bootstrap, us-east-1) → 같은 Slack 채널. 회복 알림도 보냄(서울 복구 · 도쿄 전환 끝). `deep`이라 서울 RDS 장애도 잡는다. global과 같이 만들고 지움 |
-  | v3 경보 | 정상 서버 2개 미만(`app-unhealthy`) · 포인트 보류(경보 + 지표 필터)를 모듈 변수 `v3_alarms`(옛 이름 `alerts`: 알림 전체처럼 읽혀 사용자 요청으로 바꿈, 기본 false)로 서울 · 도쿄 모두 꺼 둠. 코드와 서울 · 도쿄 주제는 v3 때 한 줄로 다시 켜도록 남김. `HealthyHostCount`는 CloudWatch · Grafana 대시보드에 그대로 |
+  | v3 경보 | **정상 서버 2개 미만(`app-unhealthy`)은 코드까지 지움**(사용자: "2개 미만이어도 AZ 장애라고 확신할 수 없으니 지우자", 아래 대안 1행). 포인트 보류(경보 + 지표 필터)는 모듈 변수 `v3_alarms`(옛 이름 `alerts`: 알림 전체처럼 읽혀 사용자 요청으로 바꿈, 기본 false)로 서울 · 도쿄 모두 꺼 둠. 코드와 서울 · 도쿄 주제는 v3 때 한 줄로 다시 켜도록 남김. `HealthyHostCount`는 CloudWatch · Grafana 대시보드에 그대로 |
   | 매일 순서 | seoul → **CD** → global. migrate 전에는 `deep`이 500이라 거꾸로면 매일 거짓 알림. CD는 서울 ECS 안에서 끝나 공개 주소가 필요 없다(cd.yml) |
   | 권한 | edge 정책에 상태 검사 만들기(`*`) · 조회 · 바꾸기 · 지우기 · 태그(`healthcheck/*`) 2문장(공백 뺀 2,455 → 2,752 / 6,144자). us-east-1 경보는 v2 정책 `AppAutoScaling` 문장(경보 권한 Resource `*`)으로 됨 |
   | 채널 | 지금 켜진 알림이 하나라 채널 하나(Slack에서 이름만 `#dr-alert`로 바꾸면 ID 그대로). 채널은 "누가 · 얼마나 급하게 움직이나"로 나눈다: v3 때 포인트 보류(보안 대응)는 따로 채널. 주제가 용도별로 나뉘어 있어 Slack 채널 연결 하나만 더하면 된다 |
