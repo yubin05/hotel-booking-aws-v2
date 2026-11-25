@@ -308,6 +308,7 @@ bash load/run-coupon.sh 15:05 scheduled
 # 3) 서울 destroy 전에: CloudWatch 지표를 받고 보고서 (정상 태스크 수 · CPU 칸이 채워짐)
 bash load/cw-metrics.sh load/results/coupon-*
 node scripts/coupon-report.mjs load/results/coupon-*/coupon-*.json.gz
+bash load/coupon-timing.sh load/results/<회차 폴더>   # 쿠폰 발급 시간 쪼개기(소진 확인 · 발급 트랜잭션의 연결 대기 · 작업 시간, 앱 7d487c2~, 관리자)
 ```
 
 - k6 비교 뒤 태스크가 늘어 있으면, 목표 추적이 2개로 줄이기까지 15분 넘게 걸릴 수 있습니다(줄이기 경보: CPU 54% 미만 1분 × 15번, 11-16 시험). `run-coupon.sh none`이 태스크 수를 보고 멈추면 기다렸다 다시 합니다.
