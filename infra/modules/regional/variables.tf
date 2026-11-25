@@ -28,6 +28,16 @@ variable "db_multi_az" {
   type        = bool
 }
 
+variable "db_pool_size" {
+  description = "서버 한 대의 DB 연결 수 [일반, 쿠폰]. 비우면 앱 기본(10, 2). 서버를 늘리는 시험에서 서버 수 × 합이 DB 연결 한도 안이 되게 줄임 (ADR-074 ②)"
+  type        = list(number)
+  default     = []
+  validation {
+    condition     = length(var.db_pool_size) == 0 || (length(var.db_pool_size) == 2 && alltrue([for n in var.db_pool_size : n >= 1 && floor(n) == n]))
+    error_message = "db_pool_size는 비우거나 [일반, 쿠폰] 두 개의 1 이상 정수"
+  }
+}
+
 variable "scale_events" {
   description = "시각을 아는 급증(쿠폰 오픈 등). start부터 end까지 앱 태스크 최소 수를 min으로 올림 (ADR-015). 시각은 한국 시간 YYYY-MM-DDThh:mm:ss, 끝난 이벤트는 지움"
   type = list(object({

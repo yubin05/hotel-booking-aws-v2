@@ -90,7 +90,11 @@ resource "aws_ecs_task_definition" "app" {
       { name = "METRICS_EMF", value = "1" },
       # 결제 성공 · 실패 주소, 메일 속 링크, 카카오 Redirect URI(APP_URL/kakao/callback)의 바탕. 전환해도 손님 주소는 같음
       { name = "APP_URL", value = "https://hotel.${local.zone_name}" },
-      ], var.app_integrations ? [
+      ], length(var.db_pool_size) == 2 ? [
+      # 서버 한 대의 DB 연결 수. 비우면 넣지 않아 앱 기본(10, 2) (ADR-074 ②)
+      { name = "DB_POOL_SIZE", value = tostring(var.db_pool_size[0]) },
+      { name = "DB_COUPON_POOL_SIZE", value = tostring(var.db_pool_size[1]) },
+      ] : [], var.app_integrations ? [
       # 보내는 주소. bootstrap ses.tf의 mail_from · 태스크 역할의 ses:FromAddress 조건과 같아야 메일이 나감
       { name = "MAIL_FROM", value = "no-reply@${local.zone_name}" },
       # 자기 리전 SES로 보냄. 서울이 죽으면 서울 SES도 못 쓴다고 보고 도쿄에도 신원을 따로 둠(SES 신원은 리전마다)
