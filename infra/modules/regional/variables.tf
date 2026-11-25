@@ -31,13 +31,13 @@ variable "db_multi_az" {
 variable "app_requests_target" {
   description = "요청 수 기준 늘리기: 태스크 1대의 1분 요청 수 목표. 비우면(null) CPU 기준만 (ADR-074 늘리기 개선)"
   type        = number
-  default     = null
+  default     = 4800 # ADR-078: 11-25 B 시험(CPU 기준 + 이 기준)으로 채택
 }
 
 variable "db_pool_size" {
   description = "서버 한 대의 DB 연결 수 [일반, 쿠폰]. 비우면 앱 기본(10, 2). 서버를 늘리는 시험에서 서버 수 × 합이 DB 연결 한도 안이 되게 줄임 (ADR-074 ②)"
   type        = list(number)
-  default     = []
+  default     = [5, 1] # ADR-078: 최대 8대 × 6 = 48 연결(db.t4g.micro 약 60 안)
   validation {
     condition     = length(var.db_pool_size) == 0 || (length(var.db_pool_size) == 2 && alltrue([for n in var.db_pool_size : n >= 1 && floor(n) == n]))
     error_message = "db_pool_size는 비우거나 [일반, 쿠폰] 두 개의 1 이상 정수"

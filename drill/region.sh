@@ -157,7 +157,7 @@ run() {
   #    관리자 비밀번호는 원본에서 물려받고 bootstrap 금고가 도쿄에 복제돼 있어 승격 뒤 따로 붙일 것이 없다 (ADR-069)
   #    11-22 실측 43개 + NAT · EIP 1쌍 + 경보 2 · 지표 필터 1 (ADR-073). DB는 아직 Single-AZ(② 보강에서 켬)
   tfvar tokyo replica_source_arn
-  tf_apply tokyo tokyo "Plan: 48 to add, 1 to change, 0 to destroy."
+  tf_apply tokyo tokyo "Plan: 49 to add, 1 to change, 0 to destroy." # 11-25 요청 수 정책 +1 (ADR-078)
 
   # ④ 승격 DB 확인(도쿄 안 sql 태스크): 장애 선언 전 손님 쓰기가 몇 번까지 들어 있나 + 주요 표 행 수
   #    created_at < t0: 되돌리기 전에 다시 셀 때도 도쿄에서 새로 받은 예약이 섞이지 않게 (DB 시각은 UTC)
@@ -251,7 +251,7 @@ SQL
   trap - ERR
   stop "$OUT"
   echo "결과: drill/$OUT/"
-  echo "다음: 도쿄 내리기 cd infra/tokyo && terraform destroy (55개). 다음 회차는 standby부터"
+  echo "다음: 도쿄 내리기 cd infra/tokyo && terraform destroy (56개). 다음 회차는 standby부터"
 }
 
 case "${1:-}" in

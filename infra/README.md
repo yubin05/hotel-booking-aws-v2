@@ -375,7 +375,7 @@ bash drill/region.sh standby  # 도쿄 7 to add(복제본 · VPC · DB 서브넷
 bash drill/region.sh run      # 장애 선언 → 도쿄 plan(승격 + 나머지) → 확인 SQL → global plan → RTO
                               # → ② 보강(도쿄 DB Multi-AZ, RTO 밖) → 실제 사이트에서 예약해 보기 → Enter → 도쿄 멈춤 · 대조 · 덤프 이관 · 체크섬 → 서울 → global plan
                               # plan이 기대값(도쿄 48 · 1 · 0, 보강 0 · 1 · 0, global 1 · 1 · 1)과 같으면 바로 apply, 다를 때만 yes를 물음
-cd infra/tokyo && date; terraform destroy; date; cd ../..   # 55개(11-22까지 50개, 9분 33초). 다음 회차는 standby부터
+cd infra/tokyo && date; terraform destroy; date; cd ../..   # 56개(11-25 요청 수 정책 +1, 11-24 55개, 11-22까지 50개, 9분 33초). 다음 회차는 standby부터
 ```
 
 - **중간에 멈추면** 손님 측정기 · 도쿄 DB 상태 기록기는 계속 돕니다(11-21 시도 2 · 3은 같이 꺼져 RTO를 잃음). `region.sh`는 변수를 각 루트의 `terraform.tfvars`에 써 두므로(도쿄 `replica_source_arn`, global `active_region`) 손으로 이어 가도 같은 값이 쓰입니다. 남은 단계를 손으로 끝까지 한 뒤(예: `cd infra/tokyo && terraform apply` → global `terraform.tfvars`에 `active_region = "ap-northeast-1"` 확인 → `cd ../global && terraform apply`) `bash drill/region.sh stop drill/results/region-<시각>`으로 끝내면 보고서가 나옵니다. 서울로 되돌리려면 `bash drill/region.sh seoul-up`(global의 `active_region` 줄도 지움) → `cd infra/global && terraform apply`, 도쿄는 destroy.

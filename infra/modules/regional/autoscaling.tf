@@ -4,7 +4,7 @@
 
 locals {
   app_min_tasks  = 2  # AZ 2개에 1개씩. 한 AZ가 죽어도 하나 남음
-  app_max_tasks  = 4  # 태스크당 DB 연결 최대 12개(일반 10 + 쿠폰 2) × 4 = 48. db.t4g.micro가 받는 연결 수 안에서 (가설, 3단계 부하 뒤 확정)
+  app_max_tasks  = 8  # 태스크당 DB 연결 6개(일반 5 + 쿠폰 1, db_pool_size) × 8 = 48. db.t4g.micro로 6,000명까지 실측 (ADR-078, 11-25 ②)
   app_cpu_target = 60 # 평균 CPU 60%를 넘으면 늘림 (가설값)
 }
 

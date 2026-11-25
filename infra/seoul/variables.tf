@@ -6,13 +6,13 @@ variable "multi_az" {
 
 
 variable "db_pool_size" {
-  description = "서버 한 대의 DB 연결 수 [일반, 쿠폰]. 평소 비움(앱 기본 10, 2). DB 한계 시험 날만 terraform.tfvars에 [5, 1] (ADR-074 ②)"
+  description = "서버 한 대의 DB 연결 수 [일반, 쿠폰]. 최대 8대 × (5 + 1) = 48 (ADR-078). 비우면 앱 기본(10, 2)이라 8대면 DB 한도를 넘음"
   type        = list(number)
-  default     = []
+  default     = [5, 1]
 }
 
 variable "app_requests_target" {
-  description = "요청 수 기준 늘리기(태스크 1대의 1분 요청 수 목표). 평소 비움(CPU 기준만). 늘리기 개선 시험 날만 terraform.tfvars에 (ADR-074)"
+  description = "요청 수 기준 늘리기(태스크 1대의 1분 요청 수 목표). CPU 기준과 함께 둠 (ADR-078). null이면 CPU 기준만"
   type        = number
-  default     = null
+  default     = 4800
 }
