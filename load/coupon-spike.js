@@ -21,6 +21,10 @@ const unexpected = new Counter('claims_unexpected'); // 그 밖의 모든 응답
 const claimDuration = new Trend('claim_duration', true); // 사용자가 기다린 시간: 연결(blocked) + 서버 응답
 const issuedAt = new Trend('coupon_issued_at', true); // T부터 발급 응답까지. max = 마지막 장이 나간 시각
 const late = new Counter('claim_late'); // T까지 쿠폰 화면을 못 연 손님. 0이어야 모두 같은 순간에 누른 것
+// 쿠폰을 받은 손님은 바로 그 쿠폰으로 예약한다 (2026-11-25 사용자: 실제 이벤트처럼. 받기 전에는 예약하지 않고 기다림)
+const couponBooked = new Counter('coupon_bookings_created');
+const couponBookFailed = new Counter('coupon_booking_failed'); // 숙소 · 내 쿠폰 · 예약 중 200 · 201 · 409 밖의 응답
+const couponBookDuration = new Trend('coupon_booking_duration', true); // 쿠폰을 받은 뒤 예약 응답까지(화면 사이 1 ~ 3초 포함)
 
 export const options = {
   setupTimeout: '10m', // 손님 가입 (비밀번호 해시가 느림)
@@ -33,6 +37,7 @@ export const options = {
     coupons_issued: [`count==${COUPONS}`], // 정확히 장 수만큼
     claims_unexpected: ['count==0'],
     claim_late: ['count==0'],
+    coupon_booking_failed: ['count==0'],
   },
 };
 
@@ -41,6 +46,7 @@ http.setResponseCallback(http.expectedStatuses(200, 201, 409));
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const pick = (list) => list[Math.floor(Math.random() * list.length)];
+const isoDate = (days) => new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
 
 export function setup() {
   if (!BASE || !COUPON_ID || !OPEN_AT) throw new Error('BASE_URL · COUPON_ID · OPEN_AT이 필요합니다 (run-coupon.sh로 실행)');
@@ -65,7 +71,7 @@ export function setup() {
   const left = (OPEN_AT - Date.now()) / 1000;
   console.log(`run=k6-${run} 사용자 ${tokens.length}명, 숙소 ${hotels.length}개, T까지 ${left.toFixed(0)}초`);
   if (left < 15) throw new Error('가입이 T 직전까지 끝나지 않음: T를 더 뒤로 잡고 다시');
-  return { tokens, hotelIds: hotels.map((h) => h.id), cities: [...new Set(hotels.map((h) => h.city))] };
+  return { run, tokens, hotelIds: hotels.map((h) => h.id), cities: [...new Set(hotels.map((h) => h.city))] };
 }
 
 // 쿠폰과 무관한 조회 (E-03과 같은 검색 · 상세)
@@ -83,8 +89,9 @@ export function claim(data) {
   const wait = OPEN_AT - Date.now();
   late.add(wait < 0 ? 1 : 0);
   sleep(Math.max(0, wait) / 1000);
+  const token = data.tokens[exec.scenario.iterationInTest];
   const res = http.post(`${BASE}/api/coupons/${COUPON_ID}/claim`, null, {
-    headers: { Authorization: `Bearer ${data.tokens[exec.scenario.iterationInTest]}` },
+    headers: { Authorization: `Bearer ${token}` },
     tags: { name: 'claim' },
   });
   const ok = res.status === 201;
@@ -95,4 +102,31 @@ export function claim(data) {
   unexpected.add(ok || gone ? 0 : 1);
   claimDuration.add(res.timings.blocked + res.timings.duration);
   if (ok) issuedAt.add(Date.now() - OPEN_AT);
+  if (ok) bookWithCoupon(data, token, res.json('data.id')); // 못 받은 손님은 떠남(가정)
+}
+
+// 숙소 보기(빈 객실 찾기, 최대 3곳) → 예약 화면(내 쿠폰) → 그 쿠폰으로 예약
+function bookWithCoupon(data, token, userCouponId) {
+  const t0 = Date.now();
+  const auth = { Authorization: `Bearer ${token}` };
+  let room;
+  for (let i = 0; i < 3 && !room; i++) {
+    const detail = http.get(`${BASE}/api/hotels/${pick(data.hotelIds)}`, { tags: { name: 'hotel' } });
+    if (detail.status !== 200) return couponBookFailed.add(1);
+    room = pick(detail.json('data.rooms').filter((r) => r.capacity >= 2 && r.is_available));
+    sleep(1 + Math.random() * 2);
+  }
+  if (!room) return; // 빈 객실을 못 찾고 떠남(실패로 세지 않음)
+  const mine = http.get(`${BASE}/api/coupons/mine`, { headers: auth, tags: { name: 'my-coupons' } });
+  if (mine.status !== 200) return couponBookFailed.add(1);
+  sleep(1 + Math.random() * 2);
+  const start = 30 + Math.floor(Math.random() * 335);
+  const res = http.post(
+    `${BASE}/api/bookings`,
+    JSON.stringify({ room_id: room.id, check_in_date: isoDate(start), check_out_date: isoDate(start + 1), guests: 2, user_coupon_id: userCouponId }),
+    { headers: { ...JSON_HEADERS, ...auth, 'Idempotency-Key': `k6-c${data.run}-${__VU}` }, tags: { name: 'booking' } },
+  );
+  couponBooked.add(res.status === 201 ? 1 : 0);
+  couponBookFailed.add(res.status === 201 || res.status === 409 ? 0 : 1);
+  couponBookDuration.add(Date.now() - t0);
 }

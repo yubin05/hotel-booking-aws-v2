@@ -48,8 +48,8 @@ SELECT id, name, quantity, issued_count, starts_at FROM coupons WHERE id = '$id'
 SQL
 bash ../migration/sql.sh "$out/coupon.sql" | tee "$out/coupon.txt"
 
-"${ON_LOAD[@]}" 'cloud-init status --wait >/dev/null; mkdir -p ~/load/results; sudo docker rm k6 >/dev/null 2>&1 || true'
-scp -q coupon-spike.js "ec2-user@$LOAD:load/"
+"${ON_LOAD[@]}" 'cloud-init status --wait >/dev/null; mkdir -p ~/load/results; sudo docker rm k6 k6-browser >/dev/null 2>&1 || true'
+scp -q coupon-spike.js journey-browser.js "ec2-user@$LOAD:load/"
 # Grafana Cloud(실험 관제실, ADR-064)로 실시간 전송: PC에 쓰기 토큰 파일이 있을 때만. 토큰은 명령줄에 안 나오게 파일(--env-file)로 넘기고 끝나면 지움
 rw=0
 if grep -q '^K6_PROMETHEUS_RW_PASSWORD=.' ~/.hotel-legacy/grafana.env 2>/dev/null; then # 토큰 칸이 비어 있으면 끔
@@ -71,6 +71,8 @@ sudo docker run -d --name k6 --network host --user "$(id -u):$(id -g)" -v ~/load
   -e BASE_URL="$2" -e COUPON_ID="$3" -e OPEN_AT="$4" -e COUPONS="$5" -e CLAIMERS="$6" -e READ_SEC="$7" \
   -e K6_WEB_DASHBOARD=true -e K6_WEB_DASHBOARD_EXPORT="/load/results/$name.html" \
   grafana/k6:1.0.0 run "${out[@]}" /load/coupon-spike.js >/dev/null
+# 브라우저 손님 1명(journey-browser.js, 11-25): 오픈 전 ~ 예약 쏠림 뒤까지 첫 화면 LCP. 조회 시간 + 4분
+sudo docker run -d --name k6-browser --network host --shm-size=512m --user "$(id -u):$(id -g)" -e HOME=/tmp -v ~/load:/load \n  -e BASE_URL="$2" -e DURATION="$(($7 + 240))s" -e BROWSERS=1 \n  grafana/k6:1.0.0-with-browser run --out "json=/load/results/$name.browser.gz" /load/journey-browser.js >/dev/null
 REMOTE
 echo "시작: $name (T $t, 쿠폰 $COUPONS장, $CLAIMERS명). Ctrl+C로 빠져나와도 시험은 발생기에서 계속됨"
 bash record-tasks.sh "$out/tasks.log" & # 태스크 수 5초 기록, 이 스크립트가 끝나면 멈춤
@@ -79,12 +81,18 @@ trap 'kill $rec 2>/dev/null' EXIT
 "${ON_LOAD[@]}" 'sudo docker logs -f k6 2>&1 | grep --line-buffered -v "Request Failed"' || true
 
 "${ON_LOAD[@]}" 'sudo docker logs k6' >"$out/k6.txt" 2>&1
+# 브라우저 손님은 조회 시간 + 4분이라 k6보다 늦게 끝날 수 있음 → 최대 6분 기다린 뒤 로그
+for _ in $(seq 72); do [ "$("${ON_LOAD[@]}" "sudo docker inspect -f '{{.State.Running}}' k6-browser 2>/dev/null")" = true ] || break; sleep 5; done
+"${ON_LOAD[@]}" 'sudo docker logs k6-browser' >"$out/browser.txt" 2>&1 || rm -f "$out/browser.txt"
 scp -q "ec2-user@$LOAD:load/results/$name.*" "$out/"
-"${ON_LOAD[@]}" 'sudo docker rm k6 >/dev/null; rm -f ~/load/grafana.env'
+"${ON_LOAD[@]}" 'sudo docker rm k6 >/dev/null; sudo docker rm k6-browser >/dev/null 2>&1; rm -f ~/load/grafana.env'
 # 발급 확인: 발급 수 = 장 수(초과 0), 받은 줄 수 = 받은 사람 수(1인 1매)
 cat >"$out/verify.sql" <<SQL
 SELECT c.quantity, c.issued_count, COUNT(uc.id) AS user_coupons, COUNT(DISTINCT uc.user_id) AS users
   FROM coupons c LEFT JOIN user_coupons uc ON uc.coupon_id = c.id WHERE c.id = '$id' GROUP BY c.id;
+-- 이 쿠폰으로 한 예약 (11-25~): 받은 사람 수 이하, 쿠폰 하나에 예약 하나
+SELECT COUNT(*) AS bookings_with_coupon, COUNT(DISTINCT b.user_coupon_id) AS coupons_used
+  FROM bookings b JOIN user_coupons uc ON uc.id = b.user_coupon_id WHERE uc.coupon_id = '$id';
 SQL
 # 회차가 18분쯤이라 관리자 세션(1시간)이 여기서 끝나 있을 수 있음(11-20 두 번) → 끊겼으면 이 자리에서 로그인(브라우저가 열림)하고 이어 감
 admin sts get-caller-identity >/dev/null 2>&1 || { echo "관리자 세션이 끝남 → 로그인 창을 엽니다"; aws login --profile admin; }
