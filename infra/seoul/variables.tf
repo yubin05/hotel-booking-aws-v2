@@ -10,3 +10,9 @@ variable "db_pool_size" {
   type        = list(number)
   default     = []
 }
+
+variable "app_requests_target" {
+  description = "요청 수 기준 늘리기(태스크 1대의 1분 요청 수 목표). 평소 비움(CPU 기준만). 늘리기 개선 시험 날만 terraform.tfvars에 (ADR-074)"
+  type        = number
+  default     = null
+}

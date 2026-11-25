@@ -28,6 +28,12 @@ variable "db_multi_az" {
   type        = bool
 }
 
+variable "app_requests_target" {
+  description = "요청 수 기준 늘리기: 태스크 1대의 1분 요청 수 목표. 비우면(null) CPU 기준만 (ADR-074 늘리기 개선)"
+  type        = number
+  default     = null
+}
+
 variable "db_pool_size" {
   description = "서버 한 대의 DB 연결 수 [일반, 쿠폰]. 비우면 앱 기본(10, 2). 서버를 늘리는 시험에서 서버 수 × 합이 DB 연결 한도 안이 되게 줄임 (ADR-074 ②)"
   type        = list(number)

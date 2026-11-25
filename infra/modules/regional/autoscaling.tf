@@ -41,6 +41,27 @@ resource "aws_appautoscaling_policy" "app_cpu" {
   }
 }
 
+# 요청 수 기준 (ADR-074 늘리기 개선, 값이 있을 때만). CPU 평균은 한 태스크 쏠림을 가려 늦게 늘었다(① 1,000 ~ 1,500명: 평균 58 ~ 64%, 가장 바쁜 100%).
+# 정책이 둘이면 하나라도 늘리자고 하면 늘리고, 둘 다 줄이자고 할 때만 줄인다(AWS 문서). 목표값은 태스크 1대의 1분 요청 수(ALB 지표가 60초 단위)
+resource "aws_appautoscaling_policy" "app_requests" {
+  count              = var.app_requests_target == null ? 0 : 1
+  name               = "requests-${var.app_requests_target}"
+  policy_type        = "TargetTrackingScaling"
+  service_namespace  = aws_appautoscaling_target.app.service_namespace
+  resource_id        = aws_appautoscaling_target.app.resource_id
+  scalable_dimension = aws_appautoscaling_target.app.scalable_dimension
+
+  target_tracking_scaling_policy_configuration {
+    target_value       = var.app_requests_target
+    scale_in_cooldown  = 300
+    scale_out_cooldown = 60
+    predefined_metric_specification {
+      predefined_metric_type = "ALBRequestCountPerTarget"
+      resource_label         = "${aws_lb.this.arn_suffix}/${aws_lb_target_group.app.arn_suffix}" # app/<ALB>/<id>/targetgroup/<대상 그룹>/<id>
+    }
+  }
+}
+
 # 이벤트마다 두 번: 시작에 최소를 올리고, 끝에 평소 최소로 되돌림
 # 끝에는 최대를 낮추지 않음. 남은 태스크는 목표 추적이 CPU를 보고 줄임
 resource "aws_appautoscaling_scheduled_action" "event_start" {

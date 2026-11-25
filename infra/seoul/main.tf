@@ -8,6 +8,8 @@ module "regional" {
   db_multi_az = var.multi_az
   # DB 한계 시험(ADR-074 ②) 날만 terraform.tfvars에 db_pool_size = [5, 1] (서버 8대 고정 × 6 = 48 연결)
   db_pool_size = var.db_pool_size
+  # 늘리기 개선 시험(ADR-074) 날만 terraform.tfvars에 app_requests_target = 4800 (태스크 1대 1분 요청 수)
+  app_requests_target = var.app_requests_target
 
   # 시각을 아는 급증(쿠폰 오픈 등)에 앱 태스크를 미리 늘려 둠 (ADR-015). 한국 시간, 끝난 이벤트는 지움
   # 준비까지 약 1분 반 + 예약 실행 지연(23~38초)이라 오픈 5분 전쯤 시작 (2026-11-16 시험)

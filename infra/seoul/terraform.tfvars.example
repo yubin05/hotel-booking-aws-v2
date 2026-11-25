@@ -1,3 +1,4 @@
 # 이 루트의 실험 날 설정. terraform.tfvars로 복사해 쓴다(커밋 안 함). -var 대신 이 파일 (infra/README.md 0절)
 # multi_az = true   # AZ 장애 · RDS 장애 조치 · 리전 드릴 날: NAT 2 + RDS Multi-AZ (ADR-034 · ADR-042)
 # db_pool_size = [5, 1]   # DB 한계 시험(ADR-074 ②): 서버 8대 고정 × (5 + 1) = 48 연결, 끝나면 지움
+# app_requests_target = 4800   # 늘리기 개선(ADR-074): CPU 기준에 요청 수 기준 추가(태스크 1대 1분 4,800건 = 초당 80건), 끝나면 지움
