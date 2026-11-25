@@ -59,11 +59,11 @@ global의 CloudFront와 입구 규칙이 서울의 통로 · ALB를 쓰고 있�
 
 ```bash
 cd /c/dev/hotel-booking-aws-v2/infra/global
-terraform plan -destroy             # 13 to destroy (사진 버킷 · 사진은 bootstrap이라 남음)
+terraform plan -destroy             # 13 to destroy (사진 버킷 · 사진은 bootstrap이라 남음. 발생기 WAF 예외가 있으면 14)
 date; terraform destroy; date       # 약 4~5분 (CloudFront 끄고 지우기)
 
 cd ../seoul
-terraform plan -destroy             # 50 to destroy (restore · sql · dump 태스크 정의 · 관제 대시보드 포함, 기본 보안 그룹은 state에서만 빠짐)
+terraform plan -destroy             # 54 to destroy (restore · sql · dump 태스크 정의 · 관제 대시보드 · 경보 · 요청 수 정책 포함, 기본 보안 그룹은 state에서만 빠짐). Multi-AZ면 NAT · EIP +1쌍 = 56 (11-25)
 date; terraform destroy; date       # 약 9분 (통로 삭제를 기다려 예전보다 3~4분 김, 2026-11-16 9분 26초)
 ```
 
