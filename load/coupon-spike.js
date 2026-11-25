@@ -25,19 +25,23 @@ const late = new Counter('claim_late'); // T까지 쿠폰 화면을 못 연 손�
 const couponBooked = new Counter('coupon_bookings_created');
 const couponBookFailed = new Counter('coupon_booking_failed'); // 숙소 · 내 쿠폰 · 예약 중 200 · 201 · 409 밖의 응답
 const couponBookDuration = new Trend('coupon_booking_duration', true); // 쿠폰을 받은 뒤 예약 응답까지(화면 사이 1 ~ 3초 포함)
+const signupFailed = new Counter('signup_failed'); // 3번 시도해도 가입 못 한 손님
+
+const WAIT_MIN = Math.ceil((OPEN_AT - Date.now()) / 60000) || 20; // 시작 ~ T (분)
 
 export const options = {
-  setupTimeout: '10m', // 손님 가입 (비밀번호 해시가 느림)
   scenarios: {
     // 응답이 느려져도 초당 100건을 그대로 보낸다 (느려진 구간의 표본이 줄어 숨겨지지 않게)
     reads: { executor: 'constant-arrival-rate', exec: 'read', rate: 100, timeUnit: '1s', duration: `${READ_SEC}s`, preAllocatedVUs: 100, maxVUs: 300 },
-    claims: { executor: 'per-vu-iterations', exec: 'claim', vus: CLAIMERS, iterations: 1, maxDuration: '30m' },
+    // T를 넉넉히 뒤로 잡아도 기다리다 잘리지 않게 T + 10분
+    claims: { executor: 'per-vu-iterations', exec: 'claim', vus: CLAIMERS, iterations: 1, maxDuration: `${WAIT_MIN + 10}m` },
   },
   thresholds: {
     coupons_issued: [`count==${COUPONS}`], // 정확히 장 수만큼
     claims_unexpected: ['count==0'],
     claim_late: ['count==0'],
     coupon_booking_failed: ['count==0'],
+    signup_failed: ['count==0'],
   },
 };
 
@@ -54,24 +58,26 @@ export function setup() {
   const coupon = http.get(`${BASE}/api/coupons`).json('data').find((c) => c.id === COUPON_ID);
   if (coupon?.remaining !== COUPONS) throw new Error(`쿠폰이 ${COUPONS}장 남아 있어야 합니다: ${JSON.stringify(coupon)}`);
   const run = Date.now().toString(36);
-  // 가입 응답에 토큰이 들어 있어 로그인은 따로 하지 않는다. http.batch는 같은 주소로 동시에 6건씩 보낸다
-  const regs = http.batch(
-    Array.from({ length: CLAIMERS }, (_, i) => [
-      'POST',
-      `${BASE}/api/auth/register`,
-      JSON.stringify({ email: `k6-${run}-${i}@example.com`, password: 'k6-password', name: `k6 ${i}` }),
-      { headers: JSON_HEADERS },
-    ]),
-  );
-  const tokens = regs.map((r) => {
-    if (r.status !== 201) throw new Error(`가입 실패 ${r.status}: ${r.body}`);
-    return r.json('data.token');
-  });
   const hotels = http.get(`${BASE}/api/hotels?limit=50`).json('data.hotels');
   const left = (OPEN_AT - Date.now()) / 1000;
-  console.log(`run=k6-${run} 사용자 ${tokens.length}명, 숙소 ${hotels.length}개, T까지 ${left.toFixed(0)}초`);
-  if (left < 15) throw new Error('가입이 T 직전까지 끝나지 않음: T를 더 뒤로 잡고 다시');
-  return { run, tokens, hotelIds: hotels.map((h) => h.id), cities: [...new Set(hotels.map((h) => h.city))] };
+  console.log(`run=k6-${run} 손님 ${CLAIMERS}명은 T 2분 전까지 나눠 가입, 숙소 ${hotels.length}개, T까지 ${left.toFixed(0)}초`);
+  if (left < 180) throw new Error('T까지 3분도 안 남아 가입을 나눌 시간이 없음: T를 더 뒤로 잡고 다시');
+  return { run, hotelIds: hotels.map((h) => h.id), cities: [...new Set(hotels.map((h) => h.city))] };
+}
+
+// 가입 (응답에 토큰이 있어 로그인은 따로 안 함). 5xx · 연결 오류는 사람처럼 2초 뒤 다시, 3번까지
+function signup(run, i) {
+  for (let n = 0; n < 3; n++) {
+    const res = http.post(
+      `${BASE}/api/auth/register`,
+      JSON.stringify({ email: `k6-${run}-${i}@example.com`, password: 'k6-password', name: `k6 ${i}` }),
+      { headers: JSON_HEADERS, tags: { name: 'register' } },
+    );
+    if (res.status === 201) return res.json('data.token');
+    if (res.status !== 0 && res.status < 500) break;
+    sleep(2);
+  }
+  return null;
 }
 
 // 쿠폰과 무관한 조회 (E-03과 같은 검색 · 상세)
@@ -83,13 +89,18 @@ export function read(data) {
   check(res, { '조회 200': (r) => r.status === 200 });
 }
 
-// 쿠폰 화면을 열어 둔 채 기다렸다가 T에 한 번 누른다 (사람마다 다른 계정)
+// 오픈 전에 하나둘 가입해 두고, 쿠폰 화면을 열어 둔 채 기다렸다가 T에 한 번 누른다 (사람마다 다른 계정)
+// 가입은 시작 ~ T 2분 전에 고르게 나눈다. setup에서 한꺼번에 하면 3,000명에 약 17분(초당 3명)이라 시간 초과(11-25)
 export function claim(data) {
+  const i = exec.scenario.iterationInTest;
+  sleep(((i / CLAIMERS) * Math.max(0, OPEN_AT - Date.now() - 120000)) / 1000);
+  const token = signup(data.run, i);
+  signupFailed.add(token ? 0 : 1);
+  if (!token) return;
   http.get(`${BASE}/api/coupons`, { tags: { name: 'warm' } });
   const wait = OPEN_AT - Date.now();
   late.add(wait < 0 ? 1 : 0);
   sleep(Math.max(0, wait) / 1000);
-  const token = data.tokens[exec.scenario.iterationInTest];
   const res = http.post(`${BASE}/api/coupons/${COUPON_ID}/claim`, null, {
     headers: { Authorization: `Bearer ${token}` },
     tags: { name: 'claim' },

@@ -17,9 +17,9 @@ CLAIMERS=${CLAIMERS:-1000}
 t=${1:-}; cond=${2:-}
 [[ $t =~ ^[0-2][0-9]:[0-5][0-9]$ && ($cond == fixed2 || $cond == none || $cond == scheduled) ]] || { sed -n '3,5p' "$0" >&2; exit 1; }
 open=$(date -d "$t" +%s) # 오늘 그 시각 (한국 시간)
-# 오픈 전 가입 시간(1,000명당 약 7분, 11-20 실측) + 여유 5분: 1,000명 12분 · 3,000명 26분 · 스모크 20명 6분 (11-25 인원에 맞춤)
+# 가입을 시작 ~ T 2분 전에 나눠 함(coupon-spike.js). 1,000명당 7분(초당 약 2.4명, 서버가 버틴 가입 속도 초당 3명 아래) + 여유 5분: 1,000명 12분 · 3,000명 26분 · 스모크 20명 6분
 lead=$(( (CLAIMERS * 7 + 999) / 1000 + 5 ))
-[ $((open - $(date +%s))) -ge $((lead * 60)) ] || { echo "T($t)는 지금보다 ${lead}분 이상 뒤여야 함 ($CLAIMERS명 가입 1,000명당 약 7분 + 여유 5분)" >&2; exit 1; }
+[ $((open - $(date +%s))) -ge $((lead * 60)) ] || { echo "T($t)는 지금보다 ${lead}분 이상 뒤여야 함 ($CLAIMERS명 가입을 1,000명당 약 7분에 나눠 함 + 여유 5분)" >&2; exit 1; }
 ssh-add -l >/dev/null 2>&1 || { echo '먼저 실행: eval "$(ssh-agent -s)"; ssh-add ~/.ssh/hotel-legacy' >&2; exit 1; }
 LOAD=$(terraform -chdir="$LEGACY_DIR" output -raw load_test_instance_1_public_ip | tr -d '\r')
 ON_LOAD=(ssh "ec2-user@$LOAD")
@@ -50,7 +50,7 @@ SELECT id, name, quantity, issued_count, starts_at FROM coupons WHERE id = '$id'
 SQL
 bash ../migration/sql.sh "$out/coupon.sql" | tee "$out/coupon.txt"
 
-"${ON_LOAD[@]}" 'cloud-init status --wait >/dev/null; mkdir -p ~/load/results; sudo docker rm k6 k6-browser >/dev/null 2>&1 || true'
+"${ON_LOAD[@]}" 'cloud-init status --wait >/dev/null; mkdir -p ~/load/results; sudo docker rm -f k6 k6-browser >/dev/null 2>&1 || true' # 앞 회차가 중간에 멈추면 브라우저 손님이 남아 이름이 겹침(11-25)
 scp -q coupon-spike.js journey-browser.js "ec2-user@$LOAD:load/"
 # Grafana Cloud(실험 관제실, ADR-064)로 실시간 전송: PC에 쓰기 토큰 파일이 있을 때만. 토큰은 명령줄에 안 나오게 파일(--env-file)로 넘기고 끝나면 지움
 rw=0
@@ -58,7 +58,7 @@ if grep -q '^K6_PROMETHEUS_RW_PASSWORD=.' ~/.hotel-legacy/grafana.env 2>/dev/nul
   scp -q ~/.hotel-legacy/grafana.env "ec2-user@$LOAD:load/grafana.env" && "${ON_LOAD[@]}" 'chmod 600 ~/load/grafana.env' && rw=1
 fi
 echo "Grafana 전송: $([ $rw = 1 ] && echo 켬 || echo '끔 (~/.hotel-legacy/grafana.env 없음 또는 토큰 빈칸)')"
-# 조회는 시나리오 시작(가입이 끝난 뒤)부터 T + 30초 넘어까지 이어지게
+# 조회는 시작부터 T + 30초 넘어까지 (그동안 손님 가입이 나눠 들어감)
 "${ON_LOAD[@]}" bash -s -- "$name" "$BASE" "$id" "$((open * 1000))" "$COUPONS" "$CLAIMERS" "$((open - $(date +%s) + 30))" "$rw" <<'REMOTE'
 set -euo pipefail
 name=$1
@@ -89,7 +89,7 @@ trap 'kill $rec 2>/dev/null' EXIT
 for _ in $(seq 72); do [ "$("${ON_LOAD[@]}" "sudo docker inspect -f '{{.State.Running}}' k6-browser 2>/dev/null")" = true ] || break; sleep 5; done
 "${ON_LOAD[@]}" 'sudo docker logs k6-browser' >"$out/browser.txt" 2>&1 || rm -f "$out/browser.txt"
 scp -q "ec2-user@$LOAD:load/results/$name.*" "$out/"
-"${ON_LOAD[@]}" 'sudo docker rm k6 >/dev/null; sudo docker rm k6-browser >/dev/null 2>&1; rm -f ~/load/grafana.env'
+"${ON_LOAD[@]}" 'sudo docker rm k6 >/dev/null; sudo docker rm -f k6-browser >/dev/null 2>&1; rm -f ~/load/grafana.env'
 # 발급 확인: 발급 수 = 장 수(초과 0), 받은 줄 수 = 받은 사람 수(1인 1매)
 cat >"$out/verify.sql" <<SQL
 SELECT c.quantity, c.issued_count, COUNT(uc.id) AS user_coupons, COUNT(DISTINCT uc.user_id) AS users
