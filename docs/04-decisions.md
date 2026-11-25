@@ -1738,3 +1738,40 @@
 - **상황:** 최대 4대 · 연결 10 + 2 · CPU 평균 60% 기준은 1단계 비교용 가설값이었다([ADR-015](#adr-015), [ADR-074](#adr-074)). 11-25 실제 손님 행동 시험([migration 2절](experiments/migration.md)): ① 최대 4대에서 서버 부족, ② 8대 고정 · 연결 5 + 1에서 DB micro가 6,000명까지(RDS CPU 91%) 버팀, 늘리기 A(CPU 기준만)는 32분에 6대에서 멈췄고 B(+ 요청 수 기준 1분 4,800건)는 19분에 8대 · 3,000명부터 8대 고정과 같은 응답.
 - **결정 (사용자, 2026-11-25):** 서울 · 도쿄 공용 모듈 기본값을 최대 8대(`app_max_tasks`), 서버당 DB 연결 [5, 1](`db_pool_size`, 8 × 6 = 48 / 약 60), 늘리기는 CPU 평균 60%에 **요청 수 기준을 더함**(`app_requests_target = 4800`, 둘 중 하나라도 늘리자면 늘리고 둘 다 줄이자일 때만 줄임 — AWS 규칙). CPU 기준을 빼지 않는 이유: 로그인처럼 CPU를 많이 쓰는 요청이 몰리면 요청 수로는 놓친다.
 - **결과 · 주의:** 도쿄도 같은 모듈이라 장애 때 같은 구성(드릴 도쿄 apply 49개 · destroy 56개로 바뀜). 최소 대수 · 목표 추적 범위는 Terraform이 되돌리지 않게 막혀 있어(`ignore_changes`), 이미 떠 있는 서울에는 11-25 명령(최소 2 · 최대 8)으로 넣었고 새로 만들 때부터 코드 값이 들어간다. 1,000 ~ 2,000명은 첫 늘림 동안 여전히 느려 최소 3대 · 목표값 낮추기가 다음 후보(비용 ↔ 응답). 목표값 4,800은 ② 데이터에서 정한 가설값.
+
+<a name="adr-079"></a>
+## ADR-079 Slack 알림은 DR 판단 알림 하나: 서울 밖 Route 53 상태 검사 → us-east-1 경보, v3 경보(서버 수 · 포인트 보류)는 꺼 둠 (2026-11-25)
+
+- **상황:** Slack 경로([ADR-071](#adr-071))와 경보 2개(정상 서버 2개 미만 · 포인트 보류 [ADR-072](#adr-072))는 v3 첫 주에 만들었는데 v3는 미뤘다. 사용자 질문(11-25): "장애 알림이 울리면 담당자가 서울에서 이어갈 수 없다고 판단해 DR로 수동 전환하는 게 실무에 맞나?" 확인 결과 [ADR-012](#adr-012) · [ADR-066](#adr-066)(감지 · 알림은 자동, 결정은 사람, 실행은 `drill/region.sh` = 도쿄 apply + global apply)과 같다:
+  - *"Automatically initiated failover based on health checks or alarms should be used with caution. … Manually initiated failover is therefore often used. In this case, you should still automate the steps for failover, so that the manual initiation is like the push of a button."* ([AWS DR 백서](https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html))
+  - *"The failover action itself should be 100 percent automated, but the decision to activate the failover should be made by humans—usually a small number of predetermined individuals in the organization."* ([AWS Multi-Region 기본 원칙 4](https://docs.aws.amazon.com/prescriptive-guidance/latest/aws-multi-region-fundamentals/fundamental-4.html))
+
+  빠진 것 세 가지: ① 경보가 서울 안에 있다 — *"if there is a problem in the primary Region, the observability in the primary could be impaired"*, 대기 리전에서 상태 검사 · canary로 *"an outside view of the health of the primary Region"*(같은 문서 4.c) ② 서버가 0대면 `HealthyHostCount` 값이 없어 경보가 판단 보류(ADR-071 위험) ③ 선언 기준이 없다 — *"the criteria for a failover need to be clearly defined"*(같은 문서 4.d), ADR-012의 "5단계에서 정한다"는 정해지지 않았다.
+- **결정 (사용자, 2026-11-25):**
+
+  | 항목 | 고른 것 |
+  |---|---|
+  | DR 판단 알림 | `global/dr-alert.tf`: Route 53 상태 검사 `dr_check`(HTTPS `hotel.vundle34.cloud/api/health/deep`, 30초, 3번 연속 실패, 전 세계 검사기. 2초 안에 2xx · 3xx가 아니면 실패, 정상이라고 답한 검사기가 18% 이하면 비정상 — [Route 53 문서](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/dns-failover-determining-health-of-endpoints.html)) → 경보 `dr-alert`(`HealthCheckStatus` 최솟값 < 1, 1분 × 3번, us-east-1: Route 53 지표는 그 리전에서만 보임 [문서](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/monitoring-health-checks.html)) → SNS `-dr-alert`(bootstrap, us-east-1) → 같은 Slack 채널. 회복 알림도 보냄(서울 복구 · 도쿄 전환 끝). `deep`이라 서울 RDS 장애도 잡는다. global과 같이 만들고 지움 |
+  | v3 경보 | 정상 서버 2개 미만(`app-unhealthy`) · 포인트 보류(경보 + 지표 필터)를 모듈 변수 `v3_alarms`(옛 이름 `alerts`: 알림 전체처럼 읽혀 사용자 요청으로 바꿈, 기본 false)로 서울 · 도쿄 모두 꺼 둠. 코드와 서울 · 도쿄 주제는 v3 때 한 줄로 다시 켜도록 남김. `HealthyHostCount`는 CloudWatch · Grafana 대시보드에 그대로 |
+  | 매일 순서 | seoul → **CD** → global. migrate 전에는 `deep`이 500이라 거꾸로면 매일 거짓 알림. CD는 서울 ECS 안에서 끝나 공개 주소가 필요 없다(cd.yml) |
+  | 권한 | edge 정책에 상태 검사 만들기(`*`) · 조회 · 바꾸기 · 지우기 · 태그(`healthcheck/*`) 2문장(공백 뺀 2,455 → 2,752 / 6,144자). us-east-1 경보는 v2 정책 `AppAutoScaling` 문장(경보 권한 Resource `*`)으로 됨 |
+  | 채널 | 지금 켜진 알림이 하나라 채널 하나(Slack에서 이름만 `#dr-alert`로 바꾸면 ID 그대로). 채널은 "누가 · 얼마나 급하게 움직이나"로 나눈다: v3 때 포인트 보류(보안 대응)는 따로 채널. 주제가 용도별로 나뉘어 있어 Slack 채널 연결 하나만 더하면 된다 |
+
+- **근거 (알림 원칙):** *"Every page should be actionable."*, *"It focuses primarily on symptoms for paging, reserving cause-oriented heuristics to serve as aids to debugging problems."* ([Google SRE 6장](https://sre.google/sre-book/monitoring-distributed-systems/)). 손님이 못 쓰는 증상(바깥 검사)으로 알리고, 서버 수 같은 원인 지표는 대시보드에서 본다.
+- **검토한 대안:**
+
+  | 대안 | 버린 이유 |
+  |---|---|
+  | 정상 서버 2개 미만 경보 유지 ("울리면 AZ 문제" 아닌가, 사용자 질문) | AZ가 아니어도 울리고(서버 한 대 반복 실패 · 배포 실패), AZ 문제여도 서버가 늘어난 때(최대 8, [ADR-078](#adr-078)) 하나가 빠지면 4대가 남아 안 울린다. 11-21 AZ 차단 실측에서 AZ별 정상 수가 ALB 노드마다 0 ~ 1로 흔들리고 API는 내내 2([faults](experiments/faults.md)) → AZ 판단 신호로 약함. AZ 알림은 AZ별 요청 수 · 5xx 경보로 v3 임계값 작업에서(zonal shift 판단, [ADR-067](#adr-067)) |
+  | 서울 안 경보만으로 DR 판단 | 위 ①: 서울 리전 장애 때 같이 멈출 수 있다 |
+  | 자동 리전 전환 | ADR-012 · 066 그대로(오탐 · 되돌릴 수 없는 승격 · 데이터 분기) |
+  | 알림마다 채널 지금 나누기 | 켜진 알림이 하나라 나눌 것이 없다. v3 때 |
+
+- **결과 · 주의:**
+  - 알림까지 약 4 ~ 5분(검사 30초 × 3 + 경보 1분 × 3, 가설). 리전 드릴 때 "장애 선언 ↔ Slack 알림" 시각을 같이 잰다
+  - **선언 기준(몇 분 지나도 회복 안 되면 선언)은 아직 없다.** 추천 15분(리전 RTO 목표 30분 − 실측 전환 12분 28초 − 여유), 사용자 결정 대기
+  - 부하 시험 중 `deep`이 2초를 넘으면 실패로 센다 → 극한 부하에선 울릴 수 있다(손님도 못 쓰는 상태라 맞는 신호, DR은 아님 — 판단은 사람). 매시 정각 약 13초 정지는 90초 기준에 못 미쳐 안 울림
+  - 처음 상태(데이터 부족)에서 OK로 바뀔 때도 회복 알림이 갈 수 있다(가설) → 11-25 apply에서 Slack으로 확인
+  - 도쿄 전환 뒤에도 같은 주소라 도쿄를 본다. 서울 · 도쿄 주제와 `region.sh`의 도쿄 주제 확인은 v3용으로 그대로
+  - 개수: 서울 51(Multi-AZ 53) · 도쿄 드릴 apply 46 · destroy 53 · global 15(WAF 예외 날 16) · bootstrap 1 추가 · 2 변경(주제 · Slack 연결 · edge 정책)
+  - 비용: 상태 검사 기본 $0.75 + HTTPS $2/월(AWS 밖 엔드포인트 기준 최대 $2.75, 일할, [요금](https://aws.amazon.com/route53/pricing/)), global이 떠 있는 시간만. CloudFront가 무료 "AWS 엔드포인트"로 잡히는지는 미확인. 경보 1개 요금은 확인 안 함

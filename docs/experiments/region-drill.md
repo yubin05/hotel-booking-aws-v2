@@ -27,7 +27,7 @@
 | ⑥-2 보강 (11-24 추가, RTO 밖) | 도쿄 `multi_az = true` → plan 0 · 1 · 0이면 바로 apply. 걸린 시간과 그동안 손님 쓰기 실패 수를 `steps.log`에, DB 상태(modifying → available)를 `db-state.log`에 ([ADR-073](../04-decisions.md#adr-073)) | 스크립트 |
 | ⑦ 실제 사이트 확인 (2회차부터) | 도쿄 운영 중 실제 사이트에서 로그인 · 예약(RTO 밖) → 되돌린 뒤 서울에서 같은 예약이 보이는지 | 사용자 |
 | 되돌리기 | 도쿄 멈춤 → 서울 옛 DB에서 대조 목록 → 덤프 이관(도쿄 → 서울) · 체크섬 → 서울 앱 · global 서울로(ADR-062 그대로) | 스크립트, 시작(Enter)은 사용자 |
-| 정리 | 도쿄 destroy(56개, 11-25 요청 수 정책 +1, 11-24 55개, 11-22까지는 50개). 다음 회차는 standby부터(standby가 `multi_az` 줄을 지워 복제본은 Single-AZ) | 사용자 |
+| 정리 | 도쿄 destroy(53개, 11-25 요청 수 정책 +1 · v3 경보 3개 끔(ADR-079), 11-24 55개, 11-22까지는 50개). 다음 회차는 standby부터(standby가 `multi_az` 줄을 지워 복제본은 Single-AZ) | 사용자 |
 
 - **왜 회차마다 standby부터:** 승격한 DB는 다시 복제본으로 되돌릴 수 없다([RDS 문서](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ReadRepl.Promote.html)). 그래서 되돌린 뒤 도쿄를 지우고 서울에서 복제본을 새로 만든다. 운영에서도 같은 일을 하는데, 되돌린 뒤 보호를 다시 거는 단계(re-protect)이고 그동안(1회차 약 21분)은 리전 보호가 없다. 설계는 복제본 상시. 포트폴리오는 서울도 드릴 날에만 올려서 복제본도 그날만 만든다
 - **장애 흉내 방식:** 서울 앱 태스크를 0으로. 실제 리전 장애는 서울 API까지 안 될 수 있지만 재현하지 않는다(한계). CloudFront · Route 53 · Terraform state(도쿄 버킷)는 서울 장애와 무관한 곳에 있다(ADR-012 · ADR-025)
