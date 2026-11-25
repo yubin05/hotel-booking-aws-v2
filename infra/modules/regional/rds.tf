@@ -38,7 +38,7 @@ resource "aws_db_parameter_group" "this" {
 # 선택형 Enhanced Monitoring용 RDS 서비스 역할. 두 리전에 각각 다른 IAM 역할 이름을 사용한다.
 # Multi-AZ + Enhanced Monitoring이 동시에 켜져야 CloudWatch RDSOSMetrics -secondary 로그가 생김.
 resource "aws_iam_role" "rds_enhanced_monitoring" {
-  count = var.rds_enhanced_monitoring ? 1 : 0
+  count = var.rds_enhanced_monitoring && var.db_multi_az ? 1 : 0
   name  = "${local.name}-rds-os-${local.region}"
 
   assume_role_policy = jsonencode({
@@ -56,7 +56,7 @@ resource "aws_iam_role" "rds_enhanced_monitoring" {
 }
 
 resource "aws_iam_role_policy_attachment" "rds_enhanced_monitoring" {
-  count      = var.rds_enhanced_monitoring ? 1 : 0
+  count      = var.rds_enhanced_monitoring && var.db_multi_az ? 1 : 0
   role       = aws_iam_role.rds_enhanced_monitoring[count.index].name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole"
 }
@@ -96,8 +96,8 @@ resource "aws_db_instance" "this" {
 
   multi_az               = var.db_multi_az # 장애 실험 / 도쿄 승격 보강에서만 켬
   # RDSOSMetrics -secondary는 Enhanced Monitoring이 켜진 Multi-AZ 배포에서만 수집.
-  # 기본 false -> 0초(OFF)로 비용 변화 없음. 켜면 60초 주기로 CloudWatch Logs 비용 가능.
-  monitoring_interval    = var.rds_enhanced_monitoring ? 60 : 0
+  # 기본 false 또는 db_multi_az=false -> OFF. 두 조건 모두 true일 때만 60초 수집.
+  monitoring_interval    = var.rds_enhanced_monitoring && var.db_multi_az ? 60 : 0
   monitoring_role_arn    = one(aws_iam_role.rds_enhanced_monitoring[*].arn)
   parameter_group_name   = aws_db_parameter_group.this.name
   db_subnet_group_name   = aws_db_subnet_group.this.name
