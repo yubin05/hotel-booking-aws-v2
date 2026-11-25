@@ -441,7 +441,7 @@ for r in ap-northeast-2 ap-northeast-1; do AWS_PROFILE=admin aws sesv2 get-email
 MSYS_NO_PATHCONV=1 AWS_PROFILE=admin aws logs tail /ecs/hotel-booking-aws-v2 --region ap-northeast-2 --since 15m | grep -iE "mail|kakao|toss|error|알림"
 
 # Slack 경보: 일부러 울렸다가(평소 사용자에겐 SetAlarmState 권한이 없어 관리자) 다음 평가(1분)에 실제 값으로 돌아오며 복구 알림
-# 11-25부터 Slack 경보는 DR 판단 알림 하나(us-east-1, global이 떠 있을 때, ADR-079). v3 경보(app-unhealthy · points-hold)는 꺼 둠
+# 11-25부터 Slack 경보는 DR 판단 알림 하나(us-east-1, global이 떠 있을 때, ADR-079). 정상 서버 경보(app-unhealthy)는 지움, v3 포인트 보류(points-hold)는 꺼 둠
 AWS_PROFILE=admin aws cloudwatch set-alarm-state --region us-east-1 --alarm-name hotel-booking-aws-v2-dr-alert \
   --state-value ALARM --state-reason "런북 5-9 경로 시험"
 ```

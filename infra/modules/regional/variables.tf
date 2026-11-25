@@ -95,7 +95,7 @@ variable "app_integrations" {
 }
 
 variable "v3_alarms" {
-  description = "v3 첫 주에 만든 리전 안 경보(정상 서버 2개 미만 · 포인트 보류, alarms.tf)를 bootstrap의 그 리전 SNS 주제(→ Slack)로 보낼지 (ADR-071 · 072 · 073). 2026-11-25부터 꺼 둠: Slack은 DR 판단 알림(global/dr-alert.tf)만 (ADR-079). v3 시나리오 A 때 서울 · 도쿄 true"
+  description = "v3 시나리오 A 포인트 보류 경보(+ 지표 필터, alarms.tf)를 bootstrap의 그 리전 SNS 주제(→ Slack)로 보낼지 (ADR-071 · 072 · 073). 2026-11-25부터 꺼 둠: Slack은 DR 판단 알림(global/dr-alert.tf)만 (ADR-079). v3 시나리오 A 때 서울 · 도쿄 true"
   type        = bool
   default     = false
 }

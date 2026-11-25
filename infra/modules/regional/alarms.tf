@@ -1,32 +1,6 @@
-# v3 첫 주 경보 (ADR-071 · 072): 정상 태스크가 3분 내내 최소 수(2)보다 적으면 Slack, 포인트 보류(v3 시나리오 A)도 Slack
-# 2026-11-25부터 꺼 둠(v3_alarms 기본 false, ADR-079). Slack은 DR 판단 알림(global/dr-alert.tf) 하나만. 서버 수는 대시보드로 봄
-# 주제는 bootstrap(alerts.tf, 서울 · 도쿄). 트래픽 눌림(CPU · 5xx · p95) 경보는 기준값(정상 k6 최댓값 × 배수)을 정하는 v3 임계값 작업에서
-resource "aws_cloudwatch_metric_alarm" "app_unhealthy" {
-  count             = var.v3_alarms ? 1 : 0
-  alarm_name        = "${local.name}-app-unhealthy"
-  alarm_description = "정상 태스크(ALB HealthyHostCount)가 3분 동안 ${local.app_min_tasks}개 미만"
-
-  namespace   = "AWS/ApplicationELB"
-  metric_name = "HealthyHostCount"
-  dimensions = {
-    TargetGroup  = aws_lb_target_group.app.arn_suffix
-    LoadBalancer = aws_lb.this.arn_suffix
-  }
-  statistic           = "Minimum"
-  period              = 60
-  evaluation_periods  = 3
-  comparison_operator = "LessThanThreshold"
-  threshold           = local.app_min_tasks
-
-  # 태스크가 모두 빠져 대상이 0일 때 값이 나오는지는 문서로 확인하지 못함(가설: 안 나옴 → 판단 보류라 알림 없음).
-  # breaching으로 두면 매일 apply 직후(태스크가 뜨기 전)에도 울려 거짓 알림이 됨
-  treat_missing_data = "missing"
-
-  alarm_actions = ["arn:aws:sns:${local.region}:${local.account_id}:${local.name}-alerts"]
-  ok_actions    = ["arn:aws:sns:${local.region}:${local.account_id}:${local.name}-alerts"]
-
-  depends_on = [aws_ecs_service.app] # 서비스가 생긴 뒤부터 재야 apply 직후 거짓 알림이 줄어듦
-}
+# v3 경보: 2026-11-25부터 꺼 둠(v3_alarms 기본 false, ADR-079). Slack은 DR 판단 알림(global/dr-alert.tf) 하나만
+# 정상 서버 2개 미만 경보(ADR-071)는 지움: 울려도 AZ 장애라 확신할 수 없고 AZ 문제여도 서버가 늘어 있으면 안 울림. 서버 수는 대시보드로 봄
+# 주제는 bootstrap(alerts.tf, 서울 · 도쿄). 트래픽 눌림(CPU · 5xx · p95) · AZ별 경보는 기준값(정상 k6 최댓값 × 배수)을 정하는 v3 임계값 작업에서
 
 # 계정 탈취 의심 · 세션 보류 알림 (ADR-072, 시나리오 A): 앱이 보류를 기록하고 남긴 points_hold_applied 로그 한 줄 = 지표 1
 # 보류는 앱이 같은 트랜잭션에서 이미 했다. 이 경보는 사람에게 알리는 용도라 보류 시각 ≤ 경보 시각이 정상
