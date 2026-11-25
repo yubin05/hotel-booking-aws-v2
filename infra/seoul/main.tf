@@ -6,6 +6,7 @@ module "regional" {
   # 평소 NAT 1개 · RDS 한 AZ(비용). 4단계 RDS · AZ 장애 테스트 · 리전 드릴 날만 terraform.tfvars에 multi_az = true (ADR-034 · ADR-042)
   nat_count   = var.multi_az ? 2 : 1
   db_multi_az = var.multi_az
+  rds_monitoring_role_arn = var.rds_enhanced_monitoring ? "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/hotel-booking-aws-v2-rds-enhanced-monitoring" : null
   rds_enhanced_monitoring = var.rds_enhanced_monitoring # 기본 OFF · Multi-AZ 드릴 때만 선택적 ON
   # DB 한계 시험(ADR-074 ②) 날만 terraform.tfvars에 db_pool_size = [5, 1] (서버 8대 고정 × 6 = 48 연결)
   db_pool_size = var.db_pool_size
@@ -27,3 +28,6 @@ module "regional" {
   # 3단계 이관 · 검증용 일회성 태스크 정의 restore · sql (docs/experiments/migration.md). 태스크 정의는 무료
   migration_tasks = true
 }
+
+# Bootstrap에서 관리자가 생성한 역할의 ARN을 조합 (operator IAM GetRole 불필요).
+data "aws_caller_identity" "current" {}

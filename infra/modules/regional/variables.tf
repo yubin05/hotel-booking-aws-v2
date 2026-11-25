@@ -36,6 +36,14 @@ variable "rds_enhanced_monitoring" {
   default     = false
 }
 
+# IAM 서비스 역할은 bootstrap에서 관리자 1회 생성. 이 모듈에서는 생성하지 않고 ARN만 사용.
+variable "rds_monitoring_role_arn" {
+  description = "계정 전역 RDS Enhanced Monitoring IAM 역할 ARN (기본 미사용)"
+  type        = string
+  default     = null
+  nullable    = true
+}
+
 variable "app_requests_target" {
   description = "요청 수 기준 늘리기: 태스크 1대의 1분 요청 수 목표. 비우면(null) CPU 기준만 (ADR-074 늘리기 개선)"
   type        = number

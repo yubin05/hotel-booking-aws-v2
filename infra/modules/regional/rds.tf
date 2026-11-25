@@ -35,32 +35,8 @@ resource "aws_db_parameter_group" "this" {
 }
 
 # 다른 리전 복제본은 받는 리전의 키를 지정해야 함(공급자 문서). AWS 관리 키, kms:DescribeKey만으로 조회(별칭 목록 권한 없이)
-# 선택형 Enhanced Monitoring용 RDS 서비스 역할. 두 리전에 각각 다른 IAM 역할 이름을 사용한다.
-# Multi-AZ + Enhanced Monitoring이 동시에 켜져야 CloudWatch RDSOSMetrics -secondary 로그가 생김.
-resource "aws_iam_role" "rds_enhanced_monitoring" {
-  count = var.rds_enhanced_monitoring && var.db_multi_az ? 1 : 0
-  name  = "${local.name}-rds-os-${local.region}"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Principal = { Service = "monitoring.rds.amazonaws.com" }
-      Action = "sts:AssumeRole"
-      Condition = {
-        StringEquals = { "aws:SourceAccount" = local.account_id }
-        ArnLike      = { "aws:SourceArn" = "arn:aws:rds:${local.region}:${local.account_id}:db:${local.name}" }
-      }
-    }]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "rds_enhanced_monitoring" {
-  count      = var.rds_enhanced_monitoring && var.db_multi_az ? 1 : 0
-  role       = aws_iam_role.rds_enhanced_monitoring[count.index].name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole"
-}
-
+# Enhanced Monitoring IAM 역할은 bootstrap에서 생성, regional 모듈은 ARN만 받는다.
+# IAM 역할 신규 생성에 따른 DR 보강 plan 변경과 운영자 AccessDenied를 방지한다.
 data "aws_kms_key" "rds" {
   count  = var.replica_source_arn == null ? 0 : 1
   key_id = "alias/aws/rds"
@@ -98,7 +74,7 @@ resource "aws_db_instance" "this" {
   # RDSOSMetrics -secondary는 Enhanced Monitoring이 켜진 Multi-AZ 배포에서만 수집.
   # 기본 false 또는 db_multi_az=false -> OFF. 두 조건 모두 true일 때만 60초 수집.
   monitoring_interval    = var.rds_enhanced_monitoring && var.db_multi_az ? 60 : 0
-  monitoring_role_arn    = one(aws_iam_role.rds_enhanced_monitoring[*].arn)
+  monitoring_role_arn    = var.rds_enhanced_monitoring && var.db_multi_az ? var.rds_monitoring_role_arn : null
   parameter_group_name   = aws_db_parameter_group.this.name
   db_subnet_group_name   = aws_db_subnet_group.this.name
   vpc_security_group_ids = [aws_security_group.db.id]
