@@ -17,7 +17,9 @@ CLAIMERS=${CLAIMERS:-1000}
 t=${1:-}; cond=${2:-}
 [[ $t =~ ^[0-2][0-9]:[0-5][0-9]$ && ($cond == fixed2 || $cond == none || $cond == scheduled) ]] || { sed -n '3,5p' "$0" >&2; exit 1; }
 open=$(date -d "$t" +%s) # 오늘 그 시각 (한국 시간)
-[ $((open - $(date +%s))) -ge 720 ] || { echo "T($t)는 지금보다 12분 이상 뒤여야 함 (오픈 전 1,000명 가입 약 7분, 11-20 실측)" >&2; exit 1; }
+# 오픈 전 가입 시간(1,000명당 약 7분, 11-20 실측) + 여유 5분: 1,000명 12분 · 3,000명 26분 · 스모크 20명 6분 (11-25 인원에 맞춤)
+lead=$(( (CLAIMERS * 7 + 999) / 1000 + 5 ))
+[ $((open - $(date +%s))) -ge $((lead * 60)) ] || { echo "T($t)는 지금보다 ${lead}분 이상 뒤여야 함 ($CLAIMERS명 가입 1,000명당 약 7분 + 여유 5분)" >&2; exit 1; }
 ssh-add -l >/dev/null 2>&1 || { echo '먼저 실행: eval "$(ssh-agent -s)"; ssh-add ~/.ssh/hotel-legacy' >&2; exit 1; }
 LOAD=$(terraform -chdir="$LEGACY_DIR" output -raw load_test_instance_1_public_ip | tr -d '\r')
 ON_LOAD=(ssh "ec2-user@$LOAD")
