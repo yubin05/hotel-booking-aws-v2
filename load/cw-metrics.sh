@@ -39,9 +39,9 @@ for d in "$@"; do
   ts=$(grep -oE '[0-9]{8}-[0-9]{6}$' <<<"$n") # 이름 끝의 시작 시각 YYYYmmdd-HHMMSS (한국 시간, baseline-aws-* · coupon-*)
   s=$(date -d "${ts:0:8} ${ts:9:2}:${ts:11:2}:${ts:13:2}" +%s)
   echo "$queries" >"$d/cw-queries.json"
-  # 시험 37분 + 앞뒤 여유. "+45 minutes"는 시간대로 읽히는 함정이 있어 초로 계산
+  # 시험(37분 · 실제 손님 시험 준비 1분 + 49분) + 앞뒤 여유 → 시작 + 60분. 45분이면 4,000명 층이 잘렸다(11-25). "+60 minutes"는 시간대로 읽히는 함정이 있어 초로 계산
   admin cloudwatch get-metric-data --metric-data-queries "file://$d/cw-queries.json" \
-    --start-time "$(date -u -d "@$((s - 120))" +%FT%TZ)" --end-time "$(date -u -d "@$((s + 2700))" +%FT%TZ)" --output json >"$d/cw.json"
+    --start-time "$(date -u -d "@$((s - 120))" +%FT%TZ)" --end-time "$(date -u -d "@$((s + 3600))" +%FT%TZ)" --output json >"$d/cw.json"
   # 재생 화면용 태스크 수 · 사건 시각: Container Insights를 켜지 않아 CloudWatch에 태스크 수 지표가 없다. 원본 그대로 두고 구간은 변환 때 고름
   admin application-autoscaling describe-scaling-activities --service-namespace ecs --resource-id "service/$CLUSTER/app" \
     --include-not-scaled-activities --output json >"$d/scaling.json" # 늘리기 · 줄이기 결정 시각 · 이유(안 늘린 이유 포함), 6주 보관
@@ -53,7 +53,7 @@ for d in "$@"; do
   if [ $(($(date +%s) - s)) -lt 10800 ]; then
     echo "$fast" >"$d/cw-1s-queries.json"
     admin cloudwatch get-metric-data --metric-data-queries "file://$d/cw-1s-queries.json" \
-      --start-time "$(date -u -d "@$((s - 120))" +%FT%TZ)" --end-time "$(date -u -d "@$((s + 2700))" +%FT%TZ)" --output json >"$d/cw-1s.json"
+      --start-time "$(date -u -d "@$((s - 120))" +%FT%TZ)" --end-time "$(date -u -d "@$((s + 3600))" +%FT%TZ)" --output json >"$d/cw-1s.json"
     echo "$n → $d/cw.json · cw-1s.json"
   else
     echo "$n → $d/cw.json (시작 3시간이 지나 1초 지표는 이미 없음)" >&2
