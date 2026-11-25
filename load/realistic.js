@@ -10,7 +10,7 @@ import { Counter } from 'k6/metrics';
 
 const BASE = __ENV.BASE_URL ?? 'http://app:3000';
 const ACCOUNTS = Number(__ENV.ACCOUNTS ?? 100); // 준비에서 가입(1번 약 0.6초)하는 계정 수. 손님 여럿이 계정을 나눠 씀
-const FLOOR = 500;
+const FLOOR = Number(__ENV.FLOOR ?? 500); // 계단 한 칸. ② DB 한계 시험은 1,000 × 6층 = 6,000명(37분)
 const FLOORS = Number(__ENV.FLOORS ?? 8); // 무너질 때까지: 기본 4,000명(8층, 49분)
 const PASSWORD = 'k6-password';
 const bookingsCreated = new Counter('bookings_created');

@@ -59,3 +59,24 @@ for (const f of floors) {
   console.log(`| ${f.vus} | ${tries.length} | ${rate} | ${wait} | ${perScreen.join(' | ')} | ${fails || '없음'} |`);
 }
 console.log('\n기다린 시간 합: 성공한 여정의 화면 6개(첫 화면 · 검색 · 숙소 · 로그인 · 예약 화면 · 예약)를 기다린 시간의 합. 화면 사이 생각하는 시간(5 ~ 20초)은 뺌');
+
+// 브라우저 손님(journey-browser.js, 11-25~)이 있으면 층마다 실제 브라우저의 첫 화면
+const browserFile = files.find((f) => f.endsWith('.browser.gz'));
+if (browserFile) {
+  const { points: b } = await readK6(join(dir, browserFile));
+  const p = (list, f, q) => {
+    const v = within(list, f).map((x) => x.value);
+    return v.length ? sec(pct(v, q)) : '-';
+  };
+  console.log('\n브라우저 손님 (실제 Chromium, 캐시 없음): 첫 화면');
+  console.log('| 층(VU) | 열기 | 성공 | LCP p50 · p95 | FCP p95 | TTFB p95 | 다 받기까지 p50 · p95 |');
+  console.log('|---|---|---|---|---|---|---|');
+  for (const f of floors) {
+    const ok = within(b.browser_page_ok, f);
+    const good = ok.filter((x) => x.value === 1).length;
+    const lcp = `${p(b.browser_web_vital_lcp, f, 0.5)} · ${p(b.browser_web_vital_lcp, f, 0.95)}`;
+    const load = `${p(b.browser_page_load, f, 0.5)} · ${p(b.browser_page_load, f, 0.95)}`;
+    console.log(`| ${f.vus} | ${ok.length} | ${good}/${ok.length} | ${lcp} | ${p(b.browser_web_vital_fcp, f, 0.95)} | ${p(b.browser_web_vital_ttfb, f, 0.95)} | ${load} |`);
+  }
+  console.log('\nLCP: 첫 화면의 가장 큰 내용이 그려진 시간(Google 좋음 기준 2.5초). 다 받기까지: 열기 시작 ~ 네트워크가 조용해질 때(사진 · 글꼴 포함)');
+}

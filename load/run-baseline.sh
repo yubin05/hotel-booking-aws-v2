@@ -48,6 +48,8 @@ collect() {
   # 손님 여정 k6(3단계만)는 준비가 짧아 몇 초 늦게 끝난다 → 최대 3분 기다린 뒤 로그를 받는다 (결과 파일은 아래 scp가 같이 받음)
   for _ in $(seq 36); do [ "$("${ON_LOAD[@]}" "sudo docker inspect -f '{{.State.Running}}' k6-journey 2>/dev/null")" = true ] || break; sleep 5; done
   "${ON_LOAD[@]}" 'sudo docker logs k6-journey' >"$out/journey.txt" 2>&1 || rm -f "$out/journey.txt"
+  for _ in $(seq 36); do [ "$("${ON_LOAD[@]}" "sudo docker inspect -f '{{.State.Running}}' k6-browser 2>/dev/null")" = true ] || break; sleep 5; done
+  "${ON_LOAD[@]}" 'sudo docker logs k6-browser' >"$out/browser.txt" 2>&1 || rm -f "$out/browser.txt"
   scp -q "ec2-user@$LOAD:load/results/$name.*" "$out/"
   # 기록을 멈추고 가져온다 (pkill은 이미 멈췄으면 실패하므로 무시)
   "${ON_LOAD[@]}" 'pkill vmstat; cat ~/vmstat.log' >"$out/load.vmstat" || true
@@ -67,7 +69,7 @@ collect() {
   "${ON_DB[@]}" "sudo docker exec -i hotel-db sh -c 'mysql -uapp -p\"\$MYSQL_PASSWORD\" --default-character-set=utf8mb4 -t hotel_booking' 2>/dev/null" \
     <../scripts/check-consistency.sql >"$out/consistency.txt"
   fi
-  "${ON_LOAD[@]}" 'sudo docker rm k6 >/dev/null && { sudo docker rm k6-journey >/dev/null 2>&1 || true; }'
+  "${ON_LOAD[@]}" 'sudo docker rm k6 >/dev/null && { sudo docker rm k6-journey k6-browser >/dev/null 2>&1 || true; }'
   echo "결과: load/results/$name/"
   ls -1 "$out"
   grep -E 'http_reqs\.|http_req_failed|bookings_created|vus_max' "$out/k6.txt" || true
@@ -89,6 +91,8 @@ case $SCRIPT in
   realistic.js) floors=${FLOORS:-8} tag=real-; [ "$pre" = baseline-aws ] || { echo 'realistic.js는 TARGET=aws에서만' >&2; exit 1; } ;;
   *) echo "SCRIPT는 baseline.js 또는 realistic.js" >&2; exit 1 ;;
 esac
+floor=${FLOOR:-500}       # 계단 한 칸 (realistic.js만 씀, ② DB 한계 시험은 1000)
+browsers=${BROWSERS:-1}   # 브라우저 손님 수 (3단계만, 0이면 안 띄움)
 name=$pre-$tag$(date +%Y%m%d-%H%M%S)
 [ $# -gt 0 ] && name=$pre-${tag}try-$(date +%Y%m%d-%H%M%S)
 
@@ -98,8 +102,8 @@ if [ "$("${ON_LOAD[@]}" "sudo docker inspect -f '{{.State.Running}}' k6 2>/dev/n
   echo '발생기에서 k6가 이미 도는 중 (앞 실행이 안 끝남)' >&2
   exit 1
 fi
-"${ON_LOAD[@]}" 'cloud-init status --wait >/dev/null; mkdir -p ~/load/results; sudo docker rm k6 k6-journey >/dev/null 2>&1 || true'
-scp -q baseline.js realistic.js journey.js "ec2-user@$LOAD:load/"
+"${ON_LOAD[@]}" 'cloud-init status --wait >/dev/null; mkdir -p ~/load/results; sudo docker rm k6 k6-journey k6-browser >/dev/null 2>&1 || true'
+scp -q baseline.js realistic.js journey.js journey-browser.js "ec2-user@$LOAD:load/"
 
 # 5초마다 CPU·메모리(MB) 기록 시작. SSH가 끊겨도 서버에서 계속 돈다
 START_VMSTAT='pkill vmstat; nohup vmstat -t -S M 5 >~/vmstat.log 2>&1 </dev/null &'
@@ -123,9 +127,9 @@ if [ "$pre" = baseline-aws ] && grep -q '^K6_PROMETHEUS_RW_PASSWORD=.' ~/.hotel-
   scp -q ~/.hotel-legacy/grafana.env "ec2-user@$LOAD:load/grafana.env" && "${ON_LOAD[@]}" 'chmod 600 ~/load/grafana.env' && rw=1
 fi
 [ "$pre" = baseline-aws ] && echo "Grafana 전송: $([ $rw = 1 ] && echo 켬 || echo '끔 (~/.hotel-legacy/grafana.env 없음 또는 토큰 빈칸)')"
-"${ON_LOAD[@]}" bash -s -- "$name" "$base" "$rw" "$SCRIPT" "$floors" "$@" <<'REMOTE'
+"${ON_LOAD[@]}" bash -s -- "$name" "$base" "$rw" "$SCRIPT" "$floors" "$floor" "$browsers" "$@" <<'REMOTE'
 set -euo pipefail
-name=$1; base=$2; rw=$3; script=$4; floors=$5; shift 5
+name=$1; base=$2; rw=$3; script=$4; floors=$5; floor=$6; browsers=$7; shift 7
 grafana=() out=(--out "json=/load/results/$name.json.gz")
 if [ "$rw" = 1 ]; then # 쿠폰과 같게 1초마다 p95 · p99 · 최대. 요청 주소(url) 태그는 빼서 숙소마다 시리즈가 늘지 않게 (이름 태그로 구분)
   grafana=(--env-file "$HOME/load/grafana.env" -e 'K6_PROMETHEUS_RW_TREND_STATS=p(95),p(99),max' -e K6_PROMETHEUS_RW_PUSH_INTERVAL=1s -e K6_PROMETHEUS_RW_STALE_MARKERS=true
@@ -134,7 +138,7 @@ if [ "$rw" = 1 ]; then # 쿠폰과 같게 1초마다 p95 · p99 · 최대. 요�
 fi
 smoke=0; [ $# -gt 0 ] && smoke=1 # 뒤에 k6 옵션을 붙인 짧은 실행: realistic.js가 로그인 · 예약 경로를 반드시 타게 (baseline.js는 안 씀)
 sudo docker run -d --name k6 --network host --user "$(id -u):$(id -g)" -v ~/load:/load "${grafana[@]}" \
-  -e BASE_URL="$base" -e FLOORS="$floors" -e SMOKE="$smoke" -e K6_WEB_DASHBOARD=true -e K6_WEB_DASHBOARD_EXPORT="/load/results/$name.html" \
+  -e BASE_URL="$base" -e FLOORS="$floors" -e FLOOR="$floor" -e SMOKE="$smoke" -e K6_WEB_DASHBOARD=true -e K6_WEB_DASHBOARD_EXPORT="/load/results/$name.html" \
   grafana/k6:1.0.0 run "${out[@]}" "$@" "/load/$script" >/dev/null
 rm -f ~/load/grafana.env # docker는 컨테이너를 만들 때 읽어 이제 필요 없음
 # 손님 여정(journey.js, 3단계만): 같은 시간 동안 손님 20명이 첫 화면부터 예약까지 반복. 부하와 따로 띄워 baseline.js는 그대로 (2026-11-24)
@@ -143,6 +147,12 @@ if [[ $name == baseline-aws-* ]]; then
   jd=$((floors * 6 + 3))m; [ $# -gt 0 ] && jd=2m
   sudo docker run -d --name k6-journey --network host --user "$(id -u):$(id -g)" -v ~/load:/load -e BASE_URL="$base" -e DURATION="$jd" \
     grafana/k6:1.0.0 run --out "json=/load/results/$name.journey.gz" /load/journey.js >/dev/null
+  # 브라우저 손님(journey-browser.js): 실제 Chromium으로 첫 화면 LCP 등 (11-25). HOME=/tmp: --user로 돌려도 Chromium이 쓸 곳
+  if [ "$browsers" -gt 0 ]; then
+    sudo docker run -d --name k6-browser --network host --shm-size=512m --user "$(id -u):$(id -g)" -e HOME=/tmp -v ~/load:/load \
+      -e BASE_URL="$base" -e DURATION="$jd" -e BROWSERS="$browsers" \
+      grafana/k6:1.0.0-with-browser run --out "json=/load/results/$name.browser.gz" /load/journey-browser.js >/dev/null
+  fi
 fi
 REMOTE
 echo "시작: $name (대상 $base, 발생기 $LOAD). 진행을 따라 보여 줌. Ctrl+C로 빠져나와도 시험은 계속됨"
