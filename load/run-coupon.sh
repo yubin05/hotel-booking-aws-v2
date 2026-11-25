@@ -74,7 +74,9 @@ sudo docker run -d --name k6 --network host --user "$(id -u):$(id -g)" -v ~/load
   -e K6_WEB_DASHBOARD=true -e K6_WEB_DASHBOARD_EXPORT="/load/results/$name.html" \
   grafana/k6:1.0.0 run "${out[@]}" /load/coupon-spike.js >/dev/null
 # 브라우저 손님 1명(journey-browser.js, 11-25): 오픈 전 ~ 예약 쏠림 뒤까지 첫 화면 LCP. 조회 시간 + 4분
-sudo docker run -d --name k6-browser --network host --shm-size=512m --user "$(id -u):$(id -g)" -e HOME=/tmp -v ~/load:/load \n  -e BASE_URL="$2" -e DURATION="$(($7 + 240))s" -e BROWSERS=1 \n  grafana/k6:1.0.0-with-browser run --out "json=/load/results/$name.browser.gz" /load/journey-browser.js >/dev/null
+sudo docker run -d --name k6-browser --network host --shm-size=512m --user "$(id -u):$(id -g)" -e HOME=/tmp -v ~/load:/load \
+  -e BASE_URL="$2" -e DURATION="$(($7 + 240))s" -e BROWSERS=1 \
+  grafana/k6:1.0.0-with-browser run --out "json=/load/results/$name.browser.gz" /load/journey-browser.js >/dev/null
 REMOTE
 echo "시작: $name (T $t, 쿠폰 $COUPONS장, $CLAIMERS명). Ctrl+C로 빠져나와도 시험은 발생기에서 계속됨"
 bash record-tasks.sh "$out/tasks.log" & # 태스크 수 5초 기록, 이 스크립트가 끝나면 멈춤
