@@ -50,7 +50,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "**쿠폰 이벤트 부하 실험** · 가상 사용자 1,000명(k6)이 선착순 쿠폰 100장 발급을 시도합니다. **① 부하(k6) → ② 앱(ECS·ALB) → ③ DB(RDS)** 순서로 보세요. `No data`는 오류 0건이 아닙니다. 수집 상태와 조회 시간 범위를 확인해야 합니다.\n\n용어: **VU** = k6 가상 사용자 · **RPS** = 초당 요청 수 · **ECS 태스크** = 컨테이너 실행 단위(물리 서버 대수가 아님) · **ALB** = 요청 분배기 · **RDS** = 관리형 DB · **p95** = 95%의 요청이 해당 시간 이내에 완료됨 · `coupon-…` = 회차 이름"
+        "content": "**쿠폰 이벤트 부하 실험** · k6 가상 사용자가 선착순 쿠폰 발급을 시도합니다. 규모와 수량은 회차별 기록으로 확인합니다. coupon-video- 회차는 촬영용(손님 1장 선발급)이며 성능 검증 회차와 분리합니다. **① 부하(k6) → ② 앱(ECS·ALB) → ③ DB(RDS)** 순서로 보세요. `No data`는 오류 0건이 아닙니다. 수집 상태와 조회 시간 범위를 확인해야 합니다.\n\n용어: **VU** = k6 가상 사용자 · **RPS** = 초당 요청 수 · **ECS 태스크** = 컨테이너 실행 단위(물리 서버 대수가 아님) · **ALB** = 요청 분배기 · **RDS** = 관리형 DB · **p95** = 95%의 요청이 해당 시간 이내에 완료됨 · `coupon-…` = 회차 이름"
       }
     },
     {
@@ -70,7 +70,7 @@
       "id": 3,
       "type": "stat",
       "title": "쿠폰 발급 성공 (201)",
-      "description": "발급 성공(201) 누적. 100이 넘으면 초과 발급(실패)",
+      "description": "발급 성공(201) 누적. 100장 회차에서 일반 회차는 100, 촬영 회차는 k6 99 + 실제 손님 1로 검증",
       "gridPos": {
         "w": 6,
         "h": 4,
@@ -298,7 +298,7 @@
       "id": 7,
       "type": "timeseries",
       "title": "쿠폰 발급·품절 누적",
-      "description": "받음 · 품절 안내 누적. 받음이 100(점선)에서 멈춰야 정상. 품절 안내가 오르기 시작한 때가 다 나간 순간",
+      "description": "받음 · 품절 안내 누적. 100장 실험 기준 점선은 100; 촬영 회차는 k6 발급 99가 기대값. 품절 안내가 오르기 시작한 때가 다 나간 순간",
       "gridPos": {
         "w": 12,
         "h": 8,
@@ -598,7 +598,7 @@
     {
       "id": 12,
       "type": "timeseries",
-      "title": "서버 수 (ECS 태스크)",
+      "title": "일반 서버 수 (ECS app)",
       "description": "Desired = 목표 태스크, Running = 실제 실행 태스크, ALB Healthy = 트래픽을 받을 준비가 된 정상 대상. 태스크는 물리 서버가 아닌 컨테이너 실행 단위. 1분 단위 관측.",
       "gridPos": {
         "w": 12,
@@ -630,7 +630,7 @@
           "matchExact": true,
           "metricQueryType": 0,
           "metricEditorMode": 0,
-          "label": "목표 태스크 (Desired)",
+          "label": "app 목표 태스크 (Desired)",
           "id": "",
           "expression": ""
         },
@@ -653,7 +653,7 @@
           "matchExact": true,
           "metricQueryType": 0,
           "metricEditorMode": 0,
-          "label": "실행 태스크 (Running)",
+          "label": "app 실행 태스크 (Running)",
           "id": "",
           "expression": ""
         },
@@ -665,20 +665,12 @@
           },
           "queryMode": "Metrics",
           "region": "ap-northeast-2",
-          "namespace": "AWS/ApplicationELB",
-          "metricName": "HealthyHostCount",
-          "dimensions": {
-            "TargetGroup": "*",
-            "LoadBalancer": "*"
-          },
-          "statistic": "Maximum",
-          "period": "60",
-          "matchExact": false,
           "metricQueryType": 0,
-          "metricEditorMode": 0,
-          "label": "정상 대상 (ALB Healthy)",
+          "metricEditorMode": 1,
+          "period": "60",
           "id": "",
-          "expression": ""
+          "expression": "SEARCH('{AWS/ApplicationELB,LoadBalancer,TargetGroup} MetricName=\"HealthyHostCount\" AND TargetGroup=hotel AND TargetGroup=booking AND TargetGroup=app', 'Maximum', 60)",
+          "label": "app 정상 대상 ${PROP('Dim.TargetGroup')}"
         }
       ],
       "fieldConfig": {
@@ -726,7 +718,7 @@
     {
       "id": 13,
       "type": "timeseries",
-      "title": "CPU·메모리 사용률 (ECS · %)",
+      "title": "일반 서버 CPU·메모리 (ECS app · %)",
       "description": "ECS 서비스 CPU 평균, CPU 최대, 메모리 최대 사용률(1분 단위). CPU 최대 · 메모리 최대 = 사용률이 가장 높은 태스크 하나의 값(20초 측정 중 최댓값, ECS 서비스 사용률 문서). 점선은 CPU 60% 스케일링 기준.",
       "gridPos": {
         "w": 12,
@@ -854,8 +846,8 @@
     {
       "id": 14,
       "type": "timeseries",
-      "title": "앱 요청·5xx 오류 (1초)",
-      "description": "앱이 1초마다 직접 남기는 값(헬스 체크 제외). 서버 오류 = 5xx",
+      "title": "서비스별 요청·5xx 오류 (1초)",
+      "description": "헬스 체크 제외. 일반 app과 쿠폰 coupon의 요청 및 5xx를 별도 관측. 쿠폰 서버를 끄면 No Data일 수 있음.",
       "gridPos": {
         "w": 12,
         "h": 8,
@@ -885,12 +877,34 @@
           "matchExact": true,
           "metricQueryType": 0,
           "metricEditorMode": 0,
-          "label": "받은 요청",
+          "label": "app 요청",
           "id": "",
           "expression": ""
         },
         {
           "refId": "R",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${DS_CLOUDWATCH}"
+          },
+          "queryMode": "Metrics",
+          "region": "ap-northeast-2",
+          "namespace": "HotelBooking/App",
+          "metricName": "Requests",
+          "dimensions": {
+            "Service": "coupon"
+          },
+          "statistic": "Sum",
+          "period": "1",
+          "matchExact": true,
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "label": "coupon 요청",
+          "id": "",
+          "expression": ""
+        },
+        {
+          "refId": "S",
           "datasource": {
             "type": "cloudwatch",
             "uid": "${DS_CLOUDWATCH}"
@@ -907,7 +921,29 @@
           "matchExact": true,
           "metricQueryType": 0,
           "metricEditorMode": 0,
-          "label": "서버 오류",
+          "label": "app 5xx",
+          "id": "",
+          "expression": ""
+        },
+        {
+          "refId": "T",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${DS_CLOUDWATCH}"
+          },
+          "queryMode": "Metrics",
+          "region": "ap-northeast-2",
+          "namespace": "HotelBooking/App",
+          "metricName": "Errors5xx",
+          "dimensions": {
+            "Service": "coupon"
+          },
+          "statistic": "Sum",
+          "period": "1",
+          "matchExact": true,
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "label": "coupon 5xx",
           "id": "",
           "expression": ""
         }
@@ -953,8 +989,8 @@
     {
       "id": 15,
       "type": "timeseries",
-      "title": "앱 응답 시간 (p95 · 1초)",
-      "description": "서버마다 1초 동안의 p95 중 가장 큰 값. 손님 대기 시간과 달리 연결 · 입구를 지나는 시간은 빠짐. 점선 1초",
+      "title": "서비스별 응답 시간 (p95 · 1초)",
+      "description": "app/coupon 각각 서버마다 1초 동안의 p95 중 가장 큰 값. 손님 연결 · 입구를 지나는 시간은 제외. 점선 1초.",
       "gridPos": {
         "w": 12,
         "h": 8,
@@ -967,7 +1003,7 @@
       },
       "targets": [
         {
-          "refId": "S",
+          "refId": "U",
           "datasource": {
             "type": "cloudwatch",
             "uid": "${DS_CLOUDWATCH}"
@@ -984,7 +1020,29 @@
           "matchExact": true,
           "metricQueryType": 0,
           "metricEditorMode": 0,
-          "label": "앱 p95",
+          "label": "app p95",
+          "id": "",
+          "expression": ""
+        },
+        {
+          "refId": "V",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${DS_CLOUDWATCH}"
+          },
+          "queryMode": "Metrics",
+          "region": "ap-northeast-2",
+          "namespace": "HotelBooking/App",
+          "metricName": "LatencyP95",
+          "dimensions": {
+            "Service": "coupon"
+          },
+          "statistic": "Maximum",
+          "period": "1",
+          "matchExact": true,
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "label": "coupon p95",
           "id": "",
           "expression": ""
         }
@@ -1035,7 +1093,7 @@
       "id": 16,
       "type": "timeseries",
       "title": "5xx 오류 발생 위치 (ALB / 앱)",
-      "description": "ALB 자체가 반환한 5xx(예: 502·503·504)와 앱 대상이 반환한 5xx를 구분. ALB 5xx는 0이 아닐 때만 보고되므로(ALB 지표 문서) 실험 중 선이 없으면 0건. 인프라가 꺼져 있어도 비어 보임.",
+      "description": "ALB 자체가 반환한 5xx(예: 502·503·504)와 앱 대상이 반환한 5xx를 구분. ALB 5xx는 0일 때 미보고될 수 있으나 No Data만으로 0건이라고 단정하지 않음. k6 기록과 함께 검증.",
       "gridPos": {
         "w": 24,
         "h": 6,
@@ -1048,7 +1106,7 @@
       },
       "targets": [
         {
-          "refId": "T",
+          "refId": "W",
           "datasource": {
             "type": "cloudwatch",
             "uid": "${DS_CLOUDWATCH}"
@@ -1070,7 +1128,7 @@
           "expression": ""
         },
         {
-          "refId": "U",
+          "refId": "X",
           "datasource": {
             "type": "cloudwatch",
             "uid": "${DS_CLOUDWATCH}"
@@ -1161,7 +1219,7 @@
       },
       "targets": [
         {
-          "refId": "V",
+          "refId": "Y",
           "datasource": {
             "type": "cloudwatch",
             "uid": "${DS_CLOUDWATCH}"
@@ -1225,7 +1283,7 @@
       "id": 19,
       "type": "timeseries",
       "title": "DB 연결 수 (RDS)",
-      "description": "서버들이 DB에 열어 둔 연결 수 (1분 최대). 점선 48 = 서버 4대 × 12개, 우리가 정한 상한",
+      "description": "서버들이 DB에 열어 둔 연결 수 (1분 최대). 점선 48 = 평소 연결 예산(8대 × 6); 쿠폰 서버를 분리한 이벤트 구성은 별도 연결 예산 확인",
       "gridPos": {
         "w": 12,
         "h": 8,
@@ -1238,7 +1296,7 @@
       },
       "targets": [
         {
-          "refId": "W",
+          "refId": "Z",
           "datasource": {
             "type": "cloudwatch",
             "uid": "${DS_CLOUDWATCH}"
@@ -1300,6 +1358,316 @@
           "mode": "multi",
           "sort": "none"
         }
+      }
+    },
+    {
+      "id": 20,
+      "type": "row",
+      "title": "④ 쿠폰 전용 서버 · ECS / ALB",
+      "collapsed": false,
+      "gridPos": {
+        "w": 24,
+        "h": 1,
+        "x": 0,
+        "y": 57
+      },
+      "panels": []
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "쿠폰 서버 수 (ECS coupon)",
+      "description": "쿠폰 발급 경로 전용 서비스. Desired/Running/ALB Healthy는 1분 관측이며 지연될 수 있음. 쿠폰 서버를 끄면 No Data.",
+      "gridPos": {
+        "w": 12,
+        "h": 8,
+        "x": 0,
+        "y": 58
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "${DS_CLOUDWATCH}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${DS_CLOUDWATCH}"
+          },
+          "queryMode": "Metrics",
+          "region": "ap-northeast-2",
+          "namespace": "ECS/ContainerInsights",
+          "metricName": "DesiredTaskCount",
+          "dimensions": {
+            "ClusterName": "hotel-booking-aws-v2",
+            "ServiceName": "coupon"
+          },
+          "statistic": "Average",
+          "period": "60",
+          "matchExact": true,
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "label": "coupon 목표 태스크",
+          "id": "",
+          "expression": ""
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${DS_CLOUDWATCH}"
+          },
+          "queryMode": "Metrics",
+          "region": "ap-northeast-2",
+          "namespace": "ECS/ContainerInsights",
+          "metricName": "RunningTaskCount",
+          "dimensions": {
+            "ClusterName": "hotel-booking-aws-v2",
+            "ServiceName": "coupon"
+          },
+          "statistic": "Average",
+          "period": "60",
+          "matchExact": true,
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "label": "coupon 실행 태스크",
+          "id": "",
+          "expression": ""
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${DS_CLOUDWATCH}"
+          },
+          "queryMode": "Metrics",
+          "region": "ap-northeast-2",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "period": "60",
+          "id": "",
+          "expression": "SEARCH('{AWS/ApplicationELB,LoadBalancer,TargetGroup} MetricName=\"HealthyHostCount\" AND TargetGroup=hotel AND TargetGroup=booking AND TargetGroup=coupon', 'Maximum', 60)",
+          "label": "coupon 정상 대상 ${PROP('Dim.TargetGroup')}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": false,
+            "lineInterpolation": "stepAfter",
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "쿠폰 서버 CPU·메모리 (ECS coupon · %)",
+      "description": "쿠폰 전용 서비스 CPU 평균·최대와 메모리 최대. 이벤트 동안만 사용. 1분 단위.",
+      "gridPos": {
+        "w": 12,
+        "h": 8,
+        "x": 12,
+        "y": 58
+      },
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "${DS_CLOUDWATCH}"
+      },
+      "targets": [
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${DS_CLOUDWATCH}"
+          },
+          "queryMode": "Metrics",
+          "region": "ap-northeast-2",
+          "namespace": "AWS/ECS",
+          "metricName": "CPUUtilization",
+          "dimensions": {
+            "ClusterName": "hotel-booking-aws-v2",
+            "ServiceName": "coupon"
+          },
+          "statistic": "Average",
+          "period": "60",
+          "matchExact": true,
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "label": "coupon CPU 평균",
+          "id": "",
+          "expression": ""
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${DS_CLOUDWATCH}"
+          },
+          "queryMode": "Metrics",
+          "region": "ap-northeast-2",
+          "namespace": "AWS/ECS",
+          "metricName": "CPUUtilization",
+          "dimensions": {
+            "ClusterName": "hotel-booking-aws-v2",
+            "ServiceName": "coupon"
+          },
+          "statistic": "Maximum",
+          "period": "60",
+          "matchExact": true,
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "label": "coupon CPU 최대",
+          "id": "",
+          "expression": ""
+        },
+        {
+          "refId": "F",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${DS_CLOUDWATCH}"
+          },
+          "queryMode": "Metrics",
+          "region": "ap-northeast-2",
+          "namespace": "AWS/ECS",
+          "metricName": "MemoryUtilization",
+          "dimensions": {
+            "ClusterName": "hotel-booking-aws-v2",
+            "ServiceName": "coupon"
+          },
+          "statistic": "Maximum",
+          "period": "60",
+          "matchExact": true,
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "label": "coupon 메모리 최대",
+          "id": "",
+          "expression": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": false,
+            "lineInterpolation": "stepAfter",
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 23,
+      "type": "stat",
+      "title": "HTTP 503 (k6 관측 누적)",
+      "description": "조회 구간에 관측된 회차별 k6 503 누적 카운터. 다른 HTTP 요청 샘플이 있을 때만 503 미관측을 0으로 표시하며 No Data와 구분. 최종 수치는 원본 k6 기록으로 확인.",
+      "gridPos": {
+        "w": 6,
+        "h": 4,
+        "x": 0,
+        "y": 66
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "G",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "sum by (testid) (max_over_time(k6_http_reqs_total{status=\"503\"}[$__range])) or (0 * sum by (testid) (max_over_time(k6_http_reqs_total[$__range])))",
+          "legendFormat": "{{testid}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto"
       }
     }
   ]

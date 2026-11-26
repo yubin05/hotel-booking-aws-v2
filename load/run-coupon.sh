@@ -3,6 +3,8 @@
 #   bash load/run-coupon.sh <T: HH:MM> <fixed2|scheduled|none>     T는 지금보다 12분 이상 뒤(오픈 전 1,000명이 가입하며 모이는 데 약 7분, 11-20 실측), 회차 사이 20분(한 회차 약 18분)
 #   fixed2(서버 최대 2대로 묶음, 옛 IDC처럼 못 늘림) · scheduled(예약 스케일링으로 미리 4대) · none(목표 추적만, 몰려드는 동안 늘어날 수 있음). fixed2는 먼저 런북 5-5의 "2대로 묶기"
 #   scheduled는 먼저 infra/seoul/main.tf의 scale_events에 첫 T 5분 전 ~ 마지막 T + 10분, min 4를 넣고 apply (런북 5-1)
+# 촬영 전용: VIDEO_DEMO=1 CLAIMERS=2999 COUPONS=100 bash load/run-coupon.sh <T> scheduled
+# 실제 손님이 T-90초에 1장 선발급받고 T-30초까지 확인. k6는 T에 2,999명, 99장 발급 기대. 성능 검증 회차와 분리.
 # 결과: load/results/coupon-<조건>-<시작 시각>/ k6.txt · .json.gz · .html, coupon.txt(만든 쿠폰), verify.txt(발급 확인 SQL)
 # 필요: 옛 환경 발생기(legacy is_load_test=true) · 서울 · global(발생기 WAF 예외), 관리자 로그인(쿠폰 만들기 · 확인 · 태스크 수)
 set -Eeuo pipefail
@@ -13,6 +15,18 @@ LEGACY_DIR=${LEGACY_DIR:-../../hotel-booking-app/legacy}
 BASE=https://hotel.vundle34.cloud
 COUPONS=${COUPONS:-100}
 CLAIMERS=${CLAIMERS:-1000}
+VIDEO_DEMO=${VIDEO_DEMO:-0}
+[[ $VIDEO_DEMO == 0 || $VIDEO_DEMO == 1 ]] || { echo "VIDEO_DEMO는 0 또는 1" >&2; exit 1; }
+[[ $COUPONS =~ ^[1-9][0-9]*$ && $CLAIMERS =~ ^[1-9][0-9]*$ ]] || { echo "COUPONS/CLAIMERS는 양의 정수" >&2; exit 1; }
+expected_issued=$COUPONS
+open_lead=2
+read_tail=30
+if [ "$VIDEO_DEMO" = 1 ]; then
+  [[ -t 0 && $COUPONS -ge 2 && $CLAIMERS -ge $((COUPONS - 1)) ]] || { echo "촬영 모드는 대화형 터미널, 쿠폰 2장 이상, 발급 가능한 인원이 필요" >&2; exit 1; }
+  expected_issued=$((COUPONS - 1))
+  open_lead=90 # T-90초부터 실제 손님만 먼저 누름. k6는 T까지 대기
+  read_tail=240 # 예약/결제 동안에도 일반 조회 부하 유지(메일이 늦으면 이후 구분)
+fi
 
 t=${1:-}; cond=${2:-}
 [[ $t =~ ^[0-2][0-9]:[0-5][0-9]$ && ($cond == fixed2 || $cond == none || $cond == scheduled) ]] || { sed -n '3,5p' "$0" >&2; exit 1; }
@@ -37,15 +51,22 @@ else
   [ "$scheduled" -gt 0 ] || { echo "있게: scale_events에 예약을 넣고 서울 apply 먼저" >&2; exit 1; }
 fi
 
-name=coupon-$cond-$(date +%Y%m%d-%H%M%S)
+prefix=coupon
+[ "$VIDEO_DEMO" = 0 ] || prefix=coupon-video
+name=$prefix-$cond-$(date +%Y%m%d-%H%M%S)
 out=results/$name
 mkdir -p "$out"
 id=66666666-0000-0000-0000-$(date -d "@$open" +%m%d%H%M)0000 # 회차마다 새 쿠폰 (T로 구분, 같은 T로 두 번 만들면 키 중복으로 멈춤)
-# 발급 시작은 T 2초 전: 발생기 · DB 시계가 조금 달라도 T에 누른 요청이 '시작 전'(400)에 걸리지 않게. DB는 UTC
+# 일반 회차는 발급 시작 T-2초(시계 차이). 촬영 회차는 T-90초(손님 1장 선발급). DB는 UTC.
 utc() { date -u -d "@$1" '+%F %T'; }
+coupon_title="쿠폰 오픈 시험 $t"
+if [ "$VIDEO_DEMO" = 1 ]; then
+  coupon_title="촬영용 쿠폰 $t"
+  printf '촬영용 회차(실험 기록과 섞지 말 것)\nT=%s\n촬영 손님 오픈=%s\n쿠폰=%s\nk6=%s\n촬영 손님=1\nk6 기대 발급=%s\n' "$t" "$(date -d "@$((open - open_lead))" +%T)" "$COUPONS" "$CLAIMERS" "$expected_issued" >"$out/video-demo.txt"
+fi
 cat >"$out/coupon.sql" <<SQL
 INSERT INTO coupons (id, name, discount_amount, quantity, starts_at, ends_at, expires_at)
-VALUES ('$id', '쿠폰 오픈 시험 $t', 10000, $COUPONS, '$(utc $((open - 2)))', '$(utc $((open + 3600)))', '$(utc $((open + 7 * 86400)))');
+VALUES ('$id', '$coupon_title', 10000, $COUPONS, '$(utc $((open - open_lead)))', '$(utc $((open + 3600)))', '$(utc $((open + 7 * 86400)))');
 SELECT id, name, quantity, issued_count, starts_at FROM coupons WHERE id = '$id';
 SQL
 bash ../migration/sql.sh "$out/coupon.sql" | tee "$out/coupon.txt"
@@ -58,8 +79,8 @@ if grep -q '^K6_PROMETHEUS_RW_PASSWORD=.' ~/.hotel-legacy/grafana.env 2>/dev/nul
   scp -q ~/.hotel-legacy/grafana.env "ec2-user@$LOAD:load/grafana.env" && "${ON_LOAD[@]}" 'chmod 600 ~/load/grafana.env' && rw=1
 fi
 echo "Grafana 전송: $([ $rw = 1 ] && echo 켬 || echo '끔 (~/.hotel-legacy/grafana.env 없음 또는 토큰 빈칸)')"
-# 조회는 시작부터 T + 30초 넘어까지 (그동안 손님 가입이 나눠 들어감)
-"${ON_LOAD[@]}" bash -s -- "$name" "$BASE" "$id" "$((open * 1000))" "$COUPONS" "$CLAIMERS" "$((open - $(date +%s) + 30))" "$rw" <<'REMOTE'
+# 조회는 일반 회차 T+30초, 촬영 회차 T+240초까지. 그동안 가입/예약/결제 촬영.
+"${ON_LOAD[@]}" bash -s -- "$name" "$BASE" "$id" "$((open * 1000))" "$COUPONS" "$CLAIMERS" "$((open - $(date +%s) + read_tail))" "$rw" "$expected_issued" <<'REMOTE'
 set -euo pipefail
 name=$1
 grafana=() out=(--out "json=/load/results/$name.json.gz")
@@ -70,7 +91,7 @@ if [ "$8" = 1 ]; then # p95 · p99 · 최대를 1초마다 보냄(쏠림이 몇 
   out+=(-o experimental-prometheus-rw --tag "testid=$name")
 fi
 sudo docker run -d --name k6 --network host --user "$(id -u):$(id -g)" -v ~/load:/load "${grafana[@]}" \
-  -e BASE_URL="$2" -e COUPON_ID="$3" -e OPEN_AT="$4" -e COUPONS="$5" -e CLAIMERS="$6" -e READ_SEC="$7" \
+  -e BASE_URL="$2" -e COUPON_ID="$3" -e OPEN_AT="$4" -e COUPONS="$5" -e CLAIMERS="$6" -e READ_SEC="$7" -e EXPECTED_ISSUED="$9" \
   -e K6_WEB_DASHBOARD=true -e K6_WEB_DASHBOARD_EXPORT="/load/results/$name.html" \
   grafana/k6:1.0.0 run "${out[@]}" /load/coupon-spike.js >/dev/null
 # 브라우저 손님 1명(journey-browser.js, 11-25): 오픈 전 ~ 예약 쏠림 뒤까지 첫 화면 LCP. 조회 시간 + 4분
@@ -82,6 +103,17 @@ echo "시작: $name (T $t, 쿠폰 $COUPONS장, $CLAIMERS명). Ctrl+C로 빠져�
 bash record-tasks.sh "$out/tasks.log" & # 태스크 수 5초 기록, 이 스크립트가 끝나면 멈춤
 rec=$!
 trap 'kill $rec 2>/dev/null' EXIT
+if [ "$VIDEO_DEMO" = 1 ]; then
+  echo "촬영 전용: $(date -d "@$((open - open_lead))" +%T)에 쿠폰 1장을 실제 손님이 먼저 발급."
+  echo "내 쿠폰에서 확인 후 $(date -d "@$((open - 30))" +%T)까지 CLAIMED 입력. 미확인 시 이 회차 중단."
+  timeout=$((open - $(date +%s) - 30))
+  if [ "$timeout" -le 0 ] || ! read -r -t "$timeout" confirmation || [ "$confirmation" != CLAIMED ]; then
+    echo '손님 선발급 미확인: 촬영 회차 중단(실험 결과 제외)' | tee "$out/video-aborted.txt"
+    "${ON_LOAD[@]}" 'sudo docker stop --time 2 k6 k6-browser >/dev/null 2>&1 || true; sudo docker rm k6 k6-browser >/dev/null 2>&1 || true; rm -f ~/load/grafana.env'
+    exit 1
+  fi
+  printf '손님 선발급 수동 확인: %s\n' "$(date --iso-8601=seconds)" >>"$out/video-demo.txt"
+fi
 "${ON_LOAD[@]}" 'sudo docker logs -f k6 2>&1 | grep --line-buffered -v "Request Failed"' || true
 
 "${ON_LOAD[@]}" 'sudo docker logs k6' >"$out/k6.txt" 2>&1
@@ -105,3 +137,6 @@ echo "지금 태스크 $(admin ecs describe-services --cluster "$CLUSTER" --serv
 bash cw-metrics.sh "$out" # CloudWatch 원본(1초 지표는 3시간만 남음) · 스케일링 결정 · ECS 이벤트
 node ../scripts/coupon-report.mjs "$out/$name.json.gz"
 echo "결과: load/$out/ (발급 확인 verify.txt: quantity · issued_count · user_coupons · users가 모두 쿠폰 수와 같아야 정상)"
+if [ "$VIDEO_DEMO" = 1 ]; then
+  echo "촬영 회차: k6 발급 $expected_issued + 손님 1 = $COUPONS; verify.txt와 k6.txt, 손님 실제 예약·결제·메일을 함께 확인. 일반 실험 기록에 섞지 말 것."
+fi

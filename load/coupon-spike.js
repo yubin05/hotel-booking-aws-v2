@@ -11,6 +11,8 @@ const BASE = __ENV.BASE_URL;
 const COUPON_ID = __ENV.COUPON_ID;
 const OPEN_AT = Number(__ENV.OPEN_AT);
 const COUPONS = Number(__ENV.COUPONS ?? 100);
+const EXPECTED_ISSUED = Number(__ENV.EXPECTED_ISSUED ?? COUPONS); // 촬영 회차는 실제 손님 선발급 1장을 제외
+if (!Number.isInteger(EXPECTED_ISSUED) || EXPECTED_ISSUED < 1 || EXPECTED_ISSUED > COUPONS) throw new Error('EXPECTED_ISSUED 범위 오류');
 const CLAIMERS = Number(__ENV.CLAIMERS ?? 1000);
 const READ_SEC = Number(__ENV.READ_SEC ?? 600);
 const SOLD_OUT = '쿠폰이 모두 소진되었습니다.';
@@ -37,7 +39,7 @@ export const options = {
     claims: { executor: 'per-vu-iterations', exec: 'claim', vus: CLAIMERS, iterations: 1, maxDuration: `${WAIT_MIN + 10}m` },
   },
   thresholds: {
-    coupons_issued: [`count==${COUPONS}`], // 정확히 장 수만큼
+    coupons_issued: [`count==${EXPECTED_ISSUED}`], // 일반 회차는 전체, 촬영 회차는 손님 1장 제외
     claims_unexpected: ['count==0'],
     claim_late: ['count==0'],
     coupon_booking_failed: ['count==0'],
