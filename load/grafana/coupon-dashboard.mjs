@@ -115,13 +115,13 @@ const dash = {
   templating: { list: [] }, annotations: { list: [] }, panels,
 };
 writeFileSync(new URL('./coupon-dashboard.json', import.meta.url), JSON.stringify(dash, null, 2));
-// QHD OBS 우측 40% 전용: 그래프 13칸씩(390px), 오류 카드 4칸(120px).
+// QHD OBS 우측 40% 전용: 실제 촬영 화면 기준 그래프 9칸씩, 오류 카드 3칸(총 30칸).
 // 상세 관제 패널의 질의·ID를 유지하고 촬영용 화면만 짧은 제목/범례를 사용한다.
 const videoSpecs = [
-  { source: '초당 요청 수 (RPS · k6)', title: '초당 요청 수 (RPS)', description: 'k6 초당 요청 수', h: 13, legend: false, labels: ['요청'] },
-  { source: '쿠폰 서버 수 (ECS coupon)', title: '쿠폰 서버 수', description: '실행 중인 ECS 태스크 수(1분)', h: 13, legend: false, metric: 'RunningTaskCount', labels: ['실행 중'] },
-  { source: '쿠폰·조회 응답 시간 (p95)', title: '응답 시간 (p95)', description: '쿠폰 대기·숙소 조회 응답 시간', h: 13, legend: true, labels: ['쿠폰', '숙소 조회'] },
-  { source: 'HTTP 503 (k6 관측 누적)', title: 'HTTP 503 오류', description: 'k6 503 누적 관측. 미수집은 0건이 아님.', h: 4, labels: ['오류'] },
+  { source: '초당 요청 수 (RPS · k6)', title: '초당 요청 수 (RPS)', description: 'k6 초당 요청 수', h: 9, legend: false, labels: ['요청'] },
+  { source: '쿠폰 서버 수 (ECS coupon)', title: '쿠폰 서버 수', description: '실행 중인 ECS 태스크 수(1분)', h: 9, legend: false, metric: 'RunningTaskCount', labels: ['실행 중'] },
+  { source: '쿠폰·조회 응답 시간 (p95)', title: '응답 시간 (p95)', description: '쿠폰 대기·숙소 조회 응답 시간', h: 9, legend: true, labels: ['쿠폰', '숙소 조회'] },
+  { source: 'HTTP 503 (k6 관측 누적)', title: 'HTTP 503 오류', description: 'k6 503 누적 관측. 미수집은 0건이 아님.', h: 3, labels: ['오류'] },
 ];
 let videoY = 0;
 const videoPanels = videoSpecs.map((spec) => {
