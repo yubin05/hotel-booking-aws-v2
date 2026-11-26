@@ -1775,3 +1775,27 @@
   - 도쿄 전환 뒤에도 같은 주소라 도쿄를 본다. 서울 · 도쿄 주제와 `region.sh`의 도쿄 주제 확인은 v3용으로 그대로
   - 개수: 서울 51(Multi-AZ 53) · 도쿄 드릴 apply 46 · destroy 53 · global 15(WAF 예외 날 16) · bootstrap 1 추가 · 2 변경(주제 · Slack 연결 · edge 정책)
   - 비용: 상태 검사 기본 $0.75 + HTTPS $2/월(AWS 밖 엔드포인트 기준 최대 $2.75, 일할, [요금](https://aws.amazon.com/route53/pricing/)), global이 떠 있는 시간만. CloudFront가 무료 "AWS 엔드포인트"로 잡히는지는 미확인. 경보 1개 요금은 확인 안 함
+
+## ADR-080 쿠폰 쏠림: 발급은 이벤트 때만 켜는 쿠폰 서버로 분리, 수량은 ElastiCache Serverless for Valkey 번호표 (2026-11-26)
+
+- **상황:** 3,000명 · 100장 쿠폰 오픈([실험 기록](experiments/migration.md) 해결 (가) ~ 회차 8)
+  - ① 탈락자 약 2,900명이 쿠폰 한 행 앞에 줄 → 503 847 ~ 1,217(회차 1 · 3) → 앱 "소진 기억"으로 0(회차 4 · 5)
+  - ② 쏠림 중 조회 p95 2.2초: 같은 앱 서버에서 발급과 부딪힘 → 쿠폰 서버 분리로 0.9초(회차 6 · 7, ALB 로그로 앱 · ALB 구간 확인)
+  - ③ 회차 8: 당첨자 100명이 쿠폰 행 하나를 한 명씩 거쳐 소진 T+3.71초 → 기다리던 탈락자 133명이 DB 3초 상한(503). 쿠폰 서버를 늘려도 행은 한 줄(100장 소진: 2대 4.86초 · 4대 3.17 ~ 3.71초 · 약 4 ~ 5대 2.58초) → **100장이 이미 한계 위**
+- **결정 (사용자, 2026-11-26):**
+  1. **쿠폰 서버:** 쿠폰 받기(`/api/coupons/*/claim`)만 ALB 경로 규칙으로 쿠폰 전용 ECS 서비스에 보냄(격벽). 평소 0대 · 규칙 없음(비용 0), 고객사가 알려 준 이벤트 때만 켬(`coupon_service`) — MSP가 이벤트 일정에 맞춰 미리 켜고 끄는 절차(런북). 켤 때 대상 그룹(리스너 기본 동작 가중치 0) → 서버(정상까지 대기) → 규칙, 끌 때 규칙 → 서버(0.2초 측정 503 0). 쏠림 2 ~ 3초엔 자동 확장이 못 늘려 대수 고정(`coupon_tasks`, 3,000명은 4). 이벤트 때 일반 서버 최대 4(`scale_events.max`) → DB 연결 4 × 6 + 4 × 6 = 48 / 약 60
+  2. **수량:** ElastiCache Serverless for Valkey의 번호표(원자적 INCR, 첫 요청 때 DB 발급 수로 시작). 번호 > 수량이면 도착 즉시 409, 당첨자는 받은 기록만 넣고 발급 수는 따로 1 올림(쿠폰 행 잠금을 아주 짧게). Valkey가 없거나 답하지 않으면 예전 DB 경로(쿠폰 행 조건부 UPDATE)로 지킴. **스위치 없이 서울 스택과 같이 올리고 내림**, 도쿄(DR)는 꺼서 DB 경로
+- **왜 ElastiCache(Valkey Serverless)인가:**
+  - 여러 쿠폰 서버가 **함께 보는 원자적 카운터**가 필요함. 서버 메모리("소진 기억")는 서버마다 따로라 소진 전 탈락자를 못 가리고, DB의 쿠폰 행은 그 카운터 자체가 병목
+  - **Valkey:** Redis 명령 호환, 노드형 시간당 약 20% 저렴, Serverless 저장 최소 과금 100MB(Redis OSS는 1GB) ([ElastiCache 요금](https://aws.amazon.com/elasticache/pricing/), [FAQ](https://aws.amazon.com/elasticache/faqs/))
+  - **Serverless:** 여러 AZ에 자동 저장 · 가용성 SLA 99.99%(설정 없음, [배포 방식 문서](https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/WhatIs.deployment.html)), 크기 계획 없음, 쓴 만큼(저장 GB-시간 + ECPU, 명령 최소 요금 없음). 시험 때만 켜는 우리 사용에서 노드형(cache.t4g.micro 서울 시간당 약 $0.0192, 제3자 자료)보다 쌈(AWS 예시 단가로 저장 최소 100MB면 시간당 약 $0.0084, **서울 단가 미확인**)
+  - 항상 클러스터 모드 · TLS 필수라 앱은 `rediss://` + 클러스터 클라이언트(ioredis `Redis.Cluster`)로 붙음
+  - 실무 근거: 예정된 쏠림은 미리 늘려 둠([Games Lens GAMEOPS03-BP05](https://docs.aws.amazon.com/wellarchitected/latest/games-industry-lens/gameops03-bp05.html), [AWS Countdown(옛 IEM)](https://aws.amazon.com/premiumsupport/programs/iem/)) — 쿠폰 서버 켜기가 이것. 캐시는 서비스 구조의 일부라 상시(이벤트마다 만들고 지우지 않음)
+- **다른 안:**
+  - 쿠폰 서버만 늘리기: 쿠폰 행이 한 줄이라 소진 시각이 크게 안 당겨짐(위 숫자)
+  - 쿠폰 받기의 대기 상한만 3 → 5초: 503은 없어지지만 탈락자가 소진을 4초 가까이 뒤에 들음, 수량을 늘리면 다시 넘침
+  - 노드형 ElastiCache: 상시 비용 · 크기 · 복제본을 직접 정해야 함
+- **결과 · 주의:**
+  - 권한: 평소 사용자 edge 정책에 우리 캐시 이름의 ElastiCache 서버리스 권한 + ElastiCache 전용 VPC 연결점 만들기(AWS 관리형 AmazonElastiCacheFullAccess의 조건을 그대로 좁힘), bootstrap에 ElastiCache 서비스 연결 역할. bootstrap 21:50:37 ~ 21:50:43, 서울 Valkey 생성 21:51:23 ~ 21:52:39(캐시 1분 11초)
+  - Valkey와 DB 숫자가 어긋날 수 있는 곳: 번호표를 받고 받은 기록 INSERT가 실패(반납함) · 쿠폰 연결을 기다리다 시간 초과(반납함) · 3초 상한 뒤 이미 보낸 COMMIT(못 막음, 원래 있던 한계). 회차마다 확인 SQL로 발급 수 · 받은 기록을 대조
+  - 효과는 회차 9로 확인([실험 기록](experiments/migration.md)). 남은 것: CloudFront 엣지 구간 지연(회차별로 0.4 ~ 1.5초 흔들림), 대시보드에 쿠폰 서버 · Valkey 추가, 이벤트 켜고 끄기 자동화
