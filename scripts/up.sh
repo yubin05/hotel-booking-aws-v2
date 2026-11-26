@@ -56,6 +56,8 @@ command -v gh >/dev/null || die "gh 없음 (CD를 돌림)"
 if [ "$mode" = load ]; then
   tfvar iam attach_operator_legacy true # 평소 사용자에게 legacy 권한. 내릴 때 down.sh가 뗌
   tf iam apply "$ADD_ONLY" admin
+  # 붙인 직후엔 권한이 아직 안 퍼져 legacy가 키 페어 · EC2에서 403(11-26 17:04, 붙이고 4초 뒤 시작). IAM은 최종 일관성
+  if [ "$CHANGED" = yes ]; then log "legacy 권한이 퍼지길 20초 기다림"; sleep 20; fi
   tfvar legacy is_load_test true
   tf legacy apply "$ADD_ONLY"
 fi
