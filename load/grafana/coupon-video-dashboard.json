@@ -42,7 +42,7 @@
     {
       "id": 8,
       "type": "timeseries",
-      "title": "사용자 수",
+      "title": "사용자 수 (k6)",
       "description": "둘러보기 요청률 × 10초로 추정한 활성 손님 수. 실제 접속자 집계가 아님. 미수집 시 관측선은 표시하지 않음.",
       "gridPos": {
         "x": 0,
@@ -148,7 +148,7 @@
     {
       "id": 21,
       "type": "timeseries",
-      "title": "서버 수",
+      "title": "서버 수 (ECS)",
       "description": "일반·쿠폰 서버의 실행 중인 ECS 태스크 수(1분 관측) 미수집 시 관측선은 표시하지 않음.",
       "gridPos": {
         "x": 0,
@@ -294,7 +294,7 @@
     {
       "id": 9,
       "type": "timeseries",
-      "title": "응답 시간 (Latency · p95)",
+      "title": "응답 시간 (Latency)",
       "description": "낮을수록 좋음. 쿠폰/일반 요청의 시점별 p95 최댓값(겹친 회차 포함). k6 밖의 요청 제외. 미수집 시 관측선은 표시하지 않음.",
       "gridPos": {
         "x": 0,

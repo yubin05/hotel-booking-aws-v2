@@ -118,9 +118,9 @@ writeFileSync(new URL('./coupon-dashboard.json', import.meta.url), JSON.stringif
 // QHD OBS 우측 40% 전용: 그래프 10칸씩 3개(총 30칸).
 // 상세 관제 패널의 질의·ID를 유지하고 촬영용 화면만 짧은 제목/범례를 사용한다.
 const videoSpecs = [
-  { source: '초당 요청 수 (RPS · k6)', title: '사용자 수', description: '둘러보기 요청률 × 10초로 추정한 활성 손님 수. 실제 접속자 집계가 아님.', h: 10, softMax: 3000, legend: false, labels: ['사용자'], expr: 'sum by (testid) (rate(k6_http_reqs_total{name=~"browse|warm"}[30s])) * 10', unit: 'none' },
-  { source: '쿠폰 서버 수 (ECS coupon)', title: '서버 수', description: '일반·쿠폰 서버의 실행 중인 ECS 태스크 수(1분 관측)', h: 10, softMax: 8, legend: true, metric: 'RunningTaskCount', services: ['app', 'coupon'], labels: ['일반 서버', '쿠폰 서버'] },
-  { source: '쿠폰·조회 응답 시간 (p95)', title: '응답 시간 (Latency · p95)', description: '낮을수록 좋음. 쿠폰/일반 요청의 시점별 p95 최댓값(겹친 회차 포함). k6 밖의 요청 제외.', h: 10, softMax: 1, noThreshold: true, legend: true, labels: ['쿠폰', '일반 요청'],
+  { source: '초당 요청 수 (RPS · k6)', title: '사용자 수 (k6)', description: '둘러보기 요청률 × 10초로 추정한 활성 손님 수. 실제 접속자 집계가 아님.', h: 10, softMax: 3000, legend: false, labels: ['사용자'], expr: 'sum by (testid) (rate(k6_http_reqs_total{name=~"browse|warm"}[30s])) * 10', unit: 'none' },
+  { source: '쿠폰 서버 수 (ECS coupon)', title: '서버 수 (ECS)', description: '일반·쿠폰 서버의 실행 중인 ECS 태스크 수(1분 관측)', h: 10, softMax: 8, legend: true, metric: 'RunningTaskCount', services: ['app', 'coupon'], labels: ['일반 서버', '쿠폰 서버'] },
+  { source: '쿠폰·조회 응답 시간 (p95)', title: '응답 시간 (Latency)', description: '낮을수록 좋음. 쿠폰/일반 요청의 시점별 p95 최댓값(겹친 회차 포함). k6 밖의 요청 제외.', h: 10, softMax: 1, noThreshold: true, legend: true, labels: ['쿠폰', '일반 요청'],
     exprs: ['max(k6_claim_duration_p95)', 'max(k6_http_req_duration_p95{name=~"register|search|hotel|warm|my-coupons|booking"})'] },
 ];
 let videoY = 0;
