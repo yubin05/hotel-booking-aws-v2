@@ -24,7 +24,15 @@ aws sts get-caller-identity --query Arn --output text   # user/vundle34 (평소 
 
 ## 1. 매일 올리기: seoul → CD → global
 
-CD를 global보다 먼저 돌립니다(2026-11-25~, [ADR-079](../docs/04-decisions.md#adr-079)). global이 만드는 DR 판단 알림(바깥 상태 검사)이 `/api/health/deep`을 보는데, migrate 전에는 500이라 순서가 거꾸로면 매일 거짓 알림이 Slack에 옵니다. CD는 서울 ECS 안에서 끝나 공개 주소가 필요 없습니다.
+**한 번에 (2026-11-26~):** 아래 단계를 순서대로 돌리고, 단계마다 plan이 순수 추가면 그대로 apply, 아니면 물어봅니다. 이미 떠 있는 루트는 건너뛰고, 끝에 03-plan에 옮길 시각 표가 나옵니다(로그 `infra/runs/<시각>-up/`).
+
+```bash
+aws login                                   # load면 aws login --profile admin도
+bash scripts/up.sh                          # 매일: 서울 → CD → global → 사이트 확인 (약 20분, Multi-AZ면 약 30분)
+bash scripts/up.sh load                     # 부하 시험 날: + legacy 권한 · 발생기 · 발생기 호스트 키 · global WAF 예외 (5-5)
+```
+
+손으로 할 때는 아래 순서 그대로입니다. CD를 global보다 먼저 돌립니다(2026-11-25~, [ADR-079](../docs/04-decisions.md#adr-079)). global이 만드는 DR 판단 알림(바깥 상태 검사)이 `/api/health/deep`을 보는데, migrate 전에는 500이라 순서가 거꾸로면 매일 거짓 알림이 Slack에 옵니다. CD는 서울 ECS 안에서 끝나 공개 주소가 필요 없습니다.
 
 ```bash
 cd /c/dev/hotel-booking-aws-v2/infra/seoul
@@ -58,7 +66,9 @@ curl -sI https://hotel.vundle34.cloud/maintenance/index.html | grep -iE "^HTTP|c
 
 ## 2. 매일 내리기: global → seoul
 
-global의 CloudFront와 입구 규칙이 서울의 통로 · ALB를 쓰고 있어서 **global을 먼저** 지웁니다. 서울을 먼저 지우면 통로를 못 지우고 멈춥니다.
+**한 번에 (2026-11-26~):** `bash scripts/down.sh`. 떠 있는 루트만 global → 발생기(legacy) → 서울 → legacy 권한 떼기(관리자) 순서로 내리고, 시험용 tfvars 줄(WAF 예외 IP · `is_load_test` · legacy 권한)도 원래대로 돌립니다. 끝에 남은 EC2 · RDS · NAT 수(0 0 0)와 시각 표가 나옵니다(로그 `infra/runs/<시각>-down/`, 약 15분).
+
+손으로 할 때: global의 CloudFront와 입구 규칙이 서울의 통로 · ALB를 쓰고 있어서 **global을 먼저** 지웁니다. 서울을 먼저 지우면 통로를 못 지우고 멈춥니다.
 
 ```bash
 cd /c/dev/hotel-booking-aws-v2/infra/global
@@ -269,7 +279,7 @@ bash migration/sql.sh scripts/check-consistency.sql       # 정합성 검사를 
 
 ## 5-5. 쿠폰 오픈 스파이크 (3단계)
 
-정해진 시각 T에 쿠폰 100장을 열고 1,000명이 함께 누릅니다([3단계 계획](../docs/experiments/migration.md) 3절). 이관 · k6 비교 뒤 같은 날, 옛 환경 발생기 · 서울 · global(WAF 예외)이 떠 있을 때 합니다. 관리자 로그인이 필요합니다.
+정해진 시각 T에 쿠폰 100장을 열고 1,000명이 함께 누릅니다([3단계 계획](../docs/experiments/migration.md) 3절). 이관 · k6 비교 뒤 같은 날, 옛 환경 발생기 · 서울 · global(WAF 예외)이 떠 있을 때 합니다. 관리자 로그인이 필요합니다. 준비는 `bash scripts/up.sh load` 한 번(발생기 크기는 legacy `terraform.tfvars`의 `load_test_instance_type`, 3,000명이면 `"t3.xlarge"`), 끝나면 `bash scripts/down.sh`.
 
 - **Grafana 실시간 전송(2026-11-20, [ADR-064](../docs/04-decisions.md#adr-064)):** PC에 `~/.hotel-legacy/grafana.env`(Grafana Cloud 원격 쓰기 주소 · 사용자 · 쓰기 토큰, `chmod 600`)가 있으면 `run-coupon.sh`가 k6 지표를 Grafana Cloud로 1초마다 보냅니다(`testid` = 회차 이름). 시작할 때 `Grafana 전송: 켬/끔`이 나오고, 토큰 파일은 회차가 끝나면 발생기에서 지웁니다. CloudWatch 패널은 bootstrap의 `grafana_read` 역할(관리자 apply, `terraform.tfvars`에 Grafana 계정 ID · 외부 ID)
 - **서버 2대로 묶기 · 풀기 (fixed2 회차, 2026-11-20):** 최소 · 최대는 예약 스케일링이 바꾸므로 Terraform이 관리하지 않아(`ignore_changes`) 명령으로 묶고 풉니다(평소 사용자). 묶으면 몰려드는 동안에도 2대 그대로, fixed2 회차가 다 끝나면 꼭 풉니다

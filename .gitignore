@@ -34,3 +34,4 @@ Thumbs.db
 migration/results/
 # 4 · 5단계 드릴 결과 (손님 역할 기록 · plan 파일, 정리한 것만 docs/experiments에)
 drill/results/
+infra/runs/
