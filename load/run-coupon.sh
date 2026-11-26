@@ -22,9 +22,9 @@ expected_issued=$COUPONS
 open_lead=2
 read_tail=30
 if [ "$VIDEO_DEMO" = 1 ]; then
-  [[ -t 0 && $COUPONS -ge 2 && $CLAIMERS -ge $((COUPONS - 1)) ]] || { echo "촬영 모드는 대화형 터미널, 쿠폰 2장 이상, 발급 가능한 인원이 필요" >&2; exit 1; }
+  [[ $COUPONS -ge 2 && $CLAIMERS -ge $((COUPONS - 1)) ]] || { echo "촬영 모드는 쿠폰 2장 이상, 발급 가능한 인원이 필요" >&2; exit 1; }
   expected_issued=$((COUPONS - 1))
-  open_lead=90 # T-90초부터 실제 손님만 먼저 누름. k6는 T까지 대기
+  open_lead=60 # 실제 손님은 T-1분(예: 1:00)에 받고 바로 예약, k6는 T(1:01)에 몰림
   read_tail=240 # 예약/결제 동안에도 일반 조회 부하 유지(메일이 늦으면 이후 구분)
 fi
 
@@ -33,6 +33,7 @@ t=${1:-}; cond=${2:-}
 open=$(date -d "$t" +%s) # 오늘 그 시각 (한국 시간)
 # 가입을 시작 ~ T 2분 전에 나눠 함(coupon-spike.js). 1,000명당 7분(초당 약 2.4명, 서버가 버틴 가입 속도 초당 3명 아래) + 여유 5분: 1,000명 12분 · 3,000명 26분 · 스모크 20명 6분
 lead=$(( (CLAIMERS * 7 + 999) / 1000 + 5 ))
+if [ "$VIDEO_DEMO" = 1 ]; then lead=$((lead + 4)); fi # 촬영: 가입을 T-6분까지 끝내고(화면 밖), T-5분부터 몰려오는 장면을 찍음
 [ $((open - $(date +%s))) -ge $((lead * 60)) ] || { echo "T($t)는 지금보다 ${lead}분 이상 뒤여야 함 ($CLAIMERS명 가입을 1,000명당 약 7분에 나눠 함 + 여유 5분)" >&2; exit 1; }
 ssh-add -l >/dev/null 2>&1 || { echo '먼저 실행: eval "$(ssh-agent -s)"; ssh-add ~/.ssh/hotel-legacy' >&2; exit 1; }
 LOAD=$(terraform -chdir="$LEGACY_DIR" output -raw load_test_instance_1_public_ip | tr -d '\r')
@@ -61,7 +62,7 @@ id=66666666-0000-0000-0000-$(date -d "@$open" +%m%d%H%M)0000 # 회차마다 새 
 utc() { date -u -d "@$1" '+%F %T'; }
 coupon_title="쿠폰 오픈 시험 $t"
 if [ "$VIDEO_DEMO" = 1 ]; then
-  coupon_title="촬영용 쿠폰 $t"
+  coupon_title="새벽 깜짝 할인"
   printf '촬영용 회차(실험 기록과 섞지 말 것)\nT=%s\n촬영 손님 오픈=%s\n쿠폰=%s\nk6=%s\n촬영 손님=1\nk6 기대 발급=%s\n' "$t" "$(date -d "@$((open - open_lead))" +%T)" "$COUPONS" "$CLAIMERS" "$expected_issued" >"$out/video-demo.txt"
 fi
 cat >"$out/coupon.sql" <<SQL
@@ -80,7 +81,7 @@ if grep -q '^K6_PROMETHEUS_RW_PASSWORD=.' ~/.hotel-legacy/grafana.env 2>/dev/nul
 fi
 echo "Grafana 전송: $([ $rw = 1 ] && echo 켬 || echo '끔 (~/.hotel-legacy/grafana.env 없음 또는 토큰 빈칸)')"
 # 조회는 일반 회차 T+30초, 촬영 회차 T+240초까지. 그동안 가입/예약/결제 촬영.
-"${ON_LOAD[@]}" bash -s -- "$name" "$BASE" "$id" "$((open * 1000))" "$COUPONS" "$CLAIMERS" "$((open - $(date +%s) + read_tail))" "$rw" "$expected_issued" <<'REMOTE'
+"${ON_LOAD[@]}" bash -s -- "$name" "$BASE" "$id" "$((open * 1000))" "$COUPONS" "$CLAIMERS" "$((open - $(date +%s) + read_tail))" "$rw" "$expected_issued" "$VIDEO_DEMO" <<'REMOTE'
 set -euo pipefail
 name=$1
 grafana=() out=(--out "json=/load/results/$name.json.gz")
@@ -91,7 +92,7 @@ if [ "$8" = 1 ]; then # p95 · p99 · 최대를 1초마다 보냄(쏠림이 몇 
   out+=(-o experimental-prometheus-rw --tag "testid=$name")
 fi
 sudo docker run -d --name k6 --network host --user "$(id -u):$(id -g)" -v ~/load:/load "${grafana[@]}" \
-  -e BASE_URL="$2" -e COUPON_ID="$3" -e OPEN_AT="$4" -e COUPONS="$5" -e CLAIMERS="$6" -e READ_SEC="$7" -e EXPECTED_ISSUED="$9" \
+  -e BASE_URL="$2" -e COUPON_ID="$3" -e OPEN_AT="$4" -e COUPONS="$5" -e CLAIMERS="$6" -e READ_SEC="$7" -e EXPECTED_ISSUED="$9" -e VIDEO_BROWSE="${10}" \
   -e K6_WEB_DASHBOARD=true -e K6_WEB_DASHBOARD_EXPORT="/load/results/$name.html" \
   grafana/k6:1.0.0 run "${out[@]}" /load/coupon-spike.js >/dev/null
 # 브라우저 손님 1명(journey-browser.js, 11-25): 오픈 전 ~ 예약 쏠림 뒤까지 첫 화면 LCP. 조회 시간 + 4분
@@ -105,14 +106,15 @@ rec=$!
 trap 'kill $rec 2>/dev/null' EXIT
 if [ "$VIDEO_DEMO" = 1 ]; then
   echo "촬영 전용: $(date -d "@$((open - open_lead))" +%T)에 쿠폰 1장을 실제 손님이 먼저 발급."
-  echo "내 쿠폰에서 확인 후 $(date -d "@$((open - 30))" +%T)까지 CLAIMED 입력. 미확인 시 이 회차 중단."
-  timeout=$((open - $(date +%s) - 30))
-  if [ "$timeout" -le 0 ] || ! read -r -t "$timeout" confirmation || [ "$confirmation" != CLAIMED ]; then
-    echo '손님 선발급 미확인: 촬영 회차 중단(실험 결과 제외)' | tee "$out/video-aborted.txt"
-    "${ON_LOAD[@]}" 'sudo docker stop --time 2 k6 k6-browser >/dev/null 2>&1 || true; sudo docker rm k6 k6-browser >/dev/null 2>&1 || true; rm -f ~/load/grafana.env'
-    exit 1
-  fi
-  printf '손님 선발급 수동 확인: %s\n' "$(date --iso-8601=seconds)" >>"$out/video-demo.txt"
+  # 사용자가 터미널을 안 보도록: 공개 쿠폰 목록의 남은 수가 줄면 손님이 받은 것으로 봄(3초마다, T-30초까지). 못 받아도 회차는 계속(기록만)
+  claimed=no
+  while [ $(date +%s) -lt $((open - 30)) ]; do
+    left=$(curl -s -m 5 "$BASE/api/coupons" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const c=JSON.parse(s).data.find(x=>x.id===process.argv[1]);console.log(c?c.remaining:"")}catch{console.log("")}})' "$id")
+    if [ -n "$left" ] && [ "$left" -lt "$COUPONS" ]; then claimed=yes; break; fi
+    sleep 3
+  done
+  printf '손님 선발급 자동 확인: %s (%s)\n' "$claimed" "$(date --iso-8601=seconds)" >>"$out/video-demo.txt"
+  echo "손님 선발급: $claimed"
 fi
 "${ON_LOAD[@]}" 'sudo docker logs -f k6 2>&1 | grep --line-buffered -v "Request Failed"' || true
 

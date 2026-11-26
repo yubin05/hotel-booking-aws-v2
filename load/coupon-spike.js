@@ -91,15 +91,29 @@ export function read(data) {
   check(res, { '조회 200': (r) => r.status === 200 });
 }
 
+// 촬영(run-coupon.sh VIDEO_DEMO=1): 가입은 T-6분까지 끝내고(화면 밖), T-5분 ~ T-2분에 걸쳐 손님이 몰려와
+// T까지 10초쯤마다 숙소를 둘러본다 → 관제 화면에 손님 · 요청 · 서버 수가 늘어나는 장면. 성능 검증 회차에는 쓰지 않음
+const VIDEO_BROWSE = __ENV.VIDEO_BROWSE === '1';
+function browseBeforeOpen(data, i) {
+  sleep(Math.max(0, OPEN_AT - 300000 + (i / CLAIMERS) * 180000 - Date.now()) / 1000);
+  http.get(`${BASE}/api/coupons`, { tags: { name: 'warm' } });
+  while (Date.now() < OPEN_AT - 3000) {
+    sleep(8 + Math.random() * 4);
+    if (Date.now() >= OPEN_AT - 3000) break;
+    http.get(`${BASE}/api/hotels/${pick(data.hotelIds)}`, { tags: { name: 'browse' } });
+  }
+}
+
 // 오픈 전에 하나둘 가입해 두고, 쿠폰 화면을 열어 둔 채 기다렸다가 T에 한 번 누른다 (사람마다 다른 계정)
 // 가입은 시작 ~ T 2분 전에 고르게 나눈다. setup에서 한꺼번에 하면 3,000명에 약 17분(초당 3명)이라 시간 초과(11-25)
 export function claim(data) {
   const i = exec.scenario.iterationInTest;
-  sleep(((i / CLAIMERS) * Math.max(0, OPEN_AT - Date.now() - 120000)) / 1000);
+  sleep(((i / CLAIMERS) * Math.max(0, OPEN_AT - Date.now() - (VIDEO_BROWSE ? 360000 : 120000))) / 1000);
   const token = signup(data.run, i);
   signupFailed.add(token ? 0 : 1);
   if (!token) return;
-  http.get(`${BASE}/api/coupons`, { tags: { name: 'warm' } });
+  if (VIDEO_BROWSE) browseBeforeOpen(data, i);
+  else http.get(`${BASE}/api/coupons`, { tags: { name: 'warm' } });
   const wait = OPEN_AT - Date.now();
   late.add(wait < 0 ? 1 : 0);
   sleep(Math.max(0, wait) / 1000);
