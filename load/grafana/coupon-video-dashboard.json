@@ -179,7 +179,7 @@
       "id": 9,
       "type": "timeseries",
       "title": "응답 시간 (Latency · p95)",
-      "description": "낮을수록 좋음. 쿠폰 대기 p95 / 일반 요청(가입·조회·예약 등) 유형별 p95 최댓값. 직접 결제 등 k6 밖의 요청 제외.",
+      "description": "낮을수록 좋음. 쿠폰/일반 요청의 시점별 p95 최댓값(겹친 회차 포함). k6 밖의 요청 제외.",
       "gridPos": {
         "x": 0,
         "y": 18,
@@ -197,7 +197,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "max by (testid) (k6_claim_duration_p95)",
+          "expr": "max(k6_claim_duration_p95)",
           "legendFormat": "쿠폰",
           "range": true
         },
@@ -207,7 +207,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "max by (testid) (k6_http_req_duration_p95{name=~\"register|search|hotel|warm|my-coupons|booking\"})",
+          "expr": "max(k6_http_req_duration_p95{name=~\"register|search|hotel|warm|my-coupons|booking\"})",
           "legendFormat": "일반 요청",
           "range": true
         }
