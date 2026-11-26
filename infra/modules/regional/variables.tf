@@ -135,3 +135,9 @@ variable "valkey" {
   type        = bool
   default     = false
 }
+
+variable "coupon_db_pool_size" {
+  description = "쿠폰 서버 한 대의 DB 연결 [일반, 쿠폰]. 이벤트 때 일반 서버 최대 4 × 6 + 쿠폰 4 × (4 + 3) = 52 / 약 60 (ADR-080, 회차 10)"
+  type        = list(number)
+  default     = [4, 3]
+}

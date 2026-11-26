@@ -129,7 +129,7 @@ locals {
 }
 
 # 쿠폰 서버 레시피(coupon_service): 앱과 같고 서비스 이름만 coupon → 앱 1초 지표(HotelBooking/App)가 서비스별로 나뉨. 이미지는 CD가 바꿈
-# DB 연결도 앱과 같은 [5, 1]: 이벤트 때 일반 서버 최대 4(scale_events의 max) × 6 + 쿠폰 4 × 6 = 48 / 약 60 (회차 7에서 검증된 설정 그대로)
+# DB 연결은 coupon_db_pool_size([4, 3]): 이벤트 때 일반 서버 최대 4(scale_events의 max) × 6 + 쿠폰 4 × 7 = 52 / 약 60
 resource "aws_ecs_task_definition" "coupon" {
   count                    = var.coupon_service ? 1 : 0
   family                   = "${local.name}-coupon"
@@ -140,7 +140,15 @@ resource "aws_ecs_task_definition" "coupon" {
   execution_role_arn       = local.execution_role_arn
   task_role_arn            = local.task_role_arn
   container_definitions = jsonencode([merge(local.app_container, {
-    environment = concat(local.app_container.environment, [{ name = "SERVICE_NAME", value = "coupon" }])
+    environment = concat(
+      [for e in local.app_container.environment : e if !contains(["DB_POOL_SIZE", "DB_COUPON_POOL_SIZE"], e.name)],
+      [
+        { name = "SERVICE_NAME", value = "coupon" },
+        # 당첨자를 서버당 쿠폰 연결 1개로 한 줄 세우면 대기 p95 2.9초 · 1명 503(회차 9) → 쿠폰 연결을 늘려 동시에
+        { name = "DB_POOL_SIZE", value = tostring(var.coupon_db_pool_size[0]) },
+        { name = "DB_COUPON_POOL_SIZE", value = tostring(var.coupon_db_pool_size[1]) },
+      ],
+    )
   })])
 }
 
