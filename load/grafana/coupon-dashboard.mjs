@@ -160,7 +160,7 @@ const videoPanels = videoSpecs.map((spec) => {
   return panel;
 });
 const videoDash = {
-  ...dash, title: 'Cloud Lab · 쿠폰 이벤트 촬영 관제', uid: 'cloudlab-coupon-video',
+  ...dash, title: 'Cloud Lab · 쿠폰 이벤트 관제', uid: 'cloudlab-coupon-video',
   tags: ['cloud-lab', 'k6', 'video-demo'], refresh: '5s', time: { from: 'now-5m', to: 'now' },
   panels: videoPanels,
 };
