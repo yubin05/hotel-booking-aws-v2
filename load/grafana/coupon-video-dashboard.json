@@ -42,8 +42,8 @@
     {
       "id": 8,
       "type": "timeseries",
-      "title": "초당 요청 수 (RPS)",
-      "description": "k6 초당 요청 수",
+      "title": "접속 사용자 수 (k6)",
+      "description": "현재 k6 가상 사용자(VU) 수. 조회 부하 포함, 실제 접속자 수 아님.",
       "gridPos": {
         "x": 0,
         "y": 0,
@@ -61,14 +61,14 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum by (testid) (irate(k6_http_reqs_total[10s]))",
-          "legendFormat": "요청",
+          "expr": "max by (testid) (k6_vus)",
+          "legendFormat": "사용자",
           "range": true
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps",
+          "unit": "none",
           "min": 0,
           "thresholds": {
             "mode": "absolute",
@@ -88,7 +88,8 @@
             "thresholdsStyle": {
               "mode": "off"
             }
-          }
+          },
+          "decimals": 0
         },
         "overrides": []
       },
@@ -107,8 +108,8 @@
     {
       "id": 21,
       "type": "timeseries",
-      "title": "쿠폰 서버 수",
-      "description": "실행 중인 ECS 태스크 수(1분)",
+      "title": "서버 수",
+      "description": "일반 앱 + 쿠폰 서버의 실행 중인 ECS 태스크 수(1분 관측)",
       "gridPos": {
         "x": 0,
         "y": 9,
@@ -128,20 +129,12 @@
           },
           "queryMode": "Metrics",
           "region": "ap-northeast-2",
-          "namespace": "ECS/ContainerInsights",
-          "metricName": "RunningTaskCount",
-          "dimensions": {
-            "ClusterName": "hotel-booking-aws-v2",
-            "ServiceName": "coupon"
-          },
-          "statistic": "Average",
-          "period": "60",
-          "matchExact": true,
           "metricQueryType": 0,
-          "metricEditorMode": 0,
-          "label": "실행 중",
+          "metricEditorMode": 1,
+          "period": "60",
           "id": "",
-          "expression": ""
+          "expression": "SUM(SEARCH('{ECS/ContainerInsights,ClusterName,ServiceName} MetricName=\"RunningTaskCount\" AND ClusterName=\"hotel-booking-aws-v2\" AND (ServiceName=\"app\" OR ServiceName=\"coupon\")', 'Average', 60))",
+          "label": "실행 중"
         }
       ],
       "fieldConfig": {
@@ -185,8 +178,8 @@
     {
       "id": 9,
       "type": "timeseries",
-      "title": "응답 시간 (p95)",
-      "description": "쿠폰 대기·숙소 조회 응답 시간",
+      "title": "응답 시간 (Latency · p95)",
+      "description": "낮을수록 좋음. 쿠폰 대기 p95 / 일반 요청(가입·조회·예약 등) 유형별 p95 최댓값. 직접 결제 등 k6 밖의 요청 제외.",
       "gridPos": {
         "x": 0,
         "y": 18,
@@ -214,8 +207,8 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "max by (testid) (k6_http_req_duration_p95{name=~\"search|hotel\"})",
-          "legendFormat": "숙소 조회",
+          "expr": "max by (testid) (k6_http_req_duration_p95{name=~\"register|search|hotel|warm|my-coupons|booking\"})",
+          "legendFormat": "일반 요청",
           "range": true
         }
       ],
