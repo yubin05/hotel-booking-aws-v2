@@ -23,3 +23,15 @@ variable "rds_enhanced_monitoring" {
   default     = false
   description = "RDS Enhanced Monitoring 60초 로그 수집(CloudWatch Logs 비용 발생 가능). Multi-AZ Standby 실측용"
 }
+
+variable "coupon_service" {
+  description = "쿠폰 발급만 받는 서버 2대를 따로 둠(격벽 실험, docs/experiments/migration.md). 그날만 true"
+  type        = bool
+  default     = false
+}
+
+variable "alb_access_logs" {
+  description = "ALB 접근 로그를 bootstrap 버킷에 남김(진단하는 날만). bootstrap apply로 버킷이 먼저 있어야 함"
+  type        = bool
+  default     = false
+}

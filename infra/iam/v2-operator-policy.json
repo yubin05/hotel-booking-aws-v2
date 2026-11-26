@@ -159,6 +159,7 @@
         "elasticloadbalancing:DeleteListener",
         "elasticloadbalancing:ModifyListener",
         "elasticloadbalancing:ModifyListenerAttributes",
+        "elasticloadbalancing:*Rule",
         "elasticloadbalancing:AddTags",
         "elasticloadbalancing:RemoveTags"
       ],

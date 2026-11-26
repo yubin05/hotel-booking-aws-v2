@@ -290,6 +290,8 @@ bash migration/sql.sh scripts/check-consistency.sql       # 정합성 검사를 
 - **관리자 세션(1시간):** 3회 묶음은 회차 사이 대기 중에 끊길 수 있어(11-20 k6 비교에서 겪음) 한 회차씩 하고 회차마다 먼저 `aws login --profile admin`
 - **Grafana 관제실 처음 준비(한 번):** ① bootstrap에 Grafana 값을 넣고(`terraform.tfvars`, [새 PC 설정](../docs/pc-setup.md)) `AWS_PROFILE=admin terraform apply` → `AWS_PROFILE=admin terraform output -raw grafana_read_role_arn` ② Grafana → Connections → CloudWatch 데이터 소스 → Settings의 Assume Role ARN에 붙이고 Default Region `ap-northeast-2` → Save & test ③ Dashboards → New → Import → [load/grafana/coupon-dashboard.json](../load/grafana/coupon-dashboard.json) 올리고 Prometheus · CloudWatch 고르기 ④ 대시보드 Share → Share externally → Anyone with the link(시간 범위 바꾸기는 끔). 실험 날이 아니면 Pause access. 만든 링크(LIVE, 2026-11-20): https://zestyjungle807.grafana.net/public-dashboards/15c00b34bed84915a1169bff946af122 (11-20 16:4x에 대시보드를 덮어써 다시 만듦. 덮어쓰면 공유가 지워져 새 링크가 생김)
 
+- **쿠폰 격벽 실험 · ALB 접근 로그 (2026-11-26~, [실험 기록](../docs/experiments/migration.md)):** 서울 `terraform.tfvars`에 `coupon_service = true`(발급 `/api/coupons/*/claim`만 받는 서버 2대 + ALB 경로 규칙, 서울 plan +3) · `alb_access_logs = true`(로그 → bootstrap 버킷 `hotel-booking-aws-v2-alb-logs-<계정>`, 7일 뒤 삭제)를 넣고 `bash scripts/up.sh load`. 쿠폰 서버는 앱과 같은 태스크 정의라 CD가 바꾸지 않음(서울 apply 때의 최신 이미지). 로그 받기: `AWS_PROFILE=admin aws s3 sync s3://hotel-booking-aws-v2-alb-logs-<계정>/AWSLogs/ load/results/<회차 폴더>/alb-logs/`. 끝나면 두 줄을 지우고 내림
+
 묶음 스크립트(2026-11-19): T를 10분 간격으로 잡고 회차마다 `cw-metrics.sh`까지 합니다.
 
 ```bash

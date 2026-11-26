@@ -200,3 +200,38 @@ resource "aws_ecs_service" "app" {
 
   depends_on = [aws_lb_listener.https] # 대상 그룹이 리스너에 붙은 뒤에 서비스를 만들어야 함
 }
+
+# 격벽 실험(coupon_service): 쿠폰 발급만 받는 서버 2대(AZ마다 1대), 개수 고정. 레시피는 앱과 같음(Terraform 리비전 = apply 때 최신 이미지)
+# shortcut: 앱과 같은 태스크 정의라 DB 연결도 서버당 6개 → 앱 최대 8대 × 6 + 쿠폰 2대 × 6 = 60(max_connections 약 60).
+# CD는 app 서비스만 바꿈. 효과가 확인되면 쿠폰용 태스크 정의(연결 [2, 1])와 CD 반영으로 바꿀 것
+resource "aws_ecs_service" "coupon" {
+  count           = var.coupon_service ? 1 : 0
+  name            = "coupon"
+  cluster         = aws_ecs_cluster.this.id
+  task_definition = aws_ecs_task_definition.app.arn
+  desired_count   = 2
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = aws_subnet.app[*].id
+    security_groups  = [aws_security_group.app.id]
+    assign_public_ip = false
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.coupon[0].arn
+    container_name   = "app"
+    container_port   = local.app_port
+  }
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
+
+  depends_on = [aws_lb_listener_rule.coupon_claim] # 대상 그룹이 경로 규칙에 붙은 뒤에
+}

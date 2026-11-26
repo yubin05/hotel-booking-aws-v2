@@ -88,6 +88,18 @@ variable "replica_source_arn" {
   default     = null
 }
 
+variable "coupon_service" {
+  description = "쿠폰 발급(/api/coupons/*/claim)만 받는 ECS 서버 2대를 따로 둠. 쏠림 때 조회가 발급 뒤에 서는지 가르는 격벽 실험(docs/experiments/migration.md)"
+  type        = bool
+  default     = false
+}
+
+variable "alb_access_logs" {
+  description = "ALB 접근 로그를 bootstrap 버킷(<이름>-alb-logs-<계정>, 서울)에 남김. 진단하는 날 서울에서만"
+  type        = bool
+  default     = false
+}
+
 variable "app_integrations" {
   description = "결제(토스) · 카카오 키를 금고(서울 원본 · 도쿄 복제본)에서 앱 태스크로 넣고 메일을 켤지 (ADR-071). 금고에 값을 넣은 뒤에만 true. 끄면 결제 · 메일 · 카톡이 꺼진 채 동작"
   type        = bool

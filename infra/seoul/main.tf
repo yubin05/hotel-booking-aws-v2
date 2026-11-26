@@ -19,6 +19,10 @@ module "regional" {
   # 예: { name = "coupon-1120", start = "2026-11-20T19:55:00", end = "2026-11-20T20:30:00", min = 4 },
   scale_events = []
 
+  # 쿠폰 격벽 실험 · ALB 접근 로그 (docs/experiments/migration.md). 그날만 terraform.tfvars에 coupon_service = true · alb_access_logs = true
+  coupon_service  = var.coupon_service
+  alb_access_logs = var.alb_access_logs
+
   # 시연용 호스트 · 관리자 계정 (ADR-060). SSM 파라미터 3개를 먼저 만들어야 migrate가 뜸 (런북 5-3)
   demo_accounts = true
 

@@ -49,6 +49,15 @@ resource "aws_lb" "this" {
   drop_invalid_header_fields = true # 규격에 안 맞는 헤더는 앱에 넘기지 않고 버림 (Security Hub ELB.4, 11 점검 보고서)
   # AZ 하나가 이상할 때 그 AZ 노드를 DNS에서 빼는 버튼(ARC zonal shift)을 쓸 수 있게. 기본 꺼짐, 추가 요금 없음 (ADR-067)
   enable_zonal_shift = true
+
+  # 진단하는 날만(alb_access_logs): 요청마다 ALB 대기 · 앱 처리 시간을 나눠 남김. 버킷은 bootstrap alb-logs.tf(서울에만 있음)
+  dynamic "access_logs" {
+    for_each = var.alb_access_logs ? [1] : []
+    content {
+      bucket  = "${local.name}-alb-logs-${local.account_id}"
+      enabled = true
+    }
+  }
 }
 
 # 직원 명단: Fargate(awsvpc)는 태스크마다 IP를 받아서 대상 종류가 ip
@@ -116,5 +125,43 @@ resource "aws_lb_listener" "https" {
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.app.arn
+  }
+}
+
+# 격벽 실험(coupon_service): 쿠폰 발급만 따로 받는 서버의 대상 그룹 · 경로 규칙. 나머지 요청은 위 기본 동작대로 app
+# 쏠림 때 조회가 발급 요청 뒤에 서는지 가른다 (docs/experiments/migration.md 해결 (가) 다음)
+resource "aws_lb_target_group" "coupon" {
+  count                = var.coupon_service ? 1 : 0
+  name                 = "${local.name}-coupon"
+  target_type          = "ip"
+  port                 = local.app_port
+  protocol             = "HTTP"
+  vpc_id               = aws_vpc.this.id
+  deregistration_delay = 10
+
+  health_check {
+    path                = "/api/health"
+    matcher             = "200"
+    interval            = 10
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+  }
+}
+
+resource "aws_lb_listener_rule" "coupon_claim" {
+  count        = var.coupon_service ? 1 : 0
+  listener_arn = aws_lb_listener.https.arn
+  priority     = 10
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.coupon[0].arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["/api/coupons/*/claim"] # 받기만. 목록 · 내 쿠폰 조회는 app
+    }
   }
 }
