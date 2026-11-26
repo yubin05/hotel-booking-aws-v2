@@ -30,7 +30,9 @@ for (const file of files) {
   const claims = requests.filter((r) => r.scenario === 'claims' && r.name === 'claim');
   const iterations = (points.iterations ?? []).filter((p) => p.tags.scenario === 'claims').length;
   assert.equal(claims.length, iterations, `${file}: 발급 요청 수(${claims.length})가 반복 수(${iterations})와 다름 (요청 묶기 실패)`);
-  const t0 = Math.min(...claims.map((r) => r.start)); // 함께 누른 시각 T (모두 T까지 기다렸다 누름)
+  // 함께 누른 시각 T. 가장 이른 요청이 아니라 1번째 백분위: 11-26 회차 4에서 요청 1건이 T보다 0.8초 먼저 나가 마지막 장 · 쏠림 구간이 0.8초 밀림
+  const starts = claims.map((r) => r.start).sort((a, b) => a - b);
+  const t0 = starts[Math.floor(starts.length * 0.01)];
   const rel = (t) => t - t0;
   const burstEnd = Math.max(...claims.map((r) => rel(r.end))); // 쏠림 = T부터 마지막 발급 요청의 응답까지
   const reads = requests.filter((r) => r.scenario === 'reads');
