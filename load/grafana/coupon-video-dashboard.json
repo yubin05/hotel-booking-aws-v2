@@ -42,13 +42,13 @@
     {
       "id": 8,
       "type": "timeseries",
-      "title": "둘러보는 손님 수(추정)",
-      "description": "둘러보기 요청률 × 10초로 추정한 활성 손님 수. 실제 접속자 집계가 아님.",
+      "title": "사용자 수",
+      "description": "둘러보기 요청률 × 10초로 추정한 활성 손님 수. 실제 접속자 집계가 아님. 미수집 시 관측선은 표시하지 않음.",
       "gridPos": {
         "x": 0,
         "y": 0,
         "w": 24,
-        "h": 9
+        "h": 10
       },
       "datasource": {
         "type": "prometheus",
@@ -62,7 +62,17 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "expr": "sum by (testid) (rate(k6_http_reqs_total{name=~\"browse|warm\"}[30s])) * 10",
-          "legendFormat": "손님",
+          "legendFormat": "사용자",
+          "range": true
+        },
+        {
+          "refId": "Z",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "vector(0)",
+          "legendFormat": "__축 표시용(실측 아님)",
           "range": true
         }
       ],
@@ -87,11 +97,41 @@
             "lineInterpolation": "stepAfter",
             "thresholdsStyle": {
               "mode": "off"
-            }
+            },
+            "axisSoftMax": 3000
           },
           "decimals": 0
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "Z"
+            },
+            "properties": [
+              {
+                "id": "custom.lineWidth",
+                "value": 0
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": true,
+                  "viz": false
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {
@@ -109,12 +149,12 @@
       "id": 21,
       "type": "timeseries",
       "title": "서버 수",
-      "description": "일반·쿠폰 서버의 실행 중인 ECS 태스크 수(1분 관측)",
+      "description": "일반·쿠폰 서버의 실행 중인 ECS 태스크 수(1분 관측) 미수집 시 관측선은 표시하지 않음.",
       "gridPos": {
         "x": 0,
-        "y": 9,
+        "y": 10,
         "w": 24,
-        "h": 9
+        "h": 10
       },
       "datasource": {
         "type": "cloudwatch",
@@ -166,6 +206,21 @@
           "label": "쿠폰 서버",
           "id": "",
           "expression": ""
+        },
+        {
+          "refId": "Z",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${DS_CLOUDWATCH}"
+          },
+          "queryMode": "Metrics",
+          "region": "ap-northeast-2",
+          "metricQueryType": 0,
+          "metricEditorMode": 1,
+          "period": "60",
+          "id": "axis_anchor",
+          "expression": "TIME_SERIES(0)",
+          "label": "__축 표시용(실측 아님)"
         }
       ],
       "fieldConfig": {
@@ -189,10 +244,40 @@
             "lineInterpolation": "stepAfter",
             "thresholdsStyle": {
               "mode": "off"
-            }
+            },
+            "axisSoftMax": 8
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "Z"
+            },
+            "properties": [
+              {
+                "id": "custom.lineWidth",
+                "value": 0
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": true,
+                  "viz": false
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {
@@ -210,12 +295,12 @@
       "id": 9,
       "type": "timeseries",
       "title": "응답 시간 (Latency · p95)",
-      "description": "낮을수록 좋음. 쿠폰/일반 요청의 시점별 p95 최댓값(겹친 회차 포함). k6 밖의 요청 제외.",
+      "description": "낮을수록 좋음. 쿠폰/일반 요청의 시점별 p95 최댓값(겹친 회차 포함). k6 밖의 요청 제외. 미수집 시 관측선은 표시하지 않음.",
       "gridPos": {
         "x": 0,
-        "y": 18,
+        "y": 20,
         "w": 24,
-        "h": 9
+        "h": 10
       },
       "datasource": {
         "type": "prometheus",
@@ -241,6 +326,16 @@
           "expr": "max(k6_http_req_duration_p95{name=~\"register|search|hotel|warm|my-coupons|booking\"})",
           "legendFormat": "일반 요청",
           "range": true
+        },
+        {
+          "refId": "Z",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "expr": "vector(0)",
+          "legendFormat": "__축 표시용(실측 아님)",
+          "range": true
         }
       ],
       "fieldConfig": {
@@ -253,10 +348,6 @@
               {
                 "color": "transparent",
                 "value": null
-              },
-              {
-                "color": "orange",
-                "value": 1
               }
             ]
           },
@@ -267,11 +358,41 @@
             "spanNulls": false,
             "lineInterpolation": "stepAfter",
             "thresholdsStyle": {
-              "mode": "dashed"
-            }
+              "mode": "off"
+            },
+            "axisSoftMax": 1
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "Z"
+            },
+            "properties": [
+              {
+                "id": "custom.lineWidth",
+                "value": 0
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": true,
+                  "viz": false
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {
@@ -283,71 +404,6 @@
           "mode": "multi",
           "sort": "none"
         }
-      }
-    },
-    {
-      "id": 23,
-      "type": "stat",
-      "title": "HTTP 503 오류",
-      "description": "k6 503 누적 관측. 미수집은 0건이 아님.",
-      "gridPos": {
-        "x": 0,
-        "y": 27,
-        "w": 24,
-        "h": 3
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "targets": [
-        {
-          "refId": "G",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "sum by (testid) (max_over_time(k6_http_reqs_total{status=\"503\"}[$__range])) or (0 * sum by (testid) (max_over_time(k6_http_reqs_total[$__range])))",
-          "legendFormat": "오류",
-          "range": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none",
-          "decimals": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 1
-              }
-            ]
-          },
-          "noValue": "No Data",
-          "color": {
-            "mode": "thresholds"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "colorMode": "value",
-        "graphMode": "none",
-        "textMode": "value",
-        "justifyMode": "auto"
       }
     }
   ]
