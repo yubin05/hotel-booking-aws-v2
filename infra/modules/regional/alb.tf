@@ -122,9 +122,25 @@ resource "aws_lb_listener" "https" {
   ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-Res-PQ-2025-09" # TLS 1.2 · 1.3, 강한 암호만(Res) + 양자 내성 키 교환(PQ). 2021-06은 ELB.17 통과 목록에 없음
   certificate_arn   = aws_acm_certificate_validation.origin.certificate_arn
 
+  # 쿠폰 서버가 켜진 날은 쿠폰 대상 그룹을 가중치 0으로 같이 붙여 둠: ECS는 리스너에 붙은 대상 그룹에만 서비스를 만들 수 있어서,
+  # 경로 규칙보다 서버를 먼저 띄우려면 필요함. 가중치 0이라 기본 동작의 요청은 전부 app으로
+  # 평소(꺼짐)는 원래 표기 그대로라 매일 · 도쿄 plan이 바뀌지 않음
   default_action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.app.arn
+    target_group_arn = var.coupon_service ? null : aws_lb_target_group.app.arn
+    dynamic "forward" {
+      for_each = aws_lb_target_group.coupon
+      content {
+        target_group {
+          arn    = aws_lb_target_group.app.arn
+          weight = 1
+        }
+        target_group {
+          arn    = forward.value.arn
+          weight = 0
+        }
+      }
+    }
   }
 }
 
@@ -147,6 +163,11 @@ resource "aws_lb_target_group" "coupon" {
     healthy_threshold   = 2
     unhealthy_threshold = 2
   }
+
+  # 끌 때 리스너 기본 동작(가중치 0)에서 먼저 빠진 뒤에 지워지게. 없으면 대상 그룹을 먼저 지우려다 ResourceInUse(11-26 19:38)
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 resource "aws_lb_listener_rule" "coupon_claim" {
@@ -164,4 +185,6 @@ resource "aws_lb_listener_rule" "coupon_claim" {
       values = ["/api/coupons/*/claim"] # 받기만. 목록 · 내 쿠폰 조회는 app
     }
   }
+
+  depends_on = [aws_ecs_service.coupon] # 켤 때는 서버가 정상이 된 뒤에 생기고, 끌 때는 서버보다 먼저 지워짐
 }

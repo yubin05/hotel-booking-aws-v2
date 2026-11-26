@@ -68,12 +68,14 @@ resource "aws_iam_role_policy" "github_deploy" {
         Action = [
           "ecs:RegisterTaskDefinition"
         ]
-        # 앱 · 스키마 패밀리만(ADR-030·031). 리비전 번호는 등록할 때마다 늘어 :*
+        # 앱 · 스키마 · 쿠폰 서버 패밀리만(ADR-030·031, 쿠폰 격벽 11-26). 리비전 번호는 등록할 때마다 늘어 :*
         Resource = [
           "arn:aws:ecs:${local.main_region}:${local.account_id}:task-definition/${local.project_name}-app:*",
           "arn:aws:ecs:${local.main_region}:${local.account_id}:task-definition/${local.project_name}-migrate:*",
+          "arn:aws:ecs:${local.main_region}:${local.account_id}:task-definition/${local.project_name}-coupon:*",
           "arn:aws:ecs:${local.backup_region}:${local.account_id}:task-definition/${local.project_name}-app:*",
           "arn:aws:ecs:${local.backup_region}:${local.account_id}:task-definition/${local.project_name}-migrate:*",
+          "arn:aws:ecs:${local.backup_region}:${local.account_id}:task-definition/${local.project_name}-coupon:*",
         ]
       },
       {
@@ -119,7 +121,9 @@ resource "aws_iam_role_policy" "github_deploy" {
         ]
         Resource = [
           "arn:aws:ecs:${local.main_region}:${local.account_id}:service/${local.project_name}/app",
+          "arn:aws:ecs:${local.main_region}:${local.account_id}:service/${local.project_name}/coupon",
           "arn:aws:ecs:${local.backup_region}:${local.account_id}:service/${local.project_name}/app",
+          "arn:aws:ecs:${local.backup_region}:${local.account_id}:service/${local.project_name}/coupon",
         ]
       },
       {

@@ -75,7 +75,7 @@ resource "aws_appautoscaling_scheduled_action" "event_start" {
 
   scalable_target_action {
     min_capacity = each.value.min
-    max_capacity = local.app_max_tasks
+    max_capacity = coalesce(each.value.max, local.app_max_tasks) # 쿠폰 서버를 켠 이벤트는 4(DB 연결 맞춤), 아니면 평소 8
   }
 }
 

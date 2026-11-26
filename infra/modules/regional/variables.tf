@@ -61,18 +61,24 @@ variable "db_pool_size" {
 }
 
 variable "scale_events" {
-  description = "시각을 아는 급증(쿠폰 오픈 등). start부터 end까지 앱 태스크 최소 수를 min으로 올림 (ADR-015). 시각은 한국 시간 YYYY-MM-DDThh:mm:ss, 끝난 이벤트는 지움"
+  description = "시각을 아는 급증(쿠폰 오픈 등). start부터 end까지 앱 태스크 최소 수를 min으로, max를 주면 최대도 바꿈 (ADR-015). 시각은 한국 시간 YYYY-MM-DDThh:mm:ss, 끝난 이벤트는 end가 지난 뒤 지움"
   type = list(object({
     name  = string
     start = string
     end   = string
     min   = number
+    max   = optional(number) # 쿠폰 서버를 켠 이벤트: 4로 낮춰 DB 연결을 맞춤(일반 4 × 6 + 쿠폰 4 × 6 = 48). 비우면 평소 최대 8
   }))
   default = []
 
   validation {
     condition     = alltrue([for e in var.scale_events : e.min >= 2 && e.min <= 4])
     error_message = "이벤트 최소 태스크 수는 평소 최소(2) 이상, 최대(4) 이하여야 합니다 (autoscaling.tf)."
+  }
+
+  validation {
+    condition     = alltrue([for e in var.scale_events : e.max == null ? true : e.max >= e.min && e.max <= 8])
+    error_message = "이벤트 최대 태스크 수는 그 이벤트의 최소 이상, 평소 최대(8) 이하여야 합니다 (autoscaling.tf)."
   }
 }
 

@@ -74,7 +74,12 @@ resource "aws_ecs_task_definition" "app" {
   execution_role_arn       = local.execution_role_arn
   task_role_arn            = local.task_role_arn
 
-  container_definitions = jsonencode([{
+  container_definitions = jsonencode([local.app_container])
+}
+
+# 앱 컨테이너 레시피. 쿠폰 서버(coupon_service)도 같은 것에 서비스 이름만 더해 씀
+locals {
+  app_container = {
     name         = "app"
     image        = local.image
     essential    = true
@@ -117,7 +122,23 @@ resource "aws_ecs_task_definition" "app" {
         "awslogs-stream-prefix" = "app"
       }
     }
-  }])
+  }
+}
+
+# 쿠폰 서버 레시피(coupon_service): 앱과 같고 서비스 이름만 coupon → 앱 1초 지표(HotelBooking/App)가 서비스별로 나뉨. 이미지는 CD가 바꿈
+# DB 연결도 앱과 같은 [5, 1]: 이벤트 때 일반 서버 최대 4(scale_events의 max) × 6 + 쿠폰 4 × 6 = 48 / 약 60 (회차 7에서 검증된 설정 그대로)
+resource "aws_ecs_task_definition" "coupon" {
+  count                    = var.coupon_service ? 1 : 0
+  family                   = "${local.name}-coupon"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = aws_ecs_task_definition.app.cpu
+  memory                   = aws_ecs_task_definition.app.memory
+  execution_role_arn       = local.execution_role_arn
+  task_role_arn            = local.task_role_arn
+  container_definitions = jsonencode([merge(local.app_container, {
+    environment = concat(local.app_container.environment, [{ name = "SERVICE_NAME", value = "coupon" }])
+  })])
 }
 
 # 스키마 태스크 레시피 (ADR-031 · ADR-044): 같은 이미지로 스키마 · 시드 · 앱 계정만 맞추고 끝남. CD가 앱 교체 전에 RunTask로 1번 실행
@@ -201,16 +222,17 @@ resource "aws_ecs_service" "app" {
   depends_on = [aws_lb_listener.https] # 대상 그룹이 리스너에 붙은 뒤에 서비스를 만들어야 함
 }
 
-# 격벽 실험(coupon_service): 쿠폰 발급만 받는 서버 2대(AZ마다 1대), 개수 고정. 레시피는 앱과 같음(Terraform 리비전 = apply 때 최신 이미지)
-# shortcut: 앱과 같은 태스크 정의라 DB 연결도 서버당 6개 → 앱 최대 8대 × 6 + 쿠폰 2대 × 6 = 60(max_connections 약 60).
-# CD는 app 서비스만 바꿈. 효과가 확인되면 쿠폰용 태스크 정의(연결 [2, 1])와 CD 반영으로 바꿀 것
+# 쿠폰 서버(coupon_service): 쿠폰 받기만 처리, 이벤트 날만 켬(평소 0대 · 비용 0). 쏠림 2 ~ 3초엔 자동 확장이 못 늘려 개수 고정(coupon_tasks)
+# 켤 때 순서: 대상 그룹(리스너 기본 동작에 가중치 0으로 붙음) → 이 서비스(정상이 될 때까지 기다림) → 경로 규칙. 끌 때는 거꾸로라 규칙이 먼저 빠짐
+# → 빈 서버로 요청이 가지 않음(503 없음). 이미지는 CD가 바꿈 (docs/experiments/migration.md 회차 6 · 7)
 resource "aws_ecs_service" "coupon" {
-  count           = var.coupon_service ? 1 : 0
-  name            = "coupon"
-  cluster         = aws_ecs_cluster.this.id
-  task_definition = aws_ecs_task_definition.app.arn
-  desired_count   = var.coupon_tasks
-  launch_type     = "FARGATE"
+  count                 = var.coupon_service ? 1 : 0
+  name                  = "coupon"
+  cluster               = aws_ecs_cluster.this.id
+  task_definition       = aws_ecs_task_definition.coupon[0].arn
+  desired_count         = var.coupon_tasks
+  launch_type           = "FARGATE"
+  wait_for_steady_state = true # 서버가 정상이 된 뒤에야 경로 규칙을 만듦
 
   network_configuration {
     subnets          = aws_subnet.app[*].id
@@ -233,5 +255,5 @@ resource "aws_ecs_service" "coupon" {
     ignore_changes = [task_definition]
   }
 
-  depends_on = [aws_lb_listener_rule.coupon_claim] # 대상 그룹이 경로 규칙에 붙은 뒤에
+  depends_on = [aws_lb_listener.https] # 대상 그룹이 리스너(기본 동작, 가중치 0)에 붙은 뒤에 만들어야 함
 }

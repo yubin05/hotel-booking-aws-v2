@@ -106,6 +106,7 @@
         "ecs:UpdateService",
         "ecs:DeleteService",
         "ecs:DescribeServices",
+        "ecs:*ServiceDeployments",
         "ecs:TagResource",
         "ecs:UntagResource",
         "ecs:ListTagsForResource"
