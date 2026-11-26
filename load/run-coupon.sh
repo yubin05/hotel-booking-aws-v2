@@ -62,7 +62,7 @@ id=66666666-0000-0000-0000-$(date -d "@$open" +%m%d%H%M)0000 # 회차마다 새 
 utc() { date -u -d "@$1" '+%F %T'; }
 coupon_title="쿠폰 오픈 시험 $t"
 if [ "$VIDEO_DEMO" = 1 ]; then
-  coupon_title="새벽 깜짝 할인"
+  coupon_title="깜짝 할인 이벤트"
   printf '촬영용 회차(실험 기록과 섞지 말 것)\nT=%s\n촬영 손님 오픈=%s\n쿠폰=%s\nk6=%s\n촬영 손님=1\nk6 기대 발급=%s\n' "$t" "$(date -d "@$((open - open_lead))" +%T)" "$COUPONS" "$CLAIMERS" "$expected_issued" >"$out/video-demo.txt"
 fi
 cat >"$out/coupon.sql" <<SQL
