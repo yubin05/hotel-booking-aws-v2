@@ -115,12 +115,40 @@ const dash = {
   templating: { list: [] }, annotations: { list: [] }, panels,
 };
 writeFileSync(new URL('./coupon-dashboard.json', import.meta.url), JSON.stringify(dash, null, 2));
-// OBS 우측 40%에 맞춘 별도 촬영 대시보드. 기존 공유 UID와 패널 ID는 유지한다.
-const videoTitles = ['초당 요청 수 (RPS · k6)', 'HTTP 503 (k6 관측 누적)', '쿠폰 서버 수 (ECS coupon)', '쿠폰·조회 응답 시간 (p95)'];
-const videoPanels = videoTitles.map((title, i) => {
-  const panel = panels.find((p) => p.title === title);
-  if (!panel) throw new Error(`촬영 패널 없음: ${title}`);
-  return { ...panel, gridPos: { x: 0, y: i * 6, w: 24, h: 6 } };
+// QHD OBS 우측 40% 전용: 그래프 13칸씩(390px), 오류 카드 4칸(120px).
+// 상세 관제 패널의 질의·ID를 유지하고 촬영용 화면만 짧은 제목/범례를 사용한다.
+const videoSpecs = [
+  { source: '초당 요청 수 (RPS · k6)', title: '초당 요청 수 (RPS)', description: 'k6 초당 요청 수', h: 13, legend: false, labels: ['요청'] },
+  { source: '쿠폰 서버 수 (ECS coupon)', title: '쿠폰 서버 수', description: '실행 중인 ECS 태스크 수(1분)', h: 13, legend: false, metric: 'RunningTaskCount', labels: ['실행 중'] },
+  { source: '쿠폰·조회 응답 시간 (p95)', title: '응답 시간 (p95)', description: '쿠폰 대기·숙소 조회 응답 시간', h: 13, legend: true, labels: ['쿠폰', '숙소 조회'] },
+  { source: 'HTTP 503 (k6 관측 누적)', title: 'HTTP 503 오류', description: 'k6 503 누적 관측. 미수집은 0건이 아님.', h: 4, labels: ['오류'] },
+];
+let videoY = 0;
+const videoPanels = videoSpecs.map((spec) => {
+  const source = panels.find((p) => p.title === spec.source);
+  if (!source) throw new Error(`촬영 패널 없음: ${spec.source}`);
+  const panel = structuredClone(source);
+  panel.title = spec.title;
+  panel.description = spec.description;
+  panel.gridPos = { x: 0, y: videoY, w: 24, h: spec.h };
+  videoY += spec.h;
+  if (spec.metric) panel.targets = panel.targets.filter((target) => target.metricName === spec.metric);
+  if (panel.targets.length !== spec.labels.length) throw new Error(`촬영 범례 불일치: ${spec.title}`);
+  panel.targets.forEach((target, i) => {
+    if ('legendFormat' in target) target.legendFormat = spec.labels[i];
+    if ('label' in target) target.label = spec.labels[i];
+  });
+  if (panel.type === 'timeseries') {
+    panel.options.legend.showLegend = spec.legend;
+  } else if (panel.type === 'stat') {
+    panel.fieldConfig.defaults = {
+      ...panel.fieldConfig.defaults,
+      noValue: 'No Data', color: { mode: 'thresholds' },
+      thresholds: { mode: 'absolute', steps: [{ color: 'green', value: null }, { color: 'red', value: 1 }] },
+    };
+    panel.options = { ...panel.options, colorMode: 'value', textMode: 'value' };
+  }
+  return panel;
 });
 const videoDash = {
   ...dash, title: 'Cloud Lab · 쿠폰 이벤트 촬영 관제', uid: 'cloudlab-coupon-video',
