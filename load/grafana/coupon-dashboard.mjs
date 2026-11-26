@@ -148,6 +148,7 @@ const videoPanels = videoSpecs.map((spec) => {
     if ('label' in target) target.label = spec.labels[i];
   });
   panel.options.legend.showLegend = spec.legend;
+  panel.fieldConfig.defaults.custom.lineInterpolation = 'linear';
   panel.description += ' 미수집 시 관측선은 표시하지 않음.';
   panel.fieldConfig.defaults.custom.axisSoftMax = spec.softMax;
   if (spec.noThreshold) {

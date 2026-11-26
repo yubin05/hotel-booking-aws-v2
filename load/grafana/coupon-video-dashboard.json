@@ -94,7 +94,7 @@
             "fillOpacity": 0,
             "showPoints": "never",
             "spanNulls": false,
-            "lineInterpolation": "stepAfter",
+            "lineInterpolation": "linear",
             "thresholdsStyle": {
               "mode": "off"
             },
@@ -241,7 +241,7 @@
             "fillOpacity": 0,
             "showPoints": "never",
             "spanNulls": false,
-            "lineInterpolation": "stepAfter",
+            "lineInterpolation": "linear",
             "thresholdsStyle": {
               "mode": "off"
             },
@@ -356,7 +356,7 @@
             "fillOpacity": 0,
             "showPoints": "never",
             "spanNulls": false,
-            "lineInterpolation": "stepAfter",
+            "lineInterpolation": "linear",
             "thresholdsStyle": {
               "mode": "off"
             },
