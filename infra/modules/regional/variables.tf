@@ -94,6 +94,12 @@ variable "coupon_service" {
   default     = false
 }
 
+variable "coupon_tasks" {
+  description = "쿠폰 서버 수(coupon_service일 때). 쏠림 2 ~ 3초 동안은 자동 확장이 못 늘리므로 T에 필요한 만큼 미리(회차 6: 2대는 503 705, 회차 5: 4대는 0)"
+  type        = number
+  default     = 2
+}
+
 variable "alb_access_logs" {
   description = "ALB 접근 로그를 bootstrap 버킷(<이름>-alb-logs-<계정>, 서울)에 남김. 진단하는 날 서울에서만"
   type        = bool

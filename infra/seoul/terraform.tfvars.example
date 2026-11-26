@@ -4,3 +4,4 @@
 # app_requests_target = 4800   # 늘리기 개선(ADR-074): CPU 기준에 요청 수 기준 추가(태스크 1대 1분 4,800건 = 초당 80건), 끝나면 지움
 # coupon_service = true    # 쿠폰 격벽 실험(11-26~): 발급만 받는 서버 2대 + ALB 경로 규칙, 끝나면 지움
 # alb_access_logs = true   # 진단하는 날: ALB 접근 로그 → bootstrap 버킷(7일 뒤 삭제), 끝나면 지움
+# coupon_tasks = 4        # 쿠폰 서버 수(기본 2). 3,000명 쏠림은 4, 끝나면 지움

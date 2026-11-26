@@ -35,3 +35,9 @@ variable "alb_access_logs" {
   type        = bool
   default     = false
 }
+
+variable "coupon_tasks" {
+  description = "쿠폰 서버 수(coupon_service = true일 때). 기본 2, 3,000명 쏠림은 4(회차 6 · 7)"
+  type        = number
+  default     = 2
+}
