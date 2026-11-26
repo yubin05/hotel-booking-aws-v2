@@ -109,7 +109,7 @@
       "id": 21,
       "type": "timeseries",
       "title": "서버 수",
-      "description": "일반 앱 + 쿠폰 서버의 실행 중인 ECS 태스크 수(1분 관측)",
+      "description": "일반·쿠폰 서버의 실행 중인 ECS 태스크 수(1분 관측)",
       "gridPos": {
         "x": 0,
         "y": 9,
@@ -122,6 +122,29 @@
       },
       "targets": [
         {
+          "refId": "A",
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${DS_CLOUDWATCH}"
+          },
+          "queryMode": "Metrics",
+          "region": "ap-northeast-2",
+          "namespace": "ECS/ContainerInsights",
+          "metricName": "RunningTaskCount",
+          "dimensions": {
+            "ClusterName": "hotel-booking-aws-v2",
+            "ServiceName": "app"
+          },
+          "statistic": "Average",
+          "period": "60",
+          "matchExact": true,
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "label": "일반 서버",
+          "id": "",
+          "expression": ""
+        },
+        {
           "refId": "B",
           "datasource": {
             "type": "cloudwatch",
@@ -129,12 +152,20 @@
           },
           "queryMode": "Metrics",
           "region": "ap-northeast-2",
-          "metricQueryType": 0,
-          "metricEditorMode": 1,
+          "namespace": "ECS/ContainerInsights",
+          "metricName": "RunningTaskCount",
+          "dimensions": {
+            "ClusterName": "hotel-booking-aws-v2",
+            "ServiceName": "coupon"
+          },
+          "statistic": "Average",
           "period": "60",
+          "matchExact": true,
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "label": "쿠폰 서버",
           "id": "",
-          "expression": "SUM(SEARCH('{ECS/ContainerInsights,ClusterName,ServiceName} MetricName=\"RunningTaskCount\" AND ClusterName=\"hotel-booking-aws-v2\" AND (ServiceName=\"app\" OR ServiceName=\"coupon\")', 'Average', 60))",
-          "label": "실행 중"
+          "expression": ""
         }
       ],
       "fieldConfig": {
@@ -167,7 +198,7 @@
         "legend": {
           "displayMode": "list",
           "placement": "bottom",
-          "showLegend": false
+          "showLegend": true
         },
         "tooltip": {
           "mode": "multi",
