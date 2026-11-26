@@ -14,6 +14,7 @@ module "regional" {
   app_requests_target = var.app_requests_target
 
   # 시각을 아는 급증(쿠폰 오픈 등)에 앱 태스크를 미리 늘려 둠 (ADR-015). 한국 시간, 끝난 이벤트는 지움
+  # end가 지난 뒤에 지울 것: 전에 지우면 최소를 되돌리는 예약도 사라져 최소 4가 남음(autoscaling.tf가 min · max를 ignore_changes, 11-26)
   # 준비까지 약 1분 반 + 예약 실행 지연(23~38초)이라 오픈 5분 전쯤 시작 (2026-11-16 시험)
   # 예: { name = "coupon-1120", start = "2026-11-20T19:55:00", end = "2026-11-20T20:30:00", min = 4 },
   scale_events = []
