@@ -42,8 +42,8 @@
     {
       "id": 8,
       "type": "timeseries",
-      "title": "접속 사용자 수 (k6)",
-      "description": "현재 k6 가상 사용자(VU) 수. 조회 부하 포함, 실제 접속자 수 아님.",
+      "title": "둘러보는 손님 수(추정)",
+      "description": "둘러보기 요청률 × 10초로 추정한 활성 손님 수. 실제 접속자 집계가 아님.",
       "gridPos": {
         "x": 0,
         "y": 0,
@@ -61,8 +61,8 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "max by (testid) (k6_vus)",
-          "legendFormat": "사용자",
+          "expr": "sum by (testid) (rate(k6_http_reqs_total{name=~\"browse|warm\"}[30s])) * 10",
+          "legendFormat": "손님",
           "range": true
         }
       ],
