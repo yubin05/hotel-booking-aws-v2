@@ -299,6 +299,7 @@ resource "aws_iam_service_linked_role" "service" {
     ecs_autoscaling = "ecs.application-autoscaling.amazonaws.com" # 오토스케일링: ECS 태스크 수 조절(예약 스케일링)
     ecr_replication = "replication.ecr.amazonaws.com"             # ECR: 레지스트리 복제 설정(서울 → 도쿄)
     vpc_origin      = "vpcorigin.cloudfront.amazonaws.com"        # CloudFront VPC Origin(global): Internal ALB로 가는 네트워크 카드 꽂기
+    elasticache     = "elasticache.amazonaws.com"                 # Valkey Serverless(ADR-080): 앱 서브넷에 연결점 꽂기. 11-26 새로 만듦
   }
   aws_service_name = each.value
 

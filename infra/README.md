@@ -36,7 +36,7 @@ bash scripts/up.sh load                     # 부하 시험 날: + legacy 권한
 
 ```bash
 cd /c/dev/hotel-booking-aws-v2/infra/seoul
-terraform plan                      # 51 to add, Multi-AZ면 53 (모듈: 관제 대시보드 · 오토스케일링 대상 · 목표 추적 2 · 비운 기본 보안 그룹 · 3단계 일회성 태스크 정의 restore · sql · dump 포함 + 통로 1, 예약 이벤트가 있으면 이벤트마다 +2. 11-25 v3 경보 3개 끔)
+terraform plan                      # 54 to add, Multi-AZ면 56 (11-26 Valkey 번호표 3 상시 포함, ADR-080. 쿠폰 서버 스위치를 켜면 +4. 모듈: 관제 대시보드 · 오토스케일링 대상 · 목표 추적 2 · 비운 기본 보안 그룹 · 3단계 일회성 태스크 정의 restore · sql · dump 포함 + 통로 1, 예약 이벤트가 있으면 이벤트마다 +2. 11-25 v3 경보 3개 끔)
 date; terraform apply; date         # 약 9분(Multi-AZ 약 16분). 이 동안 CloudFront가 서울 VPC에 보안 그룹을 만들어 둠
 
 # 새 RDS에 스키마 · app 계정 · 데이터를 넣는 migrate는 CD가 돌림. 안 돌리면 DB API가 500(Access denied for user 'app')
@@ -76,7 +76,7 @@ terraform plan -destroy             # 15 to destroy (사진 버킷 · 사진은 
 date; terraform destroy; date       # 약 4~5분 (CloudFront 끄고 지우기)
 
 cd ../seoul
-terraform plan -destroy             # 51 to destroy (restore · sql · dump 태스크 정의 · 관제 대시보드 · 요청 수 정책 포함, 11-25 v3 경보 3개 끔, 기본 보안 그룹은 state에서만 빠짐). Multi-AZ면 NAT · EIP +1쌍 = 53 (11-25)
+terraform plan -destroy             # 54 to destroy (Valkey 3 포함, restore · sql · dump 태스크 정의 · 관제 대시보드 · 요청 수 정책 포함, 11-25 v3 경보 3개 끔, 기본 보안 그룹은 state에서만 빠짐). Multi-AZ면 NAT · EIP +1쌍 = 56 (11-26)
 date; terraform destroy; date       # 약 9분 (통로 삭제를 기다려 예전보다 3~4분 김, 2026-11-16 9분 26초)
 ```
 
@@ -225,7 +225,7 @@ grep -q '^is_load_test' terraform.tfvars || echo 'is_load_test = true' >> terraf
 date; terraform apply; date   # 19개
 bash start-db.sh && bash start-app.sh yubin05/hotel-booking-aws-v2:<태그>
 cd /c/dev/hotel-booking-aws-v2/infra/seoul
-terraform plan                      # 51 to add, Multi-AZ면 53 (1번 매일 올리기와 같음)
+terraform plan                      # 54 to add, Multi-AZ면 56 (1번 매일 올리기와 같음)
 date; terraform apply; date
 cd ../global
 # k6 발생기 IP를 WAF 요청 수 한도에서만 뺌 (관리형 규칙은 그대로). 평소 apply에는 안 붙임
@@ -349,7 +349,7 @@ bash load/coupon-timing.sh load/results/<회차 폴더>   # 쿠폰 발급 시간
 # 태스크 종료 · 깨진 배포: 평소 서울. RDS · AZ: Multi-AZ로 (NAT 2 + RDS Multi-AZ, 시간당 비용이 늘어 그날만)
 cd /c/dev/hotel-booking-aws-v2/infra/seoul
 echo 'multi_az = true' >> terraform.tfvars   # 끝나면 이 줄을 지우고 apply(또는 destroy)
-terraform plan                             # 처음부터 53 to add, 이미 떠 있으면 NAT · EIP · 경로 추가 + RDS 1 to change
+terraform plan                             # 처음부터 56 to add, 이미 떠 있으면 NAT · EIP · 경로 추가 + RDS 1 to change
 date; terraform apply; date
 
 cd /c/dev/hotel-booking-aws-v2

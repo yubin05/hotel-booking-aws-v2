@@ -104,6 +104,9 @@ locals {
       { name = "MAIL_FROM", value = "no-reply@${local.zone_name}" },
       # 자기 리전 SES로 보냄. 서울이 죽으면 서울 SES도 못 쓴다고 보고 도쿄에도 신원을 따로 둠(SES 신원은 리전마다)
       { name = "SES_REGION", value = local.region },
+      ] : [], var.valkey ? [
+      # 쿠폰 수량 번호표(ADR-080). rediss = TLS(Serverless 필수), 앱이 클러스터 방식으로 붙음
+      { name = "REDIS_URL", value = "rediss://${aws_elasticache_serverless_cache.valkey[0].endpoint[0].address}:${aws_elasticache_serverless_cache.valkey[0].endpoint[0].port}" },
     ] : [])
 
     # 값이 아니라 금고 주소. ECS가 태스크를 띄울 때 꺼내 환경 변수로 넣음

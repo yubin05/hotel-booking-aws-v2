@@ -129,6 +129,43 @@
       "Resource": "arn:aws:route53:::healthcheck/*"
     },
     {
+      "Sid": "ValkeyServerlessCache",
+      "Effect": "Allow",
+      "Action": [
+        "elasticache:CreateServerlessCache",
+        "elasticache:DescribeServerlessCaches",
+        "elasticache:ModifyServerlessCache",
+        "elasticache:DeleteServerlessCache",
+        "elasticache:AddTagsToResource",
+        "elasticache:RemoveTagsFromResource",
+        "elasticache:ListTagsForResource"
+      ],
+      "Resource": "arn:aws:elasticache:ap-northeast-*:248563009287:serverlesscache:hotel-booking-aws-v2-*"
+    },
+    {
+      "Sid": "ValkeyVpcEndpoint",
+      "Effect": "Allow",
+      "Action": "ec2:CreateVpcEndpoint",
+      "Resource": "arn:aws:ec2:*:248563009287:vpc-endpoint/*",
+      "Condition": {
+        "StringLike": {
+          "ec2:VpceServiceName": "com.amazonaws.elasticache.serverless.*"
+        }
+      }
+    },
+    {
+      "Sid": "ValkeyVpcEndpointTag",
+      "Effect": "Allow",
+      "Action": "ec2:CreateTags",
+      "Resource": "arn:aws:ec2:*:248563009287:vpc-endpoint/*",
+      "Condition": {
+        "StringEquals": {
+          "ec2:CreateAction": "CreateVpcEndpoint",
+          "aws:RequestTag/AmazonElastiCacheManaged": "true"
+        }
+      }
+    },
+    {
       "Sid": "PassRdsEnhancedMonitoringRole",
       "Effect": "Allow",
       "Action": "iam:PassRole",
