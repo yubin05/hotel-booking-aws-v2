@@ -18,7 +18,7 @@ resource "aws_route53_health_check" "dr_check" {
 # Route 53 지표는 us-east-1에만 있어 경보도 여기(이 루트 기본 provider). 주제는 bootstrap(alerts.tf, us-east-1)
 resource "aws_cloudwatch_metric_alarm" "dr_alert" {
   alarm_name        = "${local.name}-dr-alert"
-  alarm_description = "손님 주소(${local.app_domain}/api/health/deep)가 서울 밖 검사에서 3분 연속 실패. 서울 리전 장애인지 확인하고 DR 선언 판단(ADR-079, drill/region.sh)"
+  alarm_description = "[ALARM이면] 손님 주소(${local.app_domain}/api/health/deep)가 서울 밖 검사에서 3분 연속 실패 → 선언 기준(ADR-079) 확인 후 drill/region.sh. [OK이면] 정상 · 회복(매일 올린 직후 OK 한 번 = 감시 켜짐)"
 
   namespace           = "AWS/Route53"
   metric_name         = "HealthCheckStatus" # 1 정상, 0 비정상
