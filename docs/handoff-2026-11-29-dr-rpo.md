@@ -1,5 +1,14 @@
 # 인수인계: 서울 실제 장애(DB까지) RPO 드릴 계획 (2026-11-29 일 13:00~, Claude)
 
+## 0. 지금 상태 (11-28 18:25 기준)
+- **인프라 전부 내림:** 서울 · global · 도쿄 state 0, EC2 · RDS · NAT 0. 남은 것은 상시 bootstrap뿐
+- tfvars(집 PC): 서울 `multi_az = true`만, 도쿄 `multi_az = true`(standby가 지움). 실험용 `rds_enhanced_monitoring` 줄은 지움 → Standby 관제가 필요하면 서울 · 도쿄에 다시 `rds_enhanced_monitoring = true`
+- 도쿄 장애 ① plan 기대값 **49 · 1 · 0**(Valkey 포함, [ADR-081](04-decisions.md#adr-081)), 보강 0 · 1 · 0, global 1 · 1 · 1, 빈 도쿄 destroy **56**
+- 저장소 main 최신(`afcaaa5`), 실측 원본은 PC `drill/results/region-20261128-*` + Drive `hotel-booking-results/20261128/drill-results/`
+- Codex 몫(포트폴리오 · Cloud Lab · Grafana 패널): [handoff-2026-11-28-portfolio.md](handoff-2026-11-28-portfolio.md) — 이 세션에서는 건드리지 않음
+- 사용자 확인 대기: Slack 스레드 끄기(`@Amazon Q preferences`) 결과, 11-28 learning-log 후보 3개(RTO 정의 · 복제본 붙은 RDS 중지 불가 · 경보 감지 6분 구성)
+- 사용자 주간 토큰이 11-28 밤 98% → **11-29 13:00 초기화 뒤 시작.** 회차 중간에 끊기면 도쿄 승격 · 서울 차단 상태로 남으니, 한 회차 끝까지 갈 여유를 보고 시작
+
 ## 배경 (11-28)
 - 최종 조건 3회: RTO 중앙 12분 37초(목표 15분, 장애 선언 기준) 충족 — [region-drill.md](experiments/region-drill.md), [ADR-082](04-decisions.md#adr-082)
 - **한계:** 장애 흉내가 서울 앱(ECS) 0대뿐이라 서울 DB는 살아 있었고 복제가 계속됨 → RPO 0.0초는 "선언 순간 `ReplicaLag`" 추정치. 부하도 초당 5건이라 지연이 0일 수밖에 없음
