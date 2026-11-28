@@ -24,7 +24,7 @@ module "regional" {
   coupon_tasks    = var.coupon_tasks
   alb_access_logs = var.alb_access_logs
 
-  # 쿠폰 수량 번호표 Valkey Serverless(ADR-080). 스위치 없이 서울과 같이 올리고 내림(켜 둔 동안 시간당 약 $0.01, 미확인). 도쿄는 꺼서 DB 경로
+  # 쿠폰 수량 번호표 Valkey Serverless(ADR-080). 스위치 없이 서울과 같이 올리고 내림(켜 둔 동안 시간당 약 $0.01, 미확인). 도쿄도 전환 때 같이(ADR-081)
   valkey = true
 
   # 시연용 호스트 · 관리자 계정 (ADR-060). SSM 파라미터 3개를 먼저 만들어야 migrate가 뜸 (런북 5-3)

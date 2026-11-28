@@ -131,7 +131,7 @@ variable "demo_accounts" {
 }
 
 variable "valkey" {
-  description = "쿠폰 수량 번호표용 ElastiCache Serverless for Valkey(ADR-080). 서울 스택과 같이 올리고 내림, 도쿄는 꺼서 DB 경로로"
+  description = "쿠폰 수량 번호표용 ElastiCache Serverless for Valkey(ADR-080). 서울 스택과 같이 올리고 내림, 도쿄도 전환 때 같이 만듦(ADR-081)"
   type        = bool
   default     = false
 }

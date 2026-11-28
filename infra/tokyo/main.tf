@@ -18,6 +18,12 @@ module "regional" {
 
   # 전환해도 결제 · 메일 · 카톡이 돼야 복구 (ADR-071). 키는 금고 도쿄 복제본, 메일은 도쿄 SES
   app_integrations = true
+  # 전환 뒤 도쿄 = 서울과 같은 구성 (ADR-081): 쿠폰 번호표 Valkey 상시(장애 ① apply에 +3), 쿠폰 서버 · 이벤트 대비 늘림은 서울과 같은 스위치
+  #   서울과 다른 것: DB Multi-AZ는 ② 보강에서(ADR-073), 시연 계정(demo_accounts)은 DB가 복제돼 불필요, ALB 접근 로그는 버킷이 서울에만
+  valkey         = var.valkey
+  coupon_service = var.coupon_service
+  coupon_tasks   = var.coupon_tasks
+  scale_events   = var.scale_events
   # v3 포인트 보류 경보는 꺼 둠(ADR-079): 전환 뒤에도 global의 DR 판단 알림(dr-alert)이 같은 주소(도쿄)를 봄. v3 때 v3_alarms = true(도쿄 주제 → 같은 Slack, ADR-073)
 }
 
