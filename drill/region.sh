@@ -97,7 +97,7 @@ stop() { # $1 결과 폴더 (drill/results/... 또는 results/...)
 }
 
 seoul_up() {
-  scale_app "$SEOUL" 2 4 2 # autoscaling.tf의 평소 범위
+  scale_app "$SEOUL" 2 8 2 # autoscaling.tf의 평소 범위 (ADR-078 최대 8)
   tfvar global active_region # 기본값(서울)
   echo "서울 앱 2 ~ 4로 되돌림, global terraform.tfvars를 서울로. global이 도쿄면: cd infra/global && terraform apply"
 }
@@ -248,10 +248,14 @@ SQL
 
   sleep 60
   mark end
+  mark human_wait_total_sec "$HUMAN" # 보강 · 되돌리기 plan 확인까지 합친 사람 대기
+  # DR 판단 알림(ADR-079)이 언제 ALARM · OK가 됐나 = 장애 감지 시각. Slack 도착 시각은 사용자가 화면에서 따로 적음
+  in_region us-east-1 cloudwatch describe-alarm-history --alarm-name "$CLUSTER-dr-alert" --history-item-type StateUpdate     --start-date "$(date -u -d "@$((t0 / 1000 - 300))" +%FT%TZ)" --output json >"$OUT/dr-alert-history.json" ||
+    echo "dr-alert 기록 조회 실패(관리자 세션 만료?) → 다시 로그인 뒤 같은 명령으로" >&2
   trap - ERR
   stop "$OUT"
   echo "결과: drill/$OUT/"
-  echo "다음: 도쿄 내리기 cd infra/tokyo && terraform destroy (56개). 다음 회차는 standby부터"
+  echo "다음: 도쿄 내리기 cd infra/tokyo && terraform destroy (53개, ADR-079). 다음 회차는 standby부터"
 }
 
 case "${1:-}" in
