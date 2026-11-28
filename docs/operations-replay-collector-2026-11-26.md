@@ -17,7 +17,7 @@ node scripts\collect-grafana-operations.cjs --minutes 60
 
 저장소가 다른 폴더에 있으면 `cd` 경로만 해당 경로로 변경합니다. Node.js 18+가 필요합니다. **AWS 로그인, 자격 증명, 환경변수, Terraform apply는 필요하지 않습니다.**
 
-명령을 실행한 시점을 종료점으로 최근 60분을 조회합니다. 더 길게 하려면 `--minutes 120` (최대 240)을 사용합니다. 공개 Grafana API에 읽기 전용 HTTP POST 요청만 수행하며, AWS 리소스를 켜거나 끄지 않습니다. CloudWatch/Logs Insights 백엔드 조회에 과금이나 쿼리 제한이 적용될 수 있으니 필요한 회차에만 실행합니다.
+명령을 실행한 시점을 종료점으로 최근 60분을 조회합니다. 더 길게 하려면 `--minutes 120` (최대 240)을 사용합니다. 지난 구간은 `--from 2026-11-28T14:00:00+09:00 --to 2026-11-28T16:00:00+09:00`처럼 절대 시각으로(5 ~ 240분, 리전 드릴 회차마다 standby 끝 ~ 되돌리기 끝). 공개 Grafana API에 읽기 전용 HTTP POST 요청만 수행하며, AWS 리소스를 켜거나 끄지 않습니다. CloudWatch/Logs Insights 백엔드 조회에 과금이나 쿼리 제한이 적용될 수 있으니 필요한 회차에만 실행합니다.
 
 ## 결과
 

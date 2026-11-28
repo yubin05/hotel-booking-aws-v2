@@ -6,9 +6,11 @@ const token="15c00b34bed84915a1169bff946af122";
 const base=host+"/api/public/dashboards/"+token;
 const args=process.argv.slice(2);
 const flag=(n,d)=>args.includes(n)?args[args.indexOf(n)+1]:d;
-const minutes=Number(flag("--minutes","60"));
-if(!Number.isInteger(minutes)||minutes<5||minutes>240)throw Error("--minutes 5..240");
-const end=Date.now(),start=end-minutes*60000;
+// --from/--to (ISO, 예: 2026-11-28T14:00:00+09:00): 드릴 회차 구간을 나중에 그대로 다시 뽑을 때. 없으면 지금부터 --minutes 전
+const from=flag("--from"),to=flag("--to");
+const end=to?Date.parse(to):Date.now(),start=from?Date.parse(from):end-Number(flag("--minutes","60"))*60000;
+const minutes=Math.round((end-start)/60000);
+if(!Number.isFinite(start)||!Number.isFinite(end)||minutes<5||minutes>240)throw Error("구간은 5 ~ 240분 (--minutes 또는 --from/--to ISO 시각)");
 const stamp=new Date(end).toISOString().replace(/[.:]/g,"-");
 const dest=path.resolve(flag("--out","load/results/grafana-operations-"+stamp));
 const request=async(url,options={})=>{
