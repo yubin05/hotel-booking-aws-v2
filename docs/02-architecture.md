@@ -171,7 +171,7 @@ terraform apply는 사람이 실행 (인프라 변경은 자동 적용하지 않
 
 ## 9. RTO·RPO 측정 방법
 
-목표(AZ 장애 10분, 리전 RTO 30분 · RPO 1분, [ADR-036](04-decisions.md#adr-036) 재설정 · [ADR-066](04-decisions.md#adr-066))는 Pilot Light 드릴 3회 실측으로 확정합니다. Backup & Restore 3회 시도(2026-11-21)에서 DB 복원이 7분 · 94분 넘게 미완료로 갈리고 RPO가 10분 5.6초여서 Pilot Light로 바꿨습니다([5단계 기록](experiments/region-drill.md)).
+목표(AZ 장애 10분, 리전 RTO 30분 · RPO 1분, [ADR-036](04-decisions.md#adr-036) 재설정 · [ADR-066](04-decisions.md#adr-066))는 Pilot Light 드릴 3회 실측으로 확정합니다. 2026-11-28 최종 조건 3회로 **리전 RTO 15분(장애 선언 기준)**으로 강화, 충족(중앙 12분 37초, [ADR-082](04-decisions.md#adr-082)). Backup & Restore 3회 시도(2026-11-21)에서 DB 복원이 7분 · 94분 넘게 미완료로 갈리고 RPO가 10분 5.6초여서 Pilot Light로 바꿨습니다([5단계 기록](experiments/region-drill.md)).
 
 - **RTO** = 장애 선언부터 검증을 통과하고 전환이 끝날 때까지. 단계마다 시각을 기록합니다.
 

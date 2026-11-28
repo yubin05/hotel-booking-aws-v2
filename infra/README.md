@@ -385,13 +385,15 @@ cd ../global && date; terraform apply; date
 # 2) 회차마다: 도쿄 대기 상태 → 드릴 → 도쿄 내리기
 #    관리자 세션은 콘솔에서 역할을 전환한 때부터 2시간(11-21 1 → 2시간). 회차마다 콘솔에서 역할을 새로 전환한 뒤 바로 로그인
 #    (같은 브라우저 세션으로 aws login만 다시 하면 끝나는 시각이 안 늘어남)
+#    한 회차(standby 21분 + run 약 50분 + destroy 9분)가 약 1시간 20분이라 3회 연속이면 회차마다 run 직전에 다시 전환 · 로그인
+#    (11-28: aws login이 자격 증명을 15분마다 갱신해도 역할 세션 2시간에서 끝남, 3회차 run 직전 만료)
 cd /c/dev/hotel-booking-aws-v2
 aws login --profile admin
 bash drill/region.sh standby  # 도쿄 7 to add(복제본 · VPC · DB 서브넷 2 · 보안 그룹 · 서브넷 그룹 · 설정표) → yes. 끝에 "available arn:..."
 bash drill/region.sh run      # 장애 선언 → 도쿄 plan(승격 + 나머지) → 확인 SQL → global plan → RTO
                               # → ② 보강(도쿄 DB Multi-AZ, RTO 밖) → 실제 사이트에서 예약해 보기 → Enter → 도쿄 멈춤 · 대조 · 덤프 이관 · 체크섬 → 서울 → global plan
-                              # plan이 기대값(도쿄 46 · 1 · 0, 보강 0 · 1 · 0, global 1 · 1 · 1)과 같으면 바로 apply, 다를 때만 yes를 물음
-cd infra/tokyo && date; terraform destroy; date; cd ../..   # 53개(11-25 요청 수 정책 +1 · v3 경보 -3 ADR-079, 11-24 55개, 11-22까지 50개, 9분 33초). 다음 회차는 standby부터
+                              # plan이 기대값(도쿄 49 · 1 · 0 = Valkey 포함 ADR-081, `valkey = false`면 46, 보강 0 · 1 · 0, global 1 · 1 · 1)과 같으면 바로 apply, 다를 때만 yes를 물음
+cd infra/tokyo && date; terraform destroy; date; cd ../..   # 56개(11-28 Valkey +3 ADR-081, 11-25 53개, 11-24 55개, 11-22까지 50개, 8분 34초 ~ 9분 33초). 다음 회차는 standby부터
 ```
 
 - **중간에 멈추면** 손님 측정기 · 도쿄 DB 상태 기록기는 계속 돕니다(11-21 시도 2 · 3은 같이 꺼져 RTO를 잃음). `region.sh`는 변수를 각 루트의 `terraform.tfvars`에 써 두므로(도쿄 `replica_source_arn`, global `active_region`) 손으로 이어 가도 같은 값이 쓰입니다. 남은 단계를 손으로 끝까지 한 뒤(예: `cd infra/tokyo && terraform apply` → global `terraform.tfvars`에 `active_region = "ap-northeast-1"` 확인 → `cd ../global && terraform apply`) `bash drill/region.sh stop drill/results/region-<시각>`으로 끝내면 보고서가 나옵니다. 서울로 되돌리려면 `bash drill/region.sh seoul-up`(global의 `active_region` 줄도 지움) → `cd infra/global && terraform apply`, 도쿄는 destroy.
