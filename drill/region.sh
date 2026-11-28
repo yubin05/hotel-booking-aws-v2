@@ -258,7 +258,7 @@ SQL
   trap - ERR
   stop "$OUT"
   echo "결과: drill/$OUT/"
-  echo "다음: 도쿄 내리기 cd infra/tokyo && terraform destroy (53개, ADR-079). 다음 회차는 standby부터"
+  echo "다음: 도쿄 내리기 cd infra/tokyo && terraform destroy (56개, Valkey 포함 ADR-081). 다음 회차는 standby부터"
 }
 
 case "${1:-}" in
